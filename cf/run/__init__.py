@@ -2,7 +2,4 @@
 
 from .run import CodeFusionCLI, main
 
-__all__ = [
-    "CodeFusionCLI",
-    "main"
-]
+__all__ = ["CodeFusionCLI", "main"]

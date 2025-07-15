@@ -1,10 +1,9 @@
 """Type definitions for CodeFusion."""
 
-from typing import Dict, List, Optional, Any, Union, Callable, Protocol, TypeVar
-from pathlib import Path
 from datetime import datetime
 from enum import Enum
-
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Protocol, TypeVar, Union
 
 # Basic types
 PathLike = Union[str, Path]
@@ -15,6 +14,7 @@ ConfigDict = Dict[str, Any]
 # Entity types
 class EntityType(str, Enum):
     """Types of code entities."""
+
     FILE = "file"
     DIRECTORY = "directory"
     CLASS = "class"
@@ -34,6 +34,7 @@ class EntityType(str, Enum):
 
 class RelationshipType(str, Enum):
     """Types of relationships between entities."""
+
     IMPORTS = "imports"
     CALLS = "calls"
     INHERITS = "inherits"
@@ -48,6 +49,7 @@ class RelationshipType(str, Enum):
 
 class LanguageType(str, Enum):
     """Supported programming languages."""
+
     PYTHON = "python"
     JAVASCRIPT = "javascript"
     TYPESCRIPT = "typescript"
@@ -74,6 +76,7 @@ class LanguageType(str, Enum):
 
 class ExplorationStrategy(str, Enum):
     """Available exploration strategies."""
+
     REACT = "react"
     PLAN_ACT = "plan_act"
     SENSE_ACT = "sense_act"
@@ -81,6 +84,7 @@ class ExplorationStrategy(str, Enum):
 
 class KnowledgeBaseType(str, Enum):
     """Types of knowledge base storage."""
+
     TEXT = "text"
     NEO4J = "neo4j"
     VECTOR = "vector"
@@ -88,8 +92,9 @@ class KnowledgeBaseType(str, Enum):
 
 class C4Level(str, Enum):
     """C4 architecture levels."""
+
     CONTEXT = "context"
-    CONTAINERS = "containers" 
+    CONTAINERS = "containers"
     COMPONENTS = "components"
     CODE = "code"
 
@@ -97,7 +102,7 @@ class C4Level(str, Enum):
 # Protocol definitions
 class Explorable(Protocol):
     """Protocol for objects that can be explored."""
-    
+
     def explore(self, strategy: ExplorationStrategy) -> JsonDict:
         """Explore using the given strategy."""
         ...
@@ -105,7 +110,7 @@ class Explorable(Protocol):
 
 class Queryable(Protocol):
     """Protocol for objects that can be queried."""
-    
+
     def query(self, query: str) -> List[Any]:
         """Execute a query and return results."""
         ...
@@ -113,11 +118,11 @@ class Queryable(Protocol):
 
 class Persistable(Protocol):
     """Protocol for objects that can be persisted."""
-    
+
     def save(self) -> None:
         """Save to persistent storage."""
         ...
-    
+
     def load(self) -> None:
         """Load from persistent storage."""
         ...
@@ -125,16 +130,14 @@ class Persistable(Protocol):
 
 class Traceable(Protocol):
     """Protocol for objects that can be traced."""
-    
+
     def trace(self, operation: str, **kwargs: Any) -> str:
         """Start tracing an operation."""
         ...
 
 
 # Generic types
-T = TypeVar('T')
-EntityT = TypeVar('EntityT', bound='CodeEntity')
-RelationshipT = TypeVar('RelationshipT', bound='CodeRelationship')
+T = TypeVar("T")
 
 
 # Callback types

@@ -1,12 +1,18 @@
 """Knowledge base module for CodeFusion."""
 
-from .knowledge_base import CodeKB, CodeEntity, CodeRelationship, C4Level, create_knowledge_base
+from .content_analyzer import AnalyzedAnswer, ContentAnalyzer
+from .knowledge_base import (
+    C4Level,
+    CodeEntity,
+    CodeKB,
+    CodeRelationship,
+    create_knowledge_base,
+)
 from .relationship_detector import RelationshipDetector
-from .content_analyzer import ContentAnalyzer, AnalyzedAnswer
 
 __all__ = [
     "CodeKB",
-    "CodeEntity", 
+    "CodeEntity",
     "CodeRelationship",
     "C4Level",
     "create_knowledge_base",
