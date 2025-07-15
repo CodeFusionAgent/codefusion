@@ -1,0 +1,111 @@
+site_name: CodeFusion Documentation
+site_description: A code understanding tool for rapid codebase exploration
+site_url: https://codefusionagent.github.io/codefusion/
+repo_url: https://github.com/CodeFusionAgent/codefusion
+repo_name: CodeFusionAgent/codefusion
+
+theme:
+  name: material
+  palette:
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+
+nav:
+  - Home: index.md
+  - Installation:
+    - Quick Start: installation/quickstart.md
+    - From Source: installation/from-source.md
+    - Setup Guide: installation/setup.md
+    - Dependencies: installation/dependencies.md
+  - Usage:
+    - CLI Commands: usage/cli.md
+    - Configuration: usage/configuration.md
+    - Examples: usage/examples.md
+  - Configuration:
+    - Overview: config/overview.md
+    - Settings Reference: config/reference.md
+    - Exploration Strategies: config/strategies.md
+  - Development:
+    - Contributing: dev/contributing.md
+    - Architecture: dev/architecture.md
+    - Workflow Diagrams: dev/workflow.md
+  - Reference:
+    - Python API: reference/api.md
+    - CLI Reference: reference/cli.md
+    - Configuration Schema: reference/config-schema.md
+
+plugins:
+  - search
+  - mermaid2:
+      arguments:
+        theme: auto
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_bases: true
+            show_inheritance_diagram: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - admonition
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/CodeFusionAgent/codefusion
+  analytics:
+    provider: google
+    property: G-XXXXXXXXXX  # Replace with actual GA property
+
+extra_css:
+  - assets/extra.css
+
+copyright: Copyright &copy; 2024 CodeFusion Team
