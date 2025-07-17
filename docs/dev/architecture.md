@@ -1,717 +1,502 @@
-# Architecture
+# CodeFusion ReAct Architecture
 
-This document provides a comprehensive overview of CodeFusion's architecture, design patterns, and core components based on the actual codebase structure.
+CodeFusion is built on a comprehensive ReAct (Reasoning + Acting) framework that enables intelligent, agent-based code exploration through systematic reasoning, tool usage, and observation.
 
-## High-Level Architecture
+## Design Philosophy
 
-CodeFusion follows a **kernel-based design** with clear separation of concerns, as shown in the main architecture diagram from the [Workflow](workflow.md):
+### Core Principles
+
+1. **ReAct Pattern**: Systematic Reason → Act → Observe loops for intelligent exploration
+2. **Multi-Agent Architecture**: Specialized agents for different aspects of code analysis
+3. **Tool-Rich Ecosystem**: Comprehensive tool set for repository exploration
+4. **LLM Integration**: Advanced reasoning and summarization through multiple LLM providers
+5. **Persistent Memory**: Caching and tracing across sessions for continuity
+
+### Key Features
+
+- ✅ **ReAct Loop Framework**: Proper reasoning-action-observation cycles
+- ✅ **Multi-Agent System**: Specialized agents for documentation, codebase, architecture, and supervision
+- ✅ **Advanced Caching**: Persistent cross-session caching with TTL and LRU eviction
+- ✅ **LLM Integration**: OpenAI, Anthropic, and LLaMA support via LiteLLM
+- ✅ **Comprehensive Tracing**: Performance monitoring and debugging capabilities
+- ✅ **Error Recovery**: Robust error handling with circuit breakers and recovery strategies
+- ✅ **Tool Validation**: Parameter and result validation with retry mechanisms
+
+## ReAct Architecture Overview
 
 ```mermaid
-%%{init: {'theme':'base', 'themeVariables': {
-    'primaryColor': '#ffffff',
-    'primaryTextColor': '#1a1a1a',
-    'primaryBorderColor': '#333333',
-    'lineColor': '#2d3748',
-    'secondaryColor': '#f7fafc',
-    'tertiaryColor': '#edf2f7',
-    'background': '#ffffff',
-    'mainBkg': '#ffffff',
-    'nodeBorder': '#2d3748',
-    'clusterBkg': '#f8fafc',
-    'clusterBorder': '#4a5568',
-    'edgeLabelBackground': '#ffffff',
-    'fontFamily': 'Arial, sans-serif',
-    'fontSize': '16px',
-    'nodeFontSize': '18px',
-    'edgeLabelFontSize': '14px'
-}}}%%
-
 graph TB
-    %% User Interfaces - Larger nodes with more padding
-    CLI["<b>🖥️ CLI Interface</b><br/><br/>cf/run/run.py<br/>cf/__main__.py<br/><br/>Entry Point for<br/>User Commands"]
-    WEB["<b>🌐 Web Interface</b><br/><br/>(Future Enhancement)<br/><br/>Browser-based<br/>Visual Exploration"]
-    
-    %% CodeFusion Agentic Kernel (Main Container)
-    subgraph KERNEL ["<b>🧠 CodeFusion Agentic Kernel</b>"]
-        direction TB
-        
-        %% Core Agentic Components Row
-        subgraph CORE_ROW ["<b>Core Agentic Components</b>"]
-            direction LR
-            EXPLORATION["<b>🤖 Agentic Exploration</b><br/><br/>cf/agents/<br/><br/>• ReAct Strategy<br/>• Plan-then-Act<br/>• Sense-then-Act<br/><br/>Multi-strategy reasoning<br/>and code exploration"]
-            INDEXING["<b>📑 Code Indexing</b><br/><br/>cf/indexer/<br/><br/>• File Processing<br/>• Entity Extraction<br/>• Batch Operations<br/><br/>Repository processing<br/>and analysis"]
-        end
-        
-        %% Knowledge Graph System
-        subgraph CKG ["<b>📊 Code Knowledge Graph - cf/kb/</b>"]
-            direction LR
-            VDB["<b>🔍 Vector Database</b><br/><br/>FAISS + Embeddings<br/>vector_kb.py<br/><br/>Semantic similarity<br/>search and retrieval"]
-            ENTITIES["<b>📝 Code Entities</b><br/><br/>JSON Storage<br/>knowledge_base.py<br/><br/>Files, classes, functions<br/>with metadata"]
-            RELATIONS["<b>🔗 Relationships</b><br/><br/>AST Analysis<br/>relationship_detector.py<br/><br/>Dependencies, calls,<br/>inheritance patterns"]
-        end
-        
-        %% LLM and Analysis Row
-        subgraph LLM_ROW ["<b>Language Model & Analysis</b>"]
-            direction LR
-            LLM["<b>🧠 LLM Proxy</b><br/><br/>cf/llm/llm_model.py<br/><br/>• Multi-Provider Support<br/>• LiteLLM Integration<br/><br/>OpenAI, Anthropic,<br/>local models"]
-            ANALYZER["<b>🔬 Content Analyzer</b><br/><br/>cf/kb/content_analyzer.py<br/><br/>• Question Answering<br/>• Context Enrichment<br/><br/>Intelligent code<br/>understanding"]
-        end
-        
-        %% Support Systems Row
-        subgraph SUPPORT_ROW ["<b>Support Systems</b>"]
-            direction LR
-            CONFIG["<b>⚙️ Configuration</b><br/><br/>cf/config.py<br/><br/>• YAML/JSON Support<br/>• Environment Override<br/><br/>System configuration<br/>management"]
-            TYPES["<b>📋 Type System</b><br/><br/>cf/types.py<br/><br/>• Entity Types<br/>• Relationship Types<br/><br/>Comprehensive type<br/>definitions"]
-            EXCEPTIONS["<b>⚠️ Exception Handling</b><br/><br/>cf/exceptions.py<br/><br/>• Error Hierarchy<br/>• Graceful Recovery<br/><br/>Robust error<br/>management"]
-        end
-        
-        %% Internal Kernel Connections with proper spacing
-        EXPLORATION -.->|"<b>queries</b>"| CKG
-        INDEXING -.->|"<b>populates</b>"| CKG
-        EXPLORATION -.->|"<b>reasoning</b>"| LLM
-        LLM -.->|"<b>responses</b>"| ANALYZER
-        ANALYZER -.->|"<b>enriched context</b>"| CKG
-        CONFIG -.->|"<b>configures</b>"| EXPLORATION
-        CONFIG -.->|"<b>configures</b>"| LLM
-        ENTITIES -.->|"<b>linked to</b>"| RELATIONS
-        VDB -.->|"<b>semantic search</b>"| ENTITIES
+    %% User Interface Layer
+    subgraph UI ["🖥️ User Interface"]
+        CLI[CLI Interface<br/>simple_run.py]
+        ANALYZE[analyze command]
+        EXPLORE[explore command]
+        CONTINUE[continue command]
     end
     
-    %% Agent Computer Interface
-    subgraph ACI ["<b>🔌 Agent Computer Interface - cf/aci/</b>"]
-        direction TB
-        
-        subgraph ACI_TOP ["<b>Repository & Environment Management</b>"]
-            direction LR
-            REPO["<b>📁 Repository Access</b><br/><br/>repo.py<br/><br/>• LocalCodeRepo<br/>• RemoteCodeRepo<br/><br/>File system abstraction<br/>and repository handling"]
-            ENVMGR["<b>🌍 Environment Manager</b><br/><br/>environment_manager.py<br/><br/>• System State<br/>• Resource Management<br/><br/>Environment context<br/>and search capabilities"]
-        end
-        
-        subgraph ACI_BOTTOM ["<b>System Access & Analysis</b>"]
-            direction LR
-            SYSACCESS["<b>🖥️ System Access</b><br/><br/>system_access.py<br/><br/>• Environment Variables<br/>• Command Execution<br/><br/>System interface<br/>and control"]
-            CODEINSP["<b>🔬 Code Inspector</b><br/><br/>code_inspector.py<br/><br/>• AST Analysis<br/>• Pattern Detection<br/><br/>Code structure<br/>analysis"]
-        end
+    %% ReAct Agent Layer
+    subgraph REACT ["🤖 ReAct Agent Framework"]
+        SUPERVISOR[ReAct Supervisor Agent<br/>Orchestration & Coordination]
+        DOC_AGENT[ReAct Documentation Agent<br/>README, Docs Analysis]
+        CODE_AGENT[ReAct Codebase Agent<br/>Source Code Analysis]
+        ARCH_AGENT[ReAct Architecture Agent<br/>System Design Analysis]
     end
     
-    %% External Sources
-    subgraph EXTERNAL ["<b>🌐 External Sources</b>"]
-        direction LR
-        GITHUB["<b>📦 GitHub</b><br/><br/>Remote Repositories<br/><br/>Git-based repository<br/>access and cloning"]
-        REMOTE["<b>☁️ Cloud Storage</b><br/><br/>Remote Archives<br/><br/>Cloud-based repository<br/>and file access"] 
-        LOCAL["<b>💽 Local Filesystem</b><br/><br/>Directory Access<br/><br/>Local file and<br/>directory operations"]
+    %% Core ReAct Infrastructure
+    subgraph CORE ["⚙️ ReAct Core Infrastructure"]
+        REACT_BASE[ReAct Base Agent<br/>react_agent.py]
+        REACT_CONFIG[ReAct Configuration<br/>react_config.py]
+        REACT_TRACE[ReAct Tracing<br/>react_tracing.py]
+        REACT_CACHE[ReAct Cache<br/>Persistent Storage]
     end
     
-    %% Main Flow Connections with better arrow paths
-    CLI ==>|"<b>user commands</b>"| KERNEL
-    WEB -.->|"<b>future web UI</b>"| KERNEL
+    %% Tool Ecosystem
+    subgraph TOOLS ["🔧 Tool Ecosystem"]
+        SCAN[Directory Scanning]
+        LIST[File Listing]
+        READ[File Reading]
+        SEARCH[Pattern Searching]
+        ANALYZE_CODE[Code Analysis]
+        LLM_REASON[LLM Reasoning]
+        LLM_SUMMARY[LLM Summarization]
+        CACHE_OPS[Cache Operations]
+    end
     
-    KERNEL <==>|"<b>system interface</b>"| ACI
+    %% LLM Integration
+    subgraph LLM ["🧠 LLM Integration"]
+        REAL_LLM[Real LLM Interface<br/>LiteLLM Provider]
+        OPENAI[OpenAI<br/>GPT-3.5/4]
+        ANTHROPIC[Anthropic<br/>Claude 3]
+        LLAMA[LLaMA<br/>Together AI/Replicate/Ollama]
+        SIMPLE_LLM[Fallback LLM<br/>Simple Implementation]
+    end
     
-    %% ACI to External connections
-    REPO ==>|"<b>clone/fetch</b>"| GITHUB
-    REPO ==>|"<b>download</b>"| REMOTE
-    REPO ==>|"<b>read files</b>"| LOCAL
+    %% Repository Interface
+    subgraph REPO ["📁 Repository Interface"]
+        CODE_REPO[CodeRepo Interface]
+        LOCAL_REPO[Local Repository]
+        REMOTE_REPO[Remote Repository]
+    end
     
-    %% Detailed Internal Flows with cleaner paths
-    REPO ==>|"<b>file content</b>"| INDEXING
-    ENVMGR ==>|"<b>context</b>"| EXPLORATION
-    CODEINSP ==>|"<b>analysis</b>"| CKG
-    SYSACCESS ==>|"<b>env vars</b>"| CONFIG
+    %% Data Persistence
+    subgraph PERSIST ["💾 Data Persistence"]
+        CACHE_FILES[Cache Files<br/>JSON Storage]
+        TRACE_FILES[Trace Files<br/>Session Logs]
+        CONFIG_FILES[Configuration<br/>Environment Variables]
+    end
     
-    %% High Contrast Professional Color Styling
-    classDef userInterface fill:#1e40af,stroke:#1e3a8a,stroke-width:3px,color:#ffffff
-    classDef kernel fill:#7c3aed,stroke:#6d28d9,stroke-width:4px,color:#ffffff
-    classDef coreComponent fill:#dc2626,stroke:#b91c1c,stroke-width:3px,color:#ffffff
-    classDef knowledge fill:#059669,stroke:#047857,stroke-width:3px,color:#ffffff
-    classDef external fill:#d97706,stroke:#b45309,stroke-width:3px,color:#ffffff
-    classDef aci fill:#0284c7,stroke:#0369a1,stroke-width:3px,color:#ffffff
-    classDef support fill:#4338ca,stroke:#3730a3,stroke-width:3px,color:#ffffff
-    classDef invisible fill:transparent,stroke:transparent
+    %% User Interactions
+    CLI --> SUPERVISOR
+    ANALYZE --> SUPERVISOR
+    EXPLORE --> DOC_AGENT
+    CONTINUE --> CODE_AGENT
     
-    class CLI,WEB userInterface
-    class KERNEL kernel
-    class EXPLORATION,INDEXING,LLM,ANALYZER coreComponent
-    class CKG,VDB,ENTITIES,RELATIONS knowledge
-    class GITHUB,REMOTE,LOCAL external
-    class ACI,REPO,SYSACCESS,ENVMGR,CODEINSP aci
-    class CONFIG,TYPES,EXCEPTIONS support
-    class CORE_ROW,LLM_ROW,SUPPORT_ROW,ACI_TOP,ACI_BOTTOM,EXTERNAL invisible
+    %% Agent Coordination
+    SUPERVISOR --> DOC_AGENT
+    SUPERVISOR --> CODE_AGENT
+    SUPERVISOR --> ARCH_AGENT
+    
+    %% Core Infrastructure
+    DOC_AGENT --> REACT_BASE
+    CODE_AGENT --> REACT_BASE
+    ARCH_AGENT --> REACT_BASE
+    SUPERVISOR --> REACT_BASE
+    
+    REACT_BASE --> REACT_CONFIG
+    REACT_BASE --> REACT_TRACE
+    REACT_BASE --> REACT_CACHE
+    
+    %% Tool Usage
+    REACT_BASE --> TOOLS
+    TOOLS --> REPO
+    
+    %% LLM Integration
+    TOOLS --> REAL_LLM
+    REAL_LLM --> OPENAI
+    REAL_LLM --> ANTHROPIC
+    REAL_LLM --> LLAMA
+    REAL_LLM -.-> SIMPLE_LLM
+    
+    %% Repository Access
+    CODE_REPO --> LOCAL_REPO
+    CODE_REPO --> REMOTE_REPO
+    
+    %% Persistence
+    REACT_CACHE --> CACHE_FILES
+    REACT_TRACE --> TRACE_FILES
+    REACT_CONFIG --> CONFIG_FILES
+    
+    %% Styling
+    classDef ui fill:#3b4d66,stroke:#2d3748,stroke-width:2px,color:#f7fafc
+    classDef react fill:#553c6b,stroke:#44337a,stroke-width:3px,color:#f7fafc
+    classDef core fill:#2d5a3d,stroke:#1a4d2e,stroke-width:2px,color:#f7fafc
+    classDef tools fill:#744e3a,stroke:#5a3a2a,stroke-width:2px,color:#f7fafc
+    classDef llm fill:#8b5a3c,stroke:#6b4423,stroke-width:2px,color:#f7fafc
+    classDef repo fill:#2c5282,stroke:#1a365d,stroke-width:2px,color:#f7fafc
+    classDef persist fill:#4a5568,stroke:#2d3748,stroke-width:2px,color:#f7fafc
+    
+    class UI,CLI,ANALYZE,EXPLORE,CONTINUE ui
+    class REACT,SUPERVISOR,DOC_AGENT,CODE_AGENT,ARCH_AGENT react
+    class CORE,REACT_BASE,REACT_CONFIG,REACT_TRACE,REACT_CACHE core
+    class TOOLS,SCAN,LIST,READ,SEARCH,ANALYZE_CODE,LLM_REASON,LLM_SUMMARY,CACHE_OPS tools
+    class LLM,REAL_LLM,OPENAI,ANTHROPIC,LLAMA,SIMPLE_LLM llm
+    class REPO,CODE_REPO,LOCAL_REPO,REMOTE_REPO repo
+    class PERSIST,CACHE_FILES,TRACE_FILES,CONFIG_FILES persist
 ```
 
-## Core Components
+## ReAct Framework Components
 
-Based on the actual codebase structure, CodeFusion is organized into the following main components:
+### 1. ReAct Base Agent (`cf/core/react_agent.py`)
 
-### 1. CLI Interface (`cf/run/` and `cf/__main__.py`)
+**Core ReAct implementation** providing the foundation for all specialized agents.
 
-The command-line interface provides user interaction and orchestrates the entire system.
+**Key Features**:
+- **ReAct Loop**: Complete Reason → Act → Observe cycle implementation
+- **Tool Ecosystem**: 8 different action types with comprehensive tooling
+- **Error Handling**: Circuit breakers, retry logic, and recovery strategies
+- **Caching**: Persistent caching with TTL and LRU eviction
+- **Validation**: Parameter and result validation for all tools
+- **Tracing**: Comprehensive execution tracing and performance monitoring
 
-**Key Files:**
-- `cf/__main__.py`: CLI entry point for `python -m cf`
-- `cf/run/run.py`: Main CLI implementation with command routing
-- `cf/run/explore_single_repo.py`: Single repository exploration
-- `cf/run/explore_batch_repo.py`: Batch repository processing
-- `cf/run/setup_neo4j.py`: Neo4j setup utilities
-
-**CLI Commands:**
-- `cf index <repo_path>`: Index a repository
-- `cf query "<question>"`: Query the knowledge base
-- `cf explore <repo_path>`: Full exploration workflow
-- `cf stats`: Show knowledge base statistics
-- `cf demo <repo_path>`: Run demonstration
-
-### 2. Agent Computer Interface (`cf/aci/`)
-
-The ACI layer provides the interface between agents and computer systems.
-
-**Key Components:**
-- `cf/aci/repo.py`: Repository abstractions (LocalCodeRepo, RemoteCodeRepo)
-- `cf/aci/environment_manager.py`: Environment and system management
-- `cf/aci/system_access.py`: System access utilities and environment variables
-- `cf/aci/code_inspector.py`: Code analysis and inspection tools
-- `cf/aci/computer_interface.py`: System interface layer
-
-**Responsibilities:**
-- Repository access and abstraction
-- Environment variable management
-- System command execution
-- File system operations
-- Code structure analysis
-
-### 3. Agentic Exploration (`cf/agents/`)
-
-Multi-strategy code exploration using different reasoning approaches.
-
-**Exploration Strategies:**
-- `cf/agents/reasoning_agent.py`: **ReAct** (Reasoning + Acting) strategy
-- `cf/agents/plan_then_act.py`: **Plan-then-Act** systematic strategy
-- `cf/agents/sense_then_act.py`: **Sense-then-Act** adaptive strategy
-
-**Strategy Features:**
-- ReAct: Fast, iterative exploration with reasoning loops
-- Plan-Act: Systematic planning followed by execution
-- Sense-Act: Environmental sensing with adaptive responses
-
-### 4. Knowledge Base (`cf/kb/`)
-
-Pluggable storage backends for code knowledge and relationships.
-
-**Key Components:**
-- `cf/kb/knowledge_base.py`: Core knowledge base implementation
-- `cf/kb/vector_kb.py`: Vector database backend using FAISS
-- `cf/kb/content_analyzer.py`: Content analysis and question answering
-- `cf/kb/relationship_detector.py`: Code relationship detection
-
-**Storage Types:**
-- **Vector Database**: FAISS-based semantic similarity search
-- **Neo4j Graph**: Graph database for complex relationships (optional)
-- **Text Storage**: Simple JSON-based storage for entities/relationships
-
-**Knowledge Representation:**
-- **Entities**: Files, classes, functions, variables with metadata
-- **Relationships**: Import dependencies, function calls, inheritance
-- **Embeddings**: Semantic vectors for similarity search
-
-### 5. LLM Integration (`cf/llm/`)
-
-Abstraction layer for language model providers.
-
-**Key Components:**
-- `cf/llm/llm_model.py`: LLM abstraction layer
-
-**Features:**
-- Multi-provider support via LiteLLM
-- OpenAI, Anthropic, Cohere, local models
-- Token usage tracking
-- Response caching
-- Rate limiting and retry logic
-
-### 6. Code Indexing (`cf/indexer/`)
-
-Repository processing and analysis.
-
-**Key Components:**
-- `cf/indexer/code_indexer.py`: Main repository indexing orchestrator
-
-**Capabilities:**
-- File system traversal with filtering
-- Code entity extraction
-- Relationship detection
-- Batch processing
-- Progress tracking
-
-## Core Supporting Components
-
-### 7. Configuration Management (`cf/config.py`)
-
-Centralized configuration system supporting multiple formats and sources.
-
-**Key Features:**
-- YAML and JSON configuration file support
-- Environment variable override capability
-- Configuration validation and type checking
-- Hierarchical configuration loading
-
-### 8. Type System (`cf/types.py`)
-
-Comprehensive type definitions for the entire system.
-
-**Key Type Definitions:**
-- `EntityType`: File, class, function, variable, import, comment types
-- `RelationshipType`: Import, call, inherit, use, contain relationships
-- `LanguageType`: Python, JavaScript, TypeScript, Java, etc.
-- `ExplorationStrategy`: react, plan_act, sense_act strategies
-- `KnowledgeBaseType`: text, vector, neo4j storage types
-
-### 9. Exception Handling (`cf/exceptions.py`)
-
-Custom exception hierarchy for robust error management.
-
-**Exception Categories:**
-- Configuration errors
-- Repository access errors
-- Knowledge base operation errors
-- LLM provider errors
-- System access errors
-
-## Design Principles
-
-### 1. Kernel-Based Architecture
-
-CodeFusion follows a **kernel-based design** where all core functionality is contained within the "CodeFusion Agentic Kernel" that coordinates:
-
-- **Agentic exploration** strategies
-- **Knowledge base** management
-- **LLM integration** with multiple providers
-- **Configuration** and **type management**
-
-### 2. Agent Computer Interface (ACI)
-
-The ACI provides a clean abstraction layer between AI agents and computer systems:
-
-- **Repository abstraction**: Local and remote repository access
-- **System interface**: Environment variables, file operations
-- **Code inspection**: AST-based analysis and pattern detection
-- **Environment management**: Search capabilities and resource management
-
-### 3. Multi-Strategy Exploration
-
-Three distinct exploration strategies for different use cases:
-
-- **ReAct**: Fast iterative reasoning and acting for general exploration
-- **Plan-then-Act**: Systematic planning for thorough analysis
-- **Sense-then-Act**: Adaptive sensing for complex codebases
-
-### 4. Pluggable Storage Backends
-
-Support for multiple knowledge base types:
-
-- **Vector Database**: FAISS-based semantic similarity search
-- **Neo4j Graph**: Complex relationship analysis (optional)
-- **Text Storage**: Simple JSON-based storage for minimal dependencies
-
-### 5. Configuration-Driven Behavior
-
-All system behavior controlled through YAML configuration:
-
-```yaml
-# Example: Complete configuration
-llm_model: "gpt-4o"
-kb_type: "vector"
-exploration_strategy: "react"
-max_exploration_depth: 5
-embedding_model: "all-MiniLM-L6-v2"
-```
-
-## Data Flow and Workflows
-
-CodeFusion follows two main workflow patterns as detailed in the [Workflow Diagrams](workflow.md):
-
-### 1. Repository Exploration and Indexing Workflow
-
-The indexing workflow involves systematic repository processing:
-
-1. **Configuration Loading**: System loads user settings and preferences from `config/default/config.yaml`
-2. **Repository Access**: `cf/aci/repo.py` scans and analyzes repository structure
-3. **Knowledge Base Setup**: `cf/kb/knowledge_base.py` initializes storage layer (Neo4j or Vector DB)
-4. **Content Analysis**: `cf/indexer/code_indexer.py` extracts code entities and relationships
-5. **Persistent Storage**: Saves structured knowledge in JSON files and FAISS indexes
-
-**Key Files Involved:**
-- `cf/run/run.py`: CLI command orchestration
-- `cf/aci/repo.py`: Repository abstraction and file access
-- `cf/indexer/code_indexer.py`: Main indexing logic
-- `cf/kb/knowledge_base.py`: Storage coordination
-- `cf/kb/vector_kb.py`: Vector database operations
-
-### 2. Query Processing Workflow
-
-The query workflow handles natural language questions:
-
-1. **Query Analysis**: `cf/agents/` strategies process natural language questions
-2. **Multi-Strategy Search**: Uses vector similarity (`cf/kb/vector_kb.py`) and relationship traversal
-3. **Context Enrichment**: `cf/kb/content_analyzer.py` gathers related entities and relationships
-4. **LLM Integration**: `cf/llm/llm_model.py` generates comprehensive answers with context
-5. **Response Delivery**: Returns structured answers with supporting evidence
-
-**Key Files Involved:**
-- `cf/run/run.py`: Query command handling
-- `cf/agents/reasoning_agent.py`: ReAct strategy implementation
-- `cf/kb/content_analyzer.py`: Question answering logic
-- `cf/llm/llm_model.py`: LLM provider abstraction
-- `cf/kb/relationship_detector.py`: Context enrichment
-
-## Component Details
-
-### CLI Layer (`cf/run/` and `cf/__main__.py`)
-
-The CLI layer uses a modular command architecture:
-
-**Main Entry Points:**
-- `cf/__main__.py`: Primary CLI entry point for `python -m cf`
-- `cf/run/run.py`: Main command implementation and routing
-- `cf/run/explore_single_repo.py`: Single repository exploration workflow
-- `cf/run/explore_batch_repo.py`: Batch processing for multiple repositories
-
-**Command Structure:**
+**Abstract Methods** (implemented by specialized agents):
 ```python
-# From cf/run/run.py
-def main():
-    """Main CLI entry point with command routing"""
-    parser = create_argument_parser()
-    args = parser.parse_args()
-    
-    # Route to appropriate command handler
-    if args.command == "index":
-        return handle_index_command(args)
-    elif args.command == "query":
-        return handle_query_command(args)
-    # ... other commands
+def reason(self) -> str: 
+    """Reasoning phase: Think about what to do next"""
+
+def plan_action(self, reasoning: str) -> ReActAction:
+    """Plan the next action based on reasoning"""
+
+def _generate_summary(self) -> str:
+    """Generate a summary of the agent's work"""
 ```
 
-**Key Features:**
-- Argument parsing with `argparse`
-- Configuration loading from YAML files
-- Progress reporting and user feedback
-- Error handling and graceful failures
+**Available Tools**:
+- `SCAN_DIRECTORY` - Recursive directory exploration
+- `LIST_FILES` - File listing with pattern matching
+- `READ_FILE` - File content reading with limits
+- `SEARCH_FILES` - Pattern searching across files
+- `ANALYZE_CODE` - Code structure analysis
+- `LLM_REASONING` - AI-powered reasoning
+- `LLM_SUMMARY` - AI-powered summarization
+- `CACHE_LOOKUP/STORE` - Cache operations
 
-### ACI Layer (`cf/aci/`)
+### 2. Specialized ReAct Agents
 
-The Agent Computer Interface provides system abstraction:
+#### Documentation Agent (`cf/agents/react_documentation_agent.py`)
+- **Purpose**: Analyze README files, documentation, and guides
+- **Specialization**: Markdown parsing, documentation structure analysis
+- **Tools**: Focus on document discovery and content analysis
 
-**Repository Abstraction (`cf/aci/repo.py`):**
-```python
-class LocalCodeRepo:
-    """Local repository access and file operations"""
-    def get_file_content(self, file_path: str) -> str
-    def list_files(self, pattern: str = None) -> List[str]
-    def get_repository_structure(self) -> Dict
+#### Codebase Agent (`cf/agents/react_codebase_agent.py`)
+- **Purpose**: Analyze source code, classes, functions, and patterns
+- **Specialization**: Code entity extraction, complexity analysis, dependency mapping
+- **Tools**: Language-specific parsing and code pattern detection
+
+#### Architecture Agent (`cf/agents/react_architecture_agent.py`)
+- **Purpose**: Understand system design, components, and architectural patterns
+- **Specialization**: Component identification, pattern detection, design analysis
+- **Tools**: System-level analysis and architectural insight generation
+
+#### Supervisor Agent (`cf/agents/react_supervisor_agent.py`)
+- **Purpose**: Orchestrate multiple agents and synthesize insights
+- **Specialization**: Multi-agent coordination and cross-agent insight synthesis
+- **Tools**: Agent management and result aggregation
+
+### 3. LLM Integration (`cf/llm/`)
+
+**Real LLM Interface** (`cf/llm/real_llm.py`):
+- **LiteLLM Integration**: Unified interface for multiple providers
+- **Supported Providers**:
+  - **OpenAI**: GPT-3.5-turbo, GPT-4
+  - **Anthropic**: Claude 3 Sonnet, Claude 3 Opus
+  - **LLaMA**: Via Together AI, Replicate, Ollama
+- **Response Parsing**: Robust JSON and text parsing with fallbacks
+- **Error Handling**: Graceful degradation to Simple LLM
+
+**Configuration Options**:
+```bash
+# OpenAI
+CF_LLM_MODEL=gpt-4
+CF_LLM_API_KEY=your-openai-key
+
+# Anthropic
+CF_LLM_MODEL=claude-3-sonnet-20240229
+CF_LLM_API_KEY=your-anthropic-key
+
+# LLaMA via Together AI
+CF_LLM_MODEL=together_ai/meta-llama/Llama-2-7b-chat-hf
+CF_LLM_API_KEY=your-together-ai-key
 ```
 
-**Environment Management (`cf/aci/environment_manager.py`):**
-- System environment access
-- Search capabilities
-- Resource management
-- Repository overview generation
+### 4. Configuration System (`cf/core/react_config.py`)
 
-**System Access (`cf/aci/system_access.py`):**
-- Environment variable management
-- Command execution
-- File system operations
-
-### Knowledge Base Layer (`cf/kb/`)
-
-**Core Implementation (`cf/kb/knowledge_base.py`):**
-The main knowledge base provides unified access to different storage backends:
+**Comprehensive Configuration** with environment variable support:
 
 ```python
-class CodeKnowledgeBase:
-    """Main knowledge base coordinator"""
-    def __init__(self, kb_type: str, config: Config)
-    def store_entities(self, entities: List[Entity]) -> None
-    def query_entities(self, query: str) -> List[Entity]
-    def get_relationships(self, entity_id: str) -> List[Relationship]
-```
-
-**Vector Storage (`cf/kb/vector_kb.py`):**
-- FAISS-based vector database
-- Sentence-transformers for embeddings
-- Semantic similarity search
-- Fast content discovery
-
-**Content Analysis (`cf/kb/content_analyzer.py`):**
-- Intelligent question answering
-- Context-aware responses
-- Entity relationship analysis
-
-**Relationship Detection (`cf/kb/relationship_detector.py`):**
-- AST-based code analysis
-- Import dependency tracking
-- Function call graph construction
-- Class inheritance detection
-
-### LLM Integration Layer (`cf/llm/`)
-
-**Provider Abstraction (`cf/llm/llm_model.py`):**
-```python
-class LlmModel:
-    """LLM provider abstraction using LiteLLM"""
-    def __init__(self, model: str, config: Config)
-    def generate_response(self, prompt: str, **kwargs) -> str
-    def get_embeddings(self, text: str) -> List[float]
-```
-
-**Features:**
-- Multi-provider support via LiteLLM
-- OpenAI, Anthropic, Cohere integration
-- Token usage tracking
-- Response caching
-- Rate limiting and error handling
-
-### Agentic Exploration (`cf/agents/`)
-
-**ReAct Strategy (`cf/agents/reasoning_agent.py`):**
-- Reasoning + Acting cycles
-- Fast iterative exploration
-- Context-aware decision making
-
-**Plan-then-Act (`cf/agents/plan_then_act.py`):**
-- Strategic planning phase
-- Systematic execution
-- Goal-oriented exploration
-
-**Sense-then-Act (`cf/agents/sense_then_act.py`):**
-- Environmental observation
-- Adaptive strategy adjustment
-- Complex codebase handling
-
-## Configuration Architecture
-
-### Configuration System (`cf/config.py`)
-
-CodeFusion uses a centralized configuration system that supports:
-
-**Configuration Sources (in order of precedence):**
-1. Command-line arguments (highest priority)
-2. Configuration files (YAML/JSON)
-3. Environment variables
-4. Default values (lowest priority)
-
-**Key Features:**
-- YAML and JSON file support
-- Environment variable override capability
-- Type validation and checking
-- Default configuration in `config/default/config.yaml`
-
-**Configuration Loading:**
-```python
-# From cf/config.py
-class CfConfig:
-    """Main configuration class"""
-    @classmethod
-    def from_file(cls, config_path: str) -> 'CfConfig'
-    @classmethod
-    def from_dict(cls, config_dict: Dict) -> 'CfConfig'
+@dataclass
+class ReActConfig:
+    # Loop parameters
+    max_iterations: int = 20
+    iteration_timeout: float = 30.0
+    total_timeout: float = 600.0
     
-    def validate(self) -> None
-    def to_dict(self) -> Dict
+    # Error handling
+    max_errors: int = 10
+    max_consecutive_errors: int = 3
+    error_recovery_enabled: bool = True
+    
+    # Caching
+    cache_enabled: bool = True
+    cache_max_size: int = 1000
+    cache_ttl: int = 3600
+    
+    # Tracing and logging
+    tracing_enabled: bool = True
+    trace_directory: Optional[str] = None
 ```
 
-## Error Handling (`cf/exceptions.py`)
+**Performance Profiles**:
+- **Fast**: Quick exploration (10 iterations, 15s timeout)
+- **Balanced**: Default recommended (20 iterations, 30s timeout)
+- **Thorough**: Comprehensive analysis (50 iterations, 60s timeout)
 
-CodeFusion implements a comprehensive exception hierarchy for robust error management:
+### 5. Tracing System (`cf/core/react_tracing.py`)
 
-### Exception Categories
+**Comprehensive Execution Monitoring**:
 
-**Custom Exception Types:**
-- **Configuration Errors**: Invalid settings, missing required fields
-- **Repository Access Errors**: File system issues, permission problems
-- **Knowledge Base Errors**: Storage operation failures
-- **LLM Provider Errors**: API failures, rate limits, authentication issues
-- **System Access Errors**: Environment variable or command execution issues
+```python
+@dataclass
+class ReActTrace:
+    trace_id: str
+    agent_name: str
+    iteration: int
+    phase: str  # 'reason', 'act', 'observe'
+    timestamp: float
+    duration: float
+    content: Dict[str, Any]
+    success: bool
+    error: Optional[str]
+```
+
+**Features**:
+- **Session Management**: Start/end session tracking
+- **Phase Tracing**: Individual reason/act/observe phase monitoring
+- **Performance Metrics**: Duration, success rates, error tracking
+- **Persistent Storage**: JSON export for post-analysis
+- **Global Metrics**: Aggregated statistics across all sessions
+
+### 6. Advanced Caching (`cf/core/react_agent.py` - ReActCache)
+
+**Persistent Cross-Session Caching**:
+
+```python
+class ReActCache:
+    def __init__(self, max_size: int = 1000, cache_dir: Optional[str] = None, ttl: int = 3600):
+        # In-memory cache with disk persistence
+        # TTL-based expiration
+        # LRU eviction policy
+```
+
+**Features**:
+- **Persistent Storage**: JSON files for cross-session continuity
+- **TTL Expiration**: Automatic cleanup of stale entries
+- **LRU Eviction**: Memory-efficient cache size management
+- **Error Resilience**: Graceful handling of corrupt cache files
+
+## ReAct Loop Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI
+    participant Supervisor
+    participant Agent
+    participant Tools
+    participant LLM
+    participant Cache
+    participant Tracer
+
+    User->>CLI: cf analyze /repo --focus=all
+    CLI->>Supervisor: explore_repository(focus="all")
+    
+    Supervisor->>Tracer: start_session("supervisor", goal)
+    
+    loop ReAct Loop (max_iterations)
+        Note over Supervisor: 🧠 REASON Phase
+        Supervisor->>Supervisor: reason() - analyze current state
+        Supervisor->>Tracer: trace_phase("reason", reasoning)
+        
+        Note over Supervisor: 🎯 ACT Phase  
+        Supervisor->>Supervisor: plan_action(reasoning)
+        Supervisor->>Agent: activate_agent(agent_type)
+        
+        Agent->>Tracer: start_session("agent", sub_goal)
+        
+        loop Agent ReAct Loop
+            Agent->>Agent: reason() - determine next tool
+            Agent->>Tools: execute_tool(action_params)
+            Tools->>Cache: check_cache(cache_key)
+            alt Cache Miss
+                Tools->>LLM: llm_reasoning/summarize(content)
+                LLM-->>Tools: ai_response
+                Tools->>Cache: store_result(cache_key, result)
+            end
+            Cache-->>Tools: cached_result
+            Tools-->>Agent: tool_result
+            Agent->>Agent: observe(tool_result)
+            Agent->>Tracer: trace_phase("act", action_result)
+        end
+        
+        Agent->>Tracer: end_session(agent_results)
+        Agent-->>Supervisor: agent_insights
+        
+        Note over Supervisor: 👁️ OBSERVE Phase
+        Supervisor->>Supervisor: observe(agent_insights)
+        Supervisor->>Tracer: trace_phase("observe", observations)
+        
+        Supervisor->>Supervisor: check_goal_achieved()
+    end
+    
+    Supervisor->>Supervisor: synthesize_cross_agent_insights()
+    Supervisor->>Tracer: end_session(final_results)
+    Supervisor-->>CLI: comprehensive_analysis
+    CLI-->>User: formatted_results + metrics
+```
+
+## Tool Validation & Error Recovery
+
+### Parameter Validation
+```python
+def _validate_action_parameters(self, action: ReActAction) -> Optional[str]:
+    """Validate action parameters before execution"""
+    if action.action_type == ActionType.READ_FILE:
+        if 'file_path' not in action.parameters:
+            return "file_path parameter required for READ_FILE"
+    # ... additional validations
+```
+
+### Result Validation
+```python
+def _validate_tool_result(self, action: ReActAction, result: Any) -> Dict[str, Any]:
+    """Validate tool execution result"""
+    if isinstance(result, dict) and 'error' in result:
+        return {'valid': False, 'error': f"Tool returned error: {result['error']}"}
+    # ... additional validations
+```
 
 ### Error Recovery Strategies
-
-**Graceful Degradation:**
-- Neo4j fallback to vector storage
-- LLM provider failover
-- Partial indexing continuation
-- Configuration validation with helpful messages
-
-**User-Friendly Error Messages:**
-- Clear error descriptions
-- Suggested fixes and solutions
-- Configuration validation feedback
-- Progress preservation during failures
-
-## Performance Considerations
-
-### Batch Processing
-
-CodeFusion implements efficient batch processing for large repositories:
-
-**File Processing:**
-- Configurable batch sizes for memory management
-- Parallel processing with worker threads
-- Progress tracking and user feedback
-- Incremental processing with checkpoints
-
-**Vector Operations:**
-- FAISS-based similarity search for fast queries
-- Optimized embedding generation
-- Cached embeddings to avoid recomputation
-- Memory-efficient vector storage
-
-### Caching Strategy
-
-**Knowledge Base Caching:**
-- Entity and relationship caching
-- Embedding cache for repeated content
-- LLM response caching for similar queries
-- Artifact reuse across sessions
-
-**File System Optimization:**
-- Timestamped artifact directories (`artifacts_{repo_name}_{timestamp}/`)
-- Incremental indexing for modified files
-- Configuration-based file filtering
-- Efficient repository traversal
-
-### Memory Management
-
-**Storage Optimization:**
-- Configurable maximum file sizes
-- Aggressive directory exclusion (node_modules, .git, etc.)
-- Streaming file processing
-- Garbage collection for large repositories
-
-**Resource Monitoring:**
-- Memory usage tracking
-- Configurable worker limits
-- Automatic cleanup mechanisms
-- Performance metrics collection
-
-## Testing Architecture (`tests/`)
-
-### Current Test Structure
-
-Based on the actual test directory:
-
-```
-tests/
-├── __init__.py
-├── test_config.py              # Configuration testing
-├── test_knowledge_base.py      # Knowledge base functionality
-├── test_neo4j.py              # Neo4j backend testing
-└── test_kb/                   # Additional KB-specific tests
+```python
+def _attempt_tool_recovery(self, action: ReActAction, error: str) -> Optional[str]:
+    """Attempt to recover from tool execution error"""
+    error_lower = error.lower()
+    
+    if 'file not found' in error_lower:
+        return 'file_not_found'  # Switch to directory scan
+    elif 'permission denied' in error_lower:
+        return 'permission_denied'  # Try different approach
+    elif 'timeout' in error_lower:
+        return 'timeout'  # Use cached results
 ```
 
-### Test Framework
+## Performance Characteristics
 
-**Testing Tools:**
-- **pytest**: Main testing framework
-- **pytest-cov**: Coverage reporting
-- **pytest-mock**: Mocking and fixtures
-- **Pre-commit hooks**: Code quality enforcement
+### Time Complexity
+- **ReAct Loop**: O(n × m) where n = iterations, m = tools per iteration
+- **Caching**: O(1) lookup and storage with O(log k) eviction
+- **Tool Execution**: O(f) where f = file/directory size being processed
 
-**Test Categories:**
-- **Unit Tests**: Individual component testing
-- **Integration Tests**: Knowledge base and LLM integration
-- **Configuration Tests**: YAML parsing and validation
-- **Backend Tests**: Vector and Neo4j storage testing
+### Space Complexity
+- **Memory**: O(c + t + s) where c = cache size, t = trace data, s = session state
+- **Storage**: Persistent cache and trace files scale with usage
 
-## Extension Points
+### Scalability Features
+- **Configurable Limits**: Max iterations, timeouts, cache sizes
+- **Circuit Breakers**: Prevent infinite loops and cascading failures
+- **Resource Management**: TTL expiration, LRU eviction, timeout handling
+- **Parallel Potential**: Framework supports future parallel tool execution
 
-CodeFusion's modular architecture supports several extension points:
+## Configuration Examples
 
-### Custom Knowledge Base Backends
+### Environment Variables
+```bash
+# Basic Configuration
+CF_REACT_MAX_ITERATIONS=20
+CF_REACT_ITERATION_TIMEOUT=30.0
+CF_REACT_TOTAL_TIMEOUT=600.0
 
-Extend `cf/kb/knowledge_base.py` to add new storage backends:
-- Implement vector database alternatives (Pinecone, Weaviate)
-- Add graph database options (ArangoDB, Amazon Neptune)
-- Create cloud-based storage integrations
+# Caching
+CF_REACT_CACHE_ENABLED=true
+CF_REACT_CACHE_MAX_SIZE=1000
+CF_REACT_CACHE_TTL=3600
 
-### Custom Exploration Strategies
+# Tracing
+CF_REACT_TRACING_ENABLED=true
+CF_REACT_TRACE_DIR=./traces
 
-Add new reasoning strategies in `cf/agents/`:
-- Implement domain-specific exploration patterns
-- Create hybrid strategies combining existing approaches
-- Add specialized strategies for different programming languages
-
-### Custom LLM Providers
-
-Extend `cf/llm/llm_model.py` for new LLM integrations:
-- Local model deployments
-- Enterprise LLM services
-- Specialized code-understanding models
-
-### Repository Adapters
-
-Extend `cf/aci/repo.py` for different repository types:
-- Git repository analysis
-- Cloud repository access (GitHub, GitLab)
-- Archive and snapshot processing
-
-## Directory Structure Summary
-
-Based on the repository scan, here's the complete CodeFusion structure:
-
-```
-codefusion/
-├── cf/                           # Main package
-│   ├── __init__.py              # Package exports (version 0.0.1)
-│   ├── __main__.py              # CLI entry point
-│   ├── config.py                # Configuration management
-│   ├── types.py                 # Type definitions and enums
-│   ├── exceptions.py            # Exception hierarchy
-│   ├── aci/                     # Agent Computer Interface
-│   │   ├── repo.py              # Repository abstractions
-│   │   ├── environment_manager.py
-│   │   ├── system_access.py
-│   │   ├── code_inspector.py
-│   │   └── computer_interface.py
-│   ├── agents/                  # Exploration strategies
-│   │   ├── reasoning_agent.py   # ReAct strategy
-│   │   ├── plan_then_act.py     # Plan-then-Act
-│   │   └── sense_then_act.py    # Sense-then-Act
-│   ├── indexer/                 # Code indexing
-│   │   └── code_indexer.py
-│   ├── kb/                      # Knowledge base
-│   │   ├── knowledge_base.py    # Core KB implementation
-│   │   ├── vector_kb.py         # FAISS backend
-│   │   ├── content_analyzer.py  # Q&A system
-│   │   └── relationship_detector.py
-│   ├── llm/                     # LLM integration
-│   │   └── llm_model.py         # Provider abstraction
-│   └── run/                     # CLI implementations
-│       ├── run.py               # Main CLI
-│       ├── explore_single_repo.py
-│       ├── explore_batch_repo.py
-│       └── setup_neo4j.py
-├── config/default/              # Configuration
-│   └── config.yaml             # Default settings
-├── docs/                       # Documentation
-├── tests/                      # Test suite
-├── kb/                         # Knowledge base storage
-├── trace/                      # LLM tracing
-├── artifacts_*/                # Timestamped analysis results
-├── pyproject.toml              # Python project config
-├── mkdocs.yml                  # Documentation config
-└── README.md                   # Project overview
+# LLM Integration
+CF_LLM_MODEL=gpt-4
+CF_LLM_API_KEY=your-api-key
+CF_LLM_MAX_TOKENS=1000
+CF_LLM_TEMPERATURE=0.7
 ```
 
-## Key Architectural Insights
+### Performance Profiles
+```python
+# Fast Profile - Quick Analysis
+config = ReActConfig()
+config.apply_performance_profile("fast")
+# max_iterations=10, timeouts=15s, cache=500
 
-1. **Kernel-based Design**: Central "CodeFusion Agentic Kernel" coordinates all operations
-2. **ACI Layer**: Clean abstraction between agents and computer systems
-3. **Multi-strategy Exploration**: ReAct, Plan-then-Act, Sense-then-Act approaches
-4. **Pluggable Storage**: Vector (FAISS), Neo4j, and text-based backends
-5. **LLM Abstraction**: Multi-provider support via LiteLLM
-6. **Configuration-driven**: YAML-based configuration with environment override
-7. **Artifact Management**: Timestamped directories for analysis persistence
+# Balanced Profile - Default
+config.apply_performance_profile("balanced") 
+# max_iterations=20, timeouts=30s, cache=1000
 
-## Next Steps
+# Thorough Profile - Comprehensive Analysis
+config.apply_performance_profile("thorough")
+# max_iterations=50, timeouts=60s, cache=2000
+```
 
-- Review the [development setup](contributing.md) guide
-- Explore [testing strategies](testing.md)
-- Check the [API reference](../reference/api.md) for implementation details
+## Usage Examples
+
+### Basic Repository Analysis
+```bash
+# Multi-agent comprehensive analysis
+cf analyze /path/to/repo --focus=all
+
+# Documentation-focused analysis  
+cf analyze /path/to/repo --focus=docs
+
+# Architecture-focused analysis
+cf analyze /path/to/repo --focus=arch
+```
+
+### Configuration-Driven Analysis
+```bash
+# Fast analysis for quick insights
+CF_REACT_MAX_ITERATIONS=10 cf analyze /repo
+
+# Thorough analysis with tracing
+CF_REACT_TRACING_ENABLED=true CF_REACT_TRACE_DIR=./traces cf analyze /repo
+
+# LLaMA-powered analysis
+CF_LLM_MODEL=together_ai/meta-llama/Llama-2-7b-chat-hf cf analyze /repo
+```
+
+## Future Architecture Enhancements
+
+### Planned Features
+1. **Parallel Tool Execution**: Execute multiple tools concurrently
+2. **Dynamic Agent Loading**: Plugin-based agent architecture
+3. **Interactive Mode**: Real-time user feedback integration
+4. **Advanced Caching**: Semantic similarity-based cache keys
+5. **Distributed Tracing**: Multi-node execution monitoring
+
+### Extensibility Points
+1. **Custom Agents**: Implement ReActAgent for domain-specific analysis
+2. **Custom Tools**: Add ActionType and tool implementations
+3. **Custom LLM Providers**: Extend LiteLLM integration
+4. **Custom Trace Formats**: Alternative trace storage and analysis
+
+---
+
+*This architecture provides a robust, scalable foundation for intelligent code exploration through the proven ReAct pattern, comprehensive tooling, and multi-agent coordination.*

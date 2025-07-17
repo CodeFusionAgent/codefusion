@@ -16,20 +16,7 @@ class CfConfig:
     repo_path: Optional[str] = None
     output_dir: str = "./output"
 
-    # LLM settings
-    llm_model: str = "gpt-3.5-turbo"
-    llm_api_key: Optional[str] = None
-    llm_base_url: Optional[str] = None
-
-    # Knowledge base settings
-    kb_type: str = "text"  # "text", "neo4j", or "vector"
-    kb_path: str = "./kb"
-    neo4j_uri: Optional[str] = None
-    neo4j_user: Optional[str] = None
-    neo4j_password: Optional[str] = None
-    embedding_model: str = "all-MiniLM-L6-v2"
-
-    # Indexing settings
+    # Simple exploration settings
     max_file_size: int = 1024 * 1024  # 1MB
     excluded_dirs: list = field(
         default_factory=lambda: [".git", "__pycache__", "node_modules", ".venv", "venv"]
@@ -37,10 +24,24 @@ class CfConfig:
     excluded_extensions: list = field(
         default_factory=lambda: [".pyc", ".pyo", ".pyd", ".so", ".dll", ".exe", ".env"]
     )
-
-    # Exploration settings
-    exploration_strategy: str = "react"  # "react", "plan_act", "sense_act"
     max_exploration_depth: int = 5
+    
+    # Multi-agent settings
+    agents: Dict[str, Any] = field(default_factory=lambda: {
+        "supervisor": {"enabled": True, "max_agents": 4, "timeout": 300},
+        "documentation": {"enabled": True, "file_types": [".md", ".rst", ".txt", ".adoc"], "max_files": 50},
+        "codebase": {"enabled": True, "languages": ["python", "javascript", "typescript", "java", "go", "rust", "c", "cpp"], "max_files": 200},
+        "architecture": {"enabled": True, "diagram_types": ["mermaid", "plantuml", "graphviz"], "max_components": 100},
+        "summary": {"enabled": True, "max_sections": 10, "cheat_sheet_format": "markdown"}
+    })
+    
+    # Error recovery settings
+    error_recovery: Dict[str, Any] = field(default_factory=lambda: {
+        "enabled": True,
+        "max_retries": 3,
+        "circuit_breaker_threshold": 5,
+        "loop_detection_window": 10
+    })
 
     @classmethod
     def from_file(cls, config_path: str) -> "CfConfig":
@@ -75,20 +76,12 @@ class CfConfig:
         return {
             "repo_path": self.repo_path,
             "output_dir": self.output_dir,
-            "llm_model": self.llm_model,
-            "llm_api_key": self.llm_api_key,
-            "llm_base_url": self.llm_base_url,
-            "kb_type": self.kb_type,
-            "kb_path": self.kb_path,
-            "neo4j_uri": self.neo4j_uri,
-            "neo4j_user": self.neo4j_user,
-            "neo4j_password": self.neo4j_password,
-            "embedding_model": self.embedding_model,
             "max_file_size": self.max_file_size,
             "excluded_dirs": self.excluded_dirs,
             "excluded_extensions": self.excluded_extensions,
-            "exploration_strategy": self.exploration_strategy,
             "max_exploration_depth": self.max_exploration_depth,
+            "agents": self.agents,
+            "error_recovery": self.error_recovery,
         }
 
     def save(self, config_path: str) -> None:
@@ -108,18 +101,6 @@ class CfConfig:
 
     def validate(self) -> None:
         """Validate configuration settings."""
-        if self.kb_type not in ["text", "neo4j", "vector"]:
-            raise ValueError(f"Invalid kb_type: {self.kb_type}")
-
-        if self.exploration_strategy not in ["react", "plan_act", "sense_act"]:
-            raise ValueError(
-                f"Invalid exploration_strategy: {self.exploration_strategy}"
-            )
-
-        if self.kb_type == "neo4j":
-            if not all([self.neo4j_uri, self.neo4j_user, self.neo4j_password]):
-                raise ValueError("Neo4j configuration requires uri, user, and password")
-
         if self.max_exploration_depth < 1:
             raise ValueError("max_exploration_depth must be at least 1")
 
@@ -128,23 +109,5 @@ class CfConfig:
 
     def _load_env_overrides(self) -> None:
         """Load environment variable overrides."""
-        from .aci.system_access import SystemAccess
-
-        system_access = SystemAccess()
-
-        # Override LLM configuration from environment
-        llm_config = system_access.get_llm_config()
-        if llm_config["api_key"]:
-            self.llm_api_key = llm_config["api_key"]
-        if llm_config["base_url"]:
-            self.llm_base_url = llm_config["base_url"]
-        if llm_config["model"]:
-            self.llm_model = llm_config["model"]
-
-        # Override Neo4j configuration from environment
-        if system_access.get("NEO4J_URI"):
-            self.neo4j_uri = system_access.get("NEO4J_URI")
-        if system_access.get("NEO4J_USER"):
-            self.neo4j_user = system_access.get("NEO4J_USER")
-        if system_access.get("NEO4J_PASSWORD"):
-            self.neo4j_password = system_access.get("NEO4J_PASSWORD")
+        # Simple configuration - no environment overrides needed for basic exploration
+        pass

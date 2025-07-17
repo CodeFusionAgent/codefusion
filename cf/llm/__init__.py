@@ -1,25 +1,18 @@
-"""LLM module for model proxy and tracing."""
+"""LLM interfaces for CodeFusion."""
 
-from .llm_model import (
-    CodeAnalysisLlm,
-    LiteLlmModel,
-    LlmMessage,
-    LlmModel,
-    LlmResponse,
-    LlmTrace,
-    LlmTracer,
-    MockLlmModel,
-    create_llm_model,
-)
+from .simple_llm import SimpleLLM, llm
 
-__all__ = [
-    "LlmModel",
-    "LlmMessage",
-    "LlmResponse",
-    "LlmTrace",
-    "LlmTracer",
-    "LiteLlmModel",
-    "MockLlmModel",
-    "CodeAnalysisLlm",
-    "create_llm_model",
-]
+try:
+    from .real_llm import RealLLM, real_llm
+    __all__ = [
+        "SimpleLLM",
+        "llm",
+        "RealLLM", 
+        "real_llm",
+    ]
+except ImportError:
+    # LiteLLM not available
+    __all__ = [
+        "SimpleLLM",
+        "llm",
+    ]

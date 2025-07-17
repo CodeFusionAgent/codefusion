@@ -1,39 +1,27 @@
-"""CodeFusion: A code understanding tool for rapid codebase exploration."""
+"""CodeFusion: A ReAct (Reasoning + Acting) framework for intelligent code exploration and analysis."""
 
-from .aci.environment_manager import EnvironmentManager
 from .aci.repo import CodeAction, CodeRepo, FileInfo, LocalCodeRepo, RemoteCodeRepo
 from .config import CfConfig
-from .indexer.code_indexer import CodeIndexer
-from .kb.knowledge_base import (
-    CodeEntity,
-    CodeKB,
-    CodeRelationship,
-    create_knowledge_base,
-)
-from .llm.llm_model import CodeAnalysisLlm, LlmModel, LlmTracer, create_llm_model
+from .agents.react_supervisor_agent import ReActSupervisorAgent
+from .core.react_agent import ReActAgent, ReActAction, ReActObservation, ActionType
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 __author__ = "CodeFusion Team"
 __description__ = (
-    "A code understanding tool for senior developers to quickly ramp up on "
-    "large codebases"
+    "ReAct framework for systematic code exploration through reasoning, acting, and observing. "
+    "Enables multi-agent collaborative analysis of codebases with LLM-powered intelligence."
 )
 
 __all__ = [
     "CfConfig",
     "CodeRepo",
     "LocalCodeRepo",
-    "RemoteCodeRepo",
+    "RemoteCodeRepo", 
     "CodeAction",
     "FileInfo",
-    "EnvironmentManager",
-    "CodeKB",
-    "CodeEntity",
-    "CodeRelationship",
-    "create_knowledge_base",
-    "CodeIndexer",
-    "LlmModel",
-    "LlmTracer",
-    "CodeAnalysisLlm",
-    "create_llm_model",
+    "ReActSupervisorAgent",
+    "ReActAgent",
+    "ReActAction", 
+    "ReActObservation",
+    "ActionType",
 ]

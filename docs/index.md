@@ -1,85 +1,151 @@
-# CodeFusion Documentation
+# CodeFusion ReAct Framework Documentation
 
-CodeFusion is a powerful code understanding tool designed for senior developers to quickly ramp up on large codebases. It provides agentic exploration capabilities, semantic search, and comprehensive analysis of code repositories.
+CodeFusion is a comprehensive **ReAct (Reasoning + Acting) agent framework** for intelligent code exploration and analysis. It enables multi-agent, LLM-powered systematic investigation of codebases through sophisticated reasoning, tool usage, and observation cycles.
+
+## 🎯 ReAct Philosophy
+
+CodeFusion implements the ReAct pattern for systematic code analysis:
+
+- **🧠 REASON**: AI-powered analysis of current state and goal progress
+- **🎯 ACT**: Execute specialized tools based on reasoning
+- **👁️ OBSERVE**: Process results and update understanding
+- **🔄 REPEAT**: Continue until goals are achieved
+
+This creates intelligent, adaptive exploration that learns from observations and adjusts strategy dynamically.
 
 ## 🚀 Key Features
 
-- **Agentic Exploration**: Intelligent code exploration using ReAct, Plan-then-Act, and Sense-then-Act strategies
-- **Multi-Backend Knowledge Base**: Support for Neo4j graph database and vector databases for semantic search
-- **LLM Integration**: Comprehensive reasoning with support for OpenAI, Anthropic, and other LLM providers
-- **Advanced Analysis**: Deep code relationship detection and architectural pattern analysis
-- **Interactive CLI**: Intuitive command-line interface for repository exploration and querying
-- **Flexible Configuration**: Extensive configuration options for different use cases
+- **Multi-Agent Architecture**: Specialized agents for documentation, code, and architecture analysis
+- **AI-Powered Reasoning**: LLM-driven decision making and goal tracking
+- **Rich Tool Ecosystem**: 8 specialized tools for comprehensive code exploration
+- **Persistent Caching**: Cross-session memory with TTL and LRU eviction
+- **Execution Tracing**: Performance monitoring and comprehensive logging
+- **Error Recovery**: Circuit breakers, retry logic, and fallback strategies
+- **LLM Integration**: Support for OpenAI, Anthropic, and LLaMA via LiteLLM
 
-## 🏗️ Architecture Overview
+## 🔄 ReAct Process Flow
 
-CodeFusion consists of several key components:
+CodeFusion follows the systematic **Reason → Act → Observe** cycle:
 
-- **ACI (Agent Computer Interface)**: System interaction layer for file system, environment, and repository access
-- **Knowledge Base**: Dual-backend storage supporting both graph (Neo4j) and vector (FAISS) databases
-- **Indexer**: Code analysis and entity extraction with relationship detection
-- **Agents**: Reasoning agents for different exploration strategies
-- **LLM Integration**: Large language model integration for natural language understanding
+1. **🧠 REASONING**: AI analyzes current state, goal progress, and available context
+2. **🎯 ACTING**: Execute planned actions using specialized tools
+3. **👁️ OBSERVING**: Process results, extract insights, and update understanding
+4. **🔄 ITERATING**: Adapt exploration strategy based on findings
+
+### Multi-Agent ReAct Example
+
+```
+Goal: "Comprehensive analysis of authentication system"
+
+🤖 Supervisor Agent: Activates specialized agents based on focus
+├── 📚 Documentation Agent: Reason → Search auth docs → Observe API patterns
+├── 💻 Codebase Agent: Reason → Scan auth/ directory → Observe JWT implementation
+└── 🏗️ Architecture Agent: Reason → Map auth flow → Observe security patterns
+
+🔗 Cross-Agent Synthesis: Combine insights for comprehensive understanding
+```
 
 ## 🎯 Quick Start
 
-Get started with CodeFusion in just a few commands:
+Get started with CodeFusion ReAct framework:
 
 ```bash
 # Install CodeFusion
-pip install codefusion
+pip install -e .
 
-# Index a repository
-cf index /path/to/your/repo
+# Install LLM support (optional but recommended)
+pip install litellm
 
-# Ask questions about the code
-cf query "How does authentication work in this codebase?"
+# Multi-agent comprehensive analysis
+python -m cf.run.simple_run analyze /path/to/repo --focus=all
 
-# Full exploration workflow
-cf explore /path/to/your/repo
+# Documentation-focused analysis
+python -m cf.run.simple_run analyze /path/to/repo --focus=docs
+
+# Question-based exploration
+python -m cf.run.simple_run explore /path/to/repo "How does authentication work?"
+
+# Demo the framework
+python demo_cf_framework.py /path/to/repo
 ```
 
 ## 📚 Documentation Structure
 
 This documentation is organized into several sections:
 
-- **[Installation](installation/quickstart.md)**: Get CodeFusion up and running
-- **[Usage](usage/cli.md)**: Learn how to use CodeFusion effectively
-- **[Configuration](config/overview.md)**: Customize CodeFusion for your needs
-- **[Development](dev/contributing.md)**: Contribute to CodeFusion development
-- **[Reference](reference/api.md)**: Detailed API and CLI reference
+- **[Installation](installation/setup.md)**: Get CodeFusion up and running
+- **[Usage](usage/cli.md)**: Learn how to use the ReAct framework
+- **[Configuration](usage/configuration.md)**: Configure LLM integration and performance
+- **[ReAct Framework](react-framework.md)**: Comprehensive framework documentation
+- **[API Reference](api/index.md)**: Complete API documentation
+- **[Development](dev/architecture.md)**: Architecture and contribution guide
 
-## 🛠️ Supported Languages
+## 🏗️ ReAct Framework Architecture
 
-CodeFusion supports analysis of multiple programming languages:
+CodeFusion implements a sophisticated multi-agent ReAct architecture:
 
-- **Python** - Full AST analysis, import detection, class/function extraction
-- **JavaScript/TypeScript** - Module analysis, function detection, framework support
-- **Java** - Package structure analysis, class hierarchy detection
-- **C/C++** - Header analysis, function extraction
-- **Go** - Package analysis, function detection
-- **Rust** - Crate analysis, module structure
+```
+cf/
+├── core/                       # ReAct Foundation
+│   ├── react_agent.py         # Base ReAct agent with R→A→O loops
+│   ├── react_config.py        # Performance and LLM configuration
+│   └── react_tracing.py       # Execution monitoring and metrics
+├── agents/                     # Specialized ReAct Agents
+│   ├── react_supervisor_agent.py      # Multi-agent orchestration
+│   ├── react_documentation_agent.py   # Documentation analysis
+│   ├── react_codebase_agent.py       # Source code analysis
+│   └── react_architecture_agent.py   # System design analysis
+├── llm/                        # LLM Integration
+│   ├── real_llm.py            # LiteLLM provider integration
+│   └── simple_llm.py          # Fallback reasoning
+├── tools/                      # Tool Ecosystem
+│   └── advanced_tools.py      # 8 specialized exploration tools
+└── run/
+    └── simple_run.py           # Multi-agent CLI interface
+```
 
-## 🔧 Integration Options
+## 🆚 ReAct vs Traditional Approaches
 
-CodeFusion integrates with various tools and services:
+### ❌ Traditional Static Analysis
+- One-time parsing of entire codebase
+- Static analysis without context
+- Limited reasoning about findings
+- No adaptive exploration
+- Fast but shallow, misses context
 
-- **Neo4j** - Graph database for complex relationship analysis
-- **Vector Databases** - FAISS for semantic similarity search
-- **LLM Providers** - OpenAI, Anthropic, and other compatible APIs
-- **Development Tools** - Git integration, testing frameworks, CI/CD pipelines
+### ✅ ReAct Framework Approach
+- AI-powered reasoning and decision making
+- Multi-agent collaborative analysis
+- Adaptive exploration that learns from observations
+- Goal-oriented loops with progress tracking
+- Persistent caching across sessions
+- Comprehensive error recovery
 
 ## 🤝 Contributing
 
-We welcome contributions to CodeFusion! Please see our [Contributing Guide](dev/contributing.md) for details on how to get started.
+We welcome contributions to the CodeFusion ReAct framework! Contributions should enhance the ReAct pattern implementation:
+
+1. **Maintain ReAct Principles**: Preserve the Reason → Act → Observe pattern
+2. **Add Specialized Agents**: Create domain-specific analysis agents
+3. **Extend Tool Ecosystem**: Add new tools for enhanced capabilities
+4. **Improve LLM Integration**: Support additional providers and models
+5. **Enhance Error Recovery**: Strengthen resilience and fault tolerance
+
+See [Contributing Guide](dev/contributing.md) for detailed information.
 
 ## 📄 License
 
 CodeFusion is released under the Apache License 2.0. See [LICENSE](https://github.com/CodeFusionAgent/codefusion/blob/main/LICENSE) for details.
 
-## 🆘 Support
+## 🆘 Support & Resources
 
-- 📖 [Documentation](https://codefusionagent.github.io/codefusion/)
+- 📖 [Complete Documentation](https://codefusionagent.github.io/codefusion/)
+- 🧠 [ReAct Framework Guide](react-framework.md)
+- 🔧 [API Reference](api/index.md)
 - 💬 [GitHub Issues](https://github.com/CodeFusionAgent/codefusion/issues)
 - 🐛 [Bug Reports](https://github.com/CodeFusionAgent/codefusion/issues/new?template=bug_report.md)
 - 💡 [Feature Requests](https://github.com/CodeFusionAgent/codefusion/issues/new?template=feature_request.md)
+
+---
+
+*Built on the ReAct pattern for systematic, intelligent code exploration through reasoning, acting, and observing.*
