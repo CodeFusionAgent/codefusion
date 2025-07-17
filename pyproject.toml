@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codefusion"
-version = "0.0.1"
-description = "A code understanding tool for senior developers to quickly ramp up on large codebases"
+version = "0.1.0"
+description = "Human-like code exploration tool that helps developers quickly understand large codebases"
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [
     {name = "CodeFusion Team"}
 ]
-keywords = ["code", "analysis", "ai", "agents", "exploration"]
+keywords = ["code", "exploration", "human-like", "caching", "investigation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -30,17 +30,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-llm = [
-    "litellm>=1.0.0",
-]
-neo4j = [
-    "neo4j>=5.0.0",
-]
-vector = [
-    "faiss-cpu>=1.7.0",
-    "sentence-transformers>=2.0.0",
-    "numpy>=1.21.0",
-]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -57,7 +46,7 @@ docs = [
     "mkdocstrings[python]>=0.19.0",
 ]
 all = [
-    "codefusion[llm,neo4j,vector,dev,docs]",
+    "codefusion[dev,docs]",
 ]
 
 [project.urls]
@@ -67,8 +56,10 @@ Documentation = "https://codefusionagent.github.io/codefusion"
 "Bug Tracker" = "https://github.com/CodeFusionAgent/codefusion/issues"
 
 [project.scripts]
-codefusion = "cf.run.run:main"
-cf = "cf.run.run:main"
+codefusion = "cf.run.simple_run:main"
+cf = "cf.run.simple_run:main"
+# Legacy complex version (for comparison)
+cf-complex = "cf.run.run:main"
 
 [tool.setuptools.packages.find]
 include = ["cf*"]
@@ -118,25 +109,9 @@ strict_equality = false
 
 [[tool.mypy.overrides]]
 module = [
-    "litellm.*",
-    "neo4j.*",
-    "faiss.*",
-    "sentence_transformers.*",
-    "numpy.*",
     "yaml.*",
-    "psutil.*",
-    "cf.run.explore_batch_repo",
 ]
 ignore_missing_imports = true
-
-# Ignore specific error-prone modules for now
-[[tool.mypy.overrides]]
-module = [
-    "cf.aci.code_inspector",
-    "cf.aci.environment_manager",
-    "cf.aci.computer_interface",
-]
-ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

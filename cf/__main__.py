@@ -3,12 +3,12 @@
 Direct execution entry point for CodeFusion module.
 
 Usage:
-    python -m cf demo /path/to/repo
-    python -m cf index /path/to/repo
-    python -m cf query "What does this code do?"
+    python -m cf explore /path/to/repo "How does authentication work?"
+    python -m cf ask /path/to/repo "What are the main API endpoints?"
+    python -m cf summary /path/to/repo
 """
 
-from .run.run import main
+from .run.simple_run import main
 
 if __name__ == "__main__":
     main()

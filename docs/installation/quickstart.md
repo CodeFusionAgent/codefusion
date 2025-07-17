@@ -1,130 +1,61 @@
-# Quick Start Guide
+# Quick Start
 
-Get CodeFusion up and running in minutes with this quick start guide.
+Get up and running with CodeFusion in minutes.
+
+## Prerequisites
+
+- Python 3.10 or higher
+- Git
 
 ## Installation
 
-### Option 1: Install from PyPI (Recommended)
-
-```bash
-pip install codefusion
-```
-
-### Option 2: Install from Source
-
 ```bash
 # Clone the repository
-git clone https://github.com/CodeFusionAgent/codefusion.git
+git clone <repository-url>
 cd codefusion
 
-# Install in development mode
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install CodeFusion
 pip install -e .
+
+# Verify installation
+cf --help
 ```
 
-## Basic Usage
-
-### 1. Index a Repository
-
-Start by indexing a code repository to build the knowledge base:
+## First Exploration
 
 ```bash
-cf index /path/to/your/repository
+# Explore a repository
+cf explore /path/to/your/repo "How does authentication work?"
+
+# Continue exploration
+cf continue /path/to/your/repo "How are sessions managed?" --previous "How does authentication work?"
+
+# View exploration summary
+cf summary /path/to/your/repo
 ```
 
-This will:
-- Scan all files in the repository
-- Extract code entities (classes, functions, modules)
-- Detect relationships between entities
-- Store everything in a knowledge base
+## Example Questions
 
-### 2. Query the Code
+Try these example questions:
 
-Ask natural language questions about your codebase:
-
-```bash
-cf query "How does authentication work?"
-cf query "What are the main API endpoints?"
-cf query "Where is the database configuration?"
-```
-
-### 3. Full Exploration
-
-Run a complete exploration workflow:
-
-```bash
-cf explore /path/to/your/repository
-```
-
-This combines indexing with automatic insights and analysis.
-
-## Configuration
-
-### Environment Variables
-
-Set up your LLM API key for enhanced analysis:
-
-```bash
-# For OpenAI
-export OPENAI_API_KEY="your-api-key-here"
-
-# Or for Anthropic
-export ANTHROPIC_API_KEY="your-api-key-here"
-```
-
-### Configuration File
-
-Create a configuration file for custom settings:
-
-```yaml
-# config.yaml
-llm_model: "gpt-4"
-kb_type: "neo4j"  # or "vector"
-exploration_strategy: "react"  # or "plan_act", "sense_act"
-```
-
-Use it with:
-
-```bash
-cf --config config.yaml index /path/to/repo
-```
+- "How does authentication work?"
+- "What are the main API endpoints?"
+- "How is data stored and retrieved?"
+- "What testing frameworks are used?"
+- "How is the application configured?"
 
 ## Next Steps
 
-- Learn about [CLI Commands](../usage/cli.md)
-- Explore [Configuration Options](../config/overview.md)
-- Check out [Examples](../usage/examples.md)
-- Read the [Architecture Guide](../dev/architecture.md)
+- Read the [CLI Usage Guide](../usage/cli.md)
+- Learn about [Configuration](../usage/configuration.md)
+- Check the [Installation Guide](setup.md) for detailed setup
 
-## Troubleshooting
+## Need Help?
 
-### Common Issues
-
-**Import Error**: If you get import errors, make sure you're in the correct Python environment:
-
-```bash
-which python
-pip list | grep codefusion
-```
-
-**Neo4j Connection**: If using Neo4j, ensure the database is running:
-
-```bash
-# Start Neo4j (if installed via Homebrew on macOS)
-brew services start neo4j
-
-# Or via Docker
-docker run -p 7474:7474 -p 7687:7687 neo4j:latest
-```
-
-**API Key Issues**: Verify your API key is set correctly:
-
-```bash
-echo $OPENAI_API_KEY
-# Should output your API key (not empty)
-```
-
-### Getting Help
-
-- Check the [full documentation](../index.md)
-- Search [GitHub Issues](https://github.com/CodeFusionAgent/codefusion/issues)
-- Create a [new issue](https://github.com/CodeFusionAgent/codefusion/issues/new) if needed
+- Use `cf --help` for command help
+- Use `cf --verbose` for detailed output
+- Check the [documentation](../index.md) for more information
