@@ -2,82 +2,78 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://codefusionagent.github.io/codefusion/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
-         <loc>https://codefusionagent.github.io/codefusion/config/overview/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <loc>https://codefusionagent.github.io/codefusion/react-framework/</loc>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
-         <loc>https://codefusionagent.github.io/codefusion/config/reference/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <loc>https://codefusionagent.github.io/codefusion/api/</loc>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
-         <loc>https://codefusionagent.github.io/codefusion/config/strategies/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <loc>https://codefusionagent.github.io/codefusion/api/architecture-agent/</loc>
+         <lastmod>2025-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://codefusionagent.github.io/codefusion/api/codebase-agent/</loc>
+         <lastmod>2025-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://codefusionagent.github.io/codefusion/api/config/</loc>
+         <lastmod>2025-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://codefusionagent.github.io/codefusion/api/documentation-agent/</loc>
+         <lastmod>2025-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://codefusionagent.github.io/codefusion/api/llm/</loc>
+         <lastmod>2025-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://codefusionagent.github.io/codefusion/api/react-agent/</loc>
+         <lastmod>2025-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://codefusionagent.github.io/codefusion/api/supervisor-agent/</loc>
+         <lastmod>2025-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://codefusionagent.github.io/codefusion/api/tools/</loc>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
          <loc>https://codefusionagent.github.io/codefusion/dev/CODE_OF_CONDUCT/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
          <loc>https://codefusionagent.github.io/codefusion/dev/architecture/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
          <loc>https://codefusionagent.github.io/codefusion/dev/contributing/</loc>
-         <lastmod>2025-07-14</lastmod>
-    </url>
-    <url>
-         <loc>https://codefusionagent.github.io/codefusion/dev/performance/</loc>
-         <lastmod>2025-07-14</lastmod>
-    </url>
-    <url>
-         <loc>https://codefusionagent.github.io/codefusion/dev/testing/</loc>
-         <lastmod>2025-07-14</lastmod>
-    </url>
-    <url>
-         <loc>https://codefusionagent.github.io/codefusion/dev/workflow/</loc>
-         <lastmod>2025-07-14</lastmod>
-    </url>
-    <url>
-         <loc>https://codefusionagent.github.io/codefusion/installation/dependencies/</loc>
-         <lastmod>2025-07-14</lastmod>
-    </url>
-    <url>
-         <loc>https://codefusionagent.github.io/codefusion/installation/from-source/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
          <loc>https://codefusionagent.github.io/codefusion/installation/quickstart/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
          <loc>https://codefusionagent.github.io/codefusion/installation/setup/</loc>
-         <lastmod>2025-07-14</lastmod>
-    </url>
-    <url>
-         <loc>https://codefusionagent.github.io/codefusion/reference/api/</loc>
-         <lastmod>2025-07-14</lastmod>
-    </url>
-    <url>
-         <loc>https://codefusionagent.github.io/codefusion/reference/cli/</loc>
-         <lastmod>2025-07-14</lastmod>
-    </url>
-    <url>
-         <loc>https://codefusionagent.github.io/codefusion/reference/config-schema/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
          <loc>https://codefusionagent.github.io/codefusion/usage/cli/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
          <loc>https://codefusionagent.github.io/codefusion/usage/configuration/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <lastmod>2025-07-17</lastmod>
     </url>
     <url>
          <loc>https://codefusionagent.github.io/codefusion/usage/examples/</loc>
-         <lastmod>2025-07-14</lastmod>
+         <lastmod>2025-07-17</lastmod>
     </url>
 </urlset>

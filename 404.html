@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="A code understanding tool for rapid codebase exploration">
+        <meta name="description" content="ReAct (Reasoning + Acting) framework for intelligent code exploration and analysis">
       
       
       
@@ -18,7 +18,7 @@
     
     
       
-        <title>CodeFusion Documentation</title>
+        <title>CodeFusion ReAct Framework</title>
       
     
     
@@ -93,7 +93,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/codefusion/." title="CodeFusion Documentation" class="md-header__button md-logo" aria-label="CodeFusion Documentation" data-md-component="logo">
+    <a href="/codefusion/." title="CodeFusion ReAct Framework" class="md-header__button md-logo" aria-label="CodeFusion ReAct Framework" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -107,7 +107,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            CodeFusion Documentation
+            CodeFusion ReAct Framework
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -247,6 +247,25 @@
   
   
   
+    <li class="md-tabs__item">
+      <a href="/codefusion/react-framework/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  ReAct Framework
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
     
     
       <li class="md-tabs__item">
@@ -290,11 +309,11 @@
     
     
       <li class="md-tabs__item">
-        <a href="/codefusion/config/overview/" class="md-tabs__link">
+        <a href="/codefusion/api/" class="md-tabs__link">
           
   
   
-  Configuration
+  API Reference
 
         </a>
       </li>
@@ -315,26 +334,6 @@
   
   
   Development
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="/codefusion/reference/api/" class="md-tabs__link">
-          
-  
-  
-  Reference
 
         </a>
       </li>
@@ -364,13 +363,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/codefusion/." title="CodeFusion Documentation" class="md-nav__button md-logo" aria-label="CodeFusion Documentation" data-md-component="logo">
+    <a href="/codefusion/." title="CodeFusion ReAct Framework" class="md-nav__button md-logo" aria-label="CodeFusion ReAct Framework" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    CodeFusion Documentation
+    CodeFusion ReAct Framework
   </label>
   
     <div class="md-nav__source">
@@ -415,6 +414,28 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="/codefusion/react-framework/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    ReAct Framework
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
     
@@ -431,10 +452,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
         
           
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -447,8 +468,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_2">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             Installation
           </label>
@@ -484,58 +505,12 @@
   
   
     <li class="md-nav__item">
-      <a href="/codefusion/installation/from-source/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    From Source
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="/codefusion/installation/setup/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     Setup Guide
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="/codefusion/installation/dependencies/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Dependencies
     
   </span>
   
@@ -575,10 +550,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -591,8 +566,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Usage
           </label>
@@ -696,15 +671,15 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
             
   
   
   <span class="md-ellipsis">
-    Configuration
+    API Reference
     
   </span>
   
@@ -712,10 +687,10 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
-            Configuration
+            API Reference
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
@@ -726,7 +701,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/codefusion/config/overview/" class="md-nav__link">
+      <a href="/codefusion/api/" class="md-nav__link">
         
   
   
@@ -748,13 +723,58 @@
   
   
   
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Core Components
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            Core Components
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
     <li class="md-nav__item">
-      <a href="/codefusion/config/reference/" class="md-nav__link">
+      <a href="/codefusion/api/react-agent/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Settings Reference
+    ReAct Agent
     
   </span>
   
@@ -772,12 +792,12 @@
   
   
     <li class="md-nav__item">
-      <a href="/codefusion/config/strategies/" class="md-nav__link">
+      <a href="/codefusion/api/supervisor-agent/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Exploration Strategies
+    Supervisor Agent
     
   </span>
   
@@ -794,9 +814,10 @@
     </li>
   
 
-    
-      
-      
+              
+            
+              
+                
   
   
   
@@ -817,15 +838,15 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_3" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
             
   
   
   <span class="md-ellipsis">
-    Development
+    Specialized Agents
     
   </span>
   
@@ -833,10 +854,10 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
             <span class="md-nav__icon md-icon"></span>
-            Development
+            Specialized Agents
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
@@ -847,12 +868,12 @@
   
   
     <li class="md-nav__item">
-      <a href="/codefusion/dev/contributing/" class="md-nav__link">
+      <a href="/codefusion/api/documentation-agent/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Contributing
+    Documentation Agent
     
   </span>
   
@@ -870,12 +891,12 @@
   
   
     <li class="md-nav__item">
-      <a href="/codefusion/dev/architecture/" class="md-nav__link">
+      <a href="/codefusion/api/codebase-agent/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Architecture
+    Codebase Agent
     
   </span>
   
@@ -893,17 +914,147 @@
   
   
     <li class="md-nav__item">
-      <a href="/codefusion/dev/workflow/" class="md-nav__link">
+      <a href="/codefusion/api/architecture-agent/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Workflow Diagrams
+    Architecture Agent
     
   </span>
   
 
       </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Infrastructure
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            Infrastructure
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="/codefusion/api/llm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    LLM Integration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="/codefusion/api/tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Tools
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="/codefusion/api/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -946,7 +1097,7 @@
   
   
   <span class="md-ellipsis">
-    Reference
+    Development
     
   </span>
   
@@ -957,7 +1108,7 @@
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
-            Reference
+            Development
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
@@ -968,12 +1119,12 @@
   
   
     <li class="md-nav__item">
-      <a href="/codefusion/reference/api/" class="md-nav__link">
+      <a href="/codefusion/dev/contributing/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Python API
+    Contributing
     
   </span>
   
@@ -991,35 +1142,12 @@
   
   
     <li class="md-nav__item">
-      <a href="/codefusion/reference/cli/" class="md-nav__link">
+      <a href="/codefusion/dev/architecture/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    CLI Reference
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="/codefusion/reference/config-schema/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Configuration Schema
+    Architecture
     
   </span>
   
