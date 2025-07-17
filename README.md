@@ -1,319 +1,462 @@
-# CodeFusion
+# CodeFusion ReAct Framework
 
-A code understanding tool designed to help senior developers quickly ramp up on large, unfamiliar codebases through agentic exploration and automated knowledge base creation.
+A comprehensive **ReAct (Reasoning + Acting) agent framework** for intelligent code exploration and analysis. CodeFusion enables multi-agent, LLM-powered systematic investigation of codebases through sophisticated reasoning, tool usage, and observation cycles.
 
-## Architecture Overview
+## 🧠 ReAct Architecture Overview
 
 ```mermaid
 graph TB
-    %% User Interfaces
-    CLI[cmd line]
-    WEB[web interface]
-    
-    %% CodeFusion Agentic Kernel (Main Container)
-    subgraph KERNEL ["🧠 CodeFusion Agentic Kernel"]
-        %% Core Agentic Components
-        EXPLORATION[Agentic exploration]
-        INDEXING[Indexing]
-        INSPECTOR[Code Inspector<br/>AST Analysis]
-        
-        %% Knowledge Graph System
-        subgraph CKG ["📊 CKG (Code Knowledge Graph)"]
-            VDB[vdb<br/>Vector Database]
-            ENTITIES[Code Entities]
-            RELATIONS[Relationships]
-        end
-        
-        %% LLM Integration
-        LLM[LLM Proxy<br/>Multi-Provider]
-        TRACER[LLM Tracer]
-        
-        %% Support Systems
-        CONFIG[Configuration<br/>Management]
-        TYPES[Type System]
-        EXCEPTIONS[Exception<br/>Handling]
-        
-        %% Connections within kernel
-        EXPLORATION --> INDEXING
-        EXPLORATION --> INSPECTOR
-        INDEXING --> CKG
-        INSPECTOR --> CKG
-        EXPLORATION --> LLM
-        LLM --> TRACER
-        CONFIG --> EXPLORATION
-        CONFIG --> LLM
-        
-        ENTITIES --> RELATIONS
+    %% User Interface Layer
+    subgraph UI ["🖥️ User Interface"]
+        CLI[CLI Interface<br/>cf analyze]
+        EXPLORE[cf explore]
+        CONTINUE[cf continue]
     end
     
-    %% Agent Computer Interface
-    ACI[ACI<br/>Agent Computer Interface]
-    
-    %% ACI Components
-    subgraph ACI_COMPONENTS ["🔌 ACI Components"]
-        REPO[Repository<br/>Abstraction]
-        SYSACCESS[System<br/>Access]
-        CODEINSP[Code<br/>Inspector]
-        ENVMGR[Environment<br/>Manager]
+    %% ReAct Agent Layer
+    subgraph REACT ["🤖 ReAct Agent Framework"]
+        SUPERVISOR[ReAct Supervisor<br/>Multi-Agent Orchestration]
+        DOC_AGENT[Documentation Agent<br/>README & Docs Analysis]
+        CODE_AGENT[Codebase Agent<br/>Source Code Analysis]
+        ARCH_AGENT[Architecture Agent<br/>System Design Analysis]
     end
     
-    %% External Sources
-    GITHUB[github]
-    REMOTE[remote<br/>cloud] 
-    LOCAL[local<br/>filesystem]
+    %% Core Infrastructure
+    subgraph CORE ["⚙️ Core Infrastructure"]
+        REACT_BASE[ReAct Base Agent<br/>Reason → Act → Observe]
+        TOOLS[Tool Ecosystem<br/>8 Core Tools]
+        CACHE[Persistent Cache<br/>Cross-Session Memory]
+        TRACE[Execution Tracing<br/>Performance Monitoring]
+    end
     
-    %% Supporting Infrastructure
-    TESTS[Test Suite<br/>pytest]
-    TRACE[Trace Storage<br/>Trajectories]
-    TOOLS[External Tools<br/>Utilities]
+    %% LLM Integration
+    subgraph LLM ["🧠 LLM Integration"]
+        LITELLM[LiteLLM Provider]
+        OPENAI[OpenAI GPT-4]
+        ANTHROPIC[Claude 3]
+        LLAMA[LLaMA Models]
+    end
     
-    %% User Interface Connections
-    CLI --> KERNEL
-    WEB --> KERNEL
+    %% Repository Interface
+    subgraph REPO ["📁 Repository Access"]
+        LOCAL[Local Files]
+        REMOTE[Remote Git]
+    end
     
-    %% ACI Connections
-    KERNEL --> ACI
-    ACI --> ACI_COMPONENTS
-    REPO --> GITHUB
-    REPO --> REMOTE
-    REPO --> LOCAL
+    %% Connections
+    CLI --> SUPERVISOR
+    SUPERVISOR --> DOC_AGENT
+    SUPERVISOR --> CODE_AGENT
+    SUPERVISOR --> ARCH_AGENT
     
-    %% Infrastructure Connections
-    KERNEL --> TRACE
-    TESTS --> KERNEL
-    TOOLS --> KERNEL
+    DOC_AGENT --> REACT_BASE
+    CODE_AGENT --> REACT_BASE
+    ARCH_AGENT --> REACT_BASE
     
-    %% Balanced Professional Color Styling
-    classDef userInterface fill:#3b4d66,stroke:#2d3748,stroke-width:2px,color:#f7fafc
-    classDef kernel fill:#553c6b,stroke:#44337a,stroke-width:3px,color:#f7fafc
-    classDef coreComponent fill:#744e3a,stroke:#5a3a2a,stroke-width:2px,color:#f7fafc
-    classDef knowledge fill:#2d5a3d,stroke:#1a4d2e,stroke-width:2px,color:#f7fafc
-    classDef external fill:#6b3d5a,stroke:#5a2d4a,stroke-width:2px,color:#f7fafc
-    classDef aci fill:#4a5d3d,stroke:#3a4d2e,stroke-width:2px,color:#f7fafc
-    classDef infrastructure fill:#5a5a5a,stroke:#4a4a4a,stroke-width:2px,color:#f7fafc
-    classDef support fill:#66594a,stroke:#5a4a3a,stroke-width:2px,color:#f7fafc
+    REACT_BASE --> TOOLS
+    REACT_BASE --> CACHE
+    REACT_BASE --> TRACE
     
-    class CLI,WEB userInterface
-    class KERNEL kernel
-    class EXPLORATION,INDEXING,INSPECTOR,LLM coreComponent
-    class CKG,VDB,ENTITIES,RELATIONS knowledge
-    class GITHUB,REMOTE,LOCAL external
-    class ACI,ACI_COMPONENTS aci
-    class REPO,SYSACCESS,CODEINSP,ENVMGR aci
-    class TESTS,TRACE,TOOLS infrastructure
-    class CONFIG,TYPES,EXCEPTIONS,TRACER support
+    TOOLS --> LITELLM
+    LITELLM --> OPENAI
+    LITELLM --> ANTHROPIC
+    LITELLM --> LLAMA
+    
+    REACT_BASE --> REPO
+    
+    %% Styling
+    classDef ui fill:#3b4d66,stroke:#2d3748,stroke-width:2px,color:#f7fafc
+    classDef react fill:#553c6b,stroke:#44337a,stroke-width:3px,color:#f7fafc
+    classDef core fill:#2d5a3d,stroke:#1a4d2e,stroke-width:2px,color:#f7fafc
+    classDef llm fill:#8b5a3c,stroke:#6b4423,stroke-width:2px,color:#f7fafc
+    classDef repo fill:#2c5282,stroke:#1a365d,stroke-width:2px,color:#f7fafc
+    
+    class UI,CLI,EXPLORE,CONTINUE ui
+    class REACT,SUPERVISOR,DOC_AGENT,CODE_AGENT,ARCH_AGENT react
+    class CORE,REACT_BASE,TOOLS,CACHE,TRACE core
+    class LLM,LITELLM,OPENAI,ANTHROPIC,LLAMA llm
+    class REPO,LOCAL,REMOTE repo
 ```
 
-### 🏗️ **System Architecture**
+## 🎯 Core Features
 
-The CodeFusion architecture follows a **kernel-based design** with clear separation of concerns:
+### ✅ **ReAct Pattern Implementation**
+- **Systematic Reasoning**: AI-powered analysis of current state and goal progress
+- **Intelligent Action Selection**: 8 specialized tools for comprehensive code exploration
+- **Adaptive Observation**: Learning from results to improve future actions
+- **Goal-Oriented Loops**: Iterative refinement until objectives are achieved
 
-#### 🎯 **User Interfaces**
-- **cmd line**: Command-line interface for developer interaction
-- **web interface**: Browser-based interface for visual exploration
+### ✅ **Multi-Agent Architecture**
+- **Supervisor Agent**: Orchestrates multiple specialized agents
+- **Documentation Agent**: Analyzes README files, guides, and documentation
+- **Codebase Agent**: Examines source code, functions, and patterns
+- **Architecture Agent**: Studies system design and architectural patterns
 
-#### 🧠 **CodeFusion Agentic Kernel**
-The central processing unit containing:
-- **Agentic exploration**: Multi-strategy code exploration (ReAct, Plan-Act, Sense-Act)
-- **Indexing**: Systematic codebase processing and analysis
-- **Code Inspector**: AST-based code analysis and pattern detection
-- **LLM Proxy**: Multi-provider LLM integration with tracing
-- **Support Systems**: Configuration, type system, and exception handling
+### ✅ **Advanced LLM Integration**
+- **Multiple Providers**: OpenAI, Anthropic, LLaMA via LiteLLM
+- **Intelligent Reasoning**: Context-aware decision making
+- **Robust Fallbacks**: Graceful degradation when LLMs unavailable
+- **Provider-Specific Optimization**: Tailored prompts for each model
 
-#### 🔌 **ACI (Agent Computer Interface)**
-Unified interface layer between agents and computer system:
-- **Repository Access**: Local/remote repository abstraction
-- **System Interface**: Environment variables, command execution
-- **Code Inspection**: AST-based code analysis and pattern detection
-- **Environment Management**: Search capabilities and resource management
+### ✅ **Enterprise-Grade Infrastructure**
+- **Persistent Caching**: Cross-session memory with TTL and LRU eviction
+- **Comprehensive Tracing**: Execution monitoring and performance metrics
+- **Error Recovery**: Circuit breakers, retry logic, and fallback strategies
+- **Configurable Performance**: Fast, balanced, and thorough analysis profiles
 
-#### 📊 **Code Knowledge Graph (CKG)**
-- **Vector Database (vdb)**: Semantic embeddings for code similarity and search
-- **Code Entities**: Files, classes, functions with metadata
-- **Relationships**: Import dependencies, call graphs, inheritance
-- **C4 Mapping**: Context, Container, Components, Code levels
+## 🚀 Quick Start
 
-#### 🏗️ **Supporting Infrastructure**
-- **Test Suite**: Comprehensive pytest-based testing framework
-- **Trace Storage**: Execution trajectories and performance metrics  
-- **External Tools**: Utility scripts and development aids
-- **Type System**: Comprehensive type definitions and protocols
-- **Exception Handling**: Custom exception hierarchy for robust error management
-
-## Workflow
-
-For detailed step-by-step component interactions and workflows, see [Workflow Diagrams](docs/dev/workflow.md).
-
-## Component Overview
-
-### 🎯 **User Interfaces**
-- **RunCli**: Command-line interface for interactive exploration
-- **RunApi**: REST API for programmatic access (future)
-
-### ⚙️ **Core System**
-- **CfConfig**: YAML/JSON configuration management
-- **ACI**: Agent Computer Interface with system access and repository abstraction
-
-### 🧠 **Knowledge Management**
-- **CodeKB**: Knowledge graph for C4 mapping (Context, Container, Components, Code)
-- **Content Analyzer**: Intelligent question answering and content analysis
-- **Relationship Detector**: AST-based relationship detection
-- **Vector Storage**: FAISS-based semantic search
-- **Neo4j**: Graph database for complex relationships
-
-### 🤖 **Agentic Exploration**
-- **CodeIndexer**: Orchestrates exploration strategies
-- **ReAct Agent**: Reasoning + Acting approach with LLM integration
-- **Plan-then-Act**: Strategic planning followed by systematic execution
-- **Sense-then-Act**: Iterative environment sensing and adaptive actions
-
-### 🔗 **LLM Integration**
-- **LlmModel**: Multi-provider model interface via LiteLLM
-- **LlmTracer**: Monitoring and observability
-- **Provider Support**: OpenAI, Anthropic, Cohere, local models
-
-## V0.01 Goals
-
-1. **Index Codebase**: Given a repository path, perform initial exploration
-2. **Build Knowledge Base**: Create structured understanding of code architecture
-3. **Answer Questions**: Respond to queries about code structure and functionality
-
-## Key Features
-
-- 🚀 **Rapid Onboarding**: Quick understanding of large codebases
-- 🔍 **Multi-Strategy Exploration**: ReAct, Plan-Act, Sense-Act approaches
-- 📊 **Technology Detection**: Automatic identification of frameworks and patterns
-- 🌐 **External Integration**: Web search and documentation lookup
-- 📈 **Extensible Architecture**: Plugin-ready for new exploration strategies
-
-## Installation
-
-### Prerequisites
-- Python 3.8 or higher
-- Git
-
-### Setup
+### Installation
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd codefusion
-
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install base dependencies
+# Install CodeFusion
 pip install -e .
 
-# Install optional dependencies (choose what you need)
-pip install -e ".[vector]"    # For vector database and semantic search
-pip install -e ".[llm]"       # For LLM integration
-pip install -e ".[neo4j]"     # For Neo4j graph database
-pip install -e ".[dev]"       # For development tools
-pip install -e ".[all]"       # Install everything
+# Install LLM support (optional but recommended)
+pip install litellm
 
 # Verify installation
-python -m cf --help
+python -m cf.run.simple_run --help
 ```
 
-### Dependencies Overview
-
-- **Base**: Core functionality with text-based knowledge base
-- **Vector**: Adds FAISS + sentence-transformers for semantic search  
-- **LLM**: LiteLLM integration for multiple AI providers
-- **Neo4j**: Graph database for complex relationship analysis
-- **Dev**: Testing, linting, and development tools
-
-## Quick Start
-
-### CLI Usage
+### Basic Usage
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
+# Multi-agent comprehensive analysis
+python -m cf.run.simple_run analyze /path/to/repo --focus=all
 
-# Explore a codebase with text-based knowledge base
-cf explore /path/to/codebase
+# Documentation-focused analysis
+python -m cf.run.simple_run analyze /path/to/repo --focus=docs
 
-# Use vector database for semantic search
-cf explore /path/to/codebase --config vector_config.yaml
+# Architecture-focused analysis
+python -m cf.run.simple_run analyze /path/to/repo --focus=arch
 
-# Query the knowledge base
-cf query "What classes are in this codebase?"
-
-# View knowledge base statistics
-cf stats
+# Question-based exploration
+python -m cf.run.simple_run explore /path/to/repo "How does authentication work?"
 ```
+
+### LLM Configuration
+
+```bash
+# OpenAI Integration
+export CF_LLM_MODEL=gpt-4
+export CF_LLM_API_KEY=your-openai-api-key
+
+# Anthropic Integration
+export CF_LLM_MODEL=claude-3-sonnet-20240229
+export CF_LLM_API_KEY=your-anthropic-api-key
+
+# LLaMA Integration (via Together AI)
+export CF_LLM_MODEL=together_ai/meta-llama/Llama-2-7b-chat-hf
+export CF_LLM_API_KEY=your-together-ai-key
+
+# Run analysis with LLM
+python -m cf.run.simple_run analyze /repo --focus=all
+```
+
+## 🔄 ReAct Process Flow
+
+The framework follows a systematic **Reason → Act → Observe** cycle:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Supervisor
+    participant Agent
+    participant Tools
+    participant LLM
+    participant Cache
+
+    User->>Supervisor: python -m cf.run.simple_run analyze /repo --focus=all
+    
+    loop ReAct Loop
+        Note over Agent: 🧠 REASON Phase
+        Agent->>Agent: Analyze current state
+        Agent->>LLM: What should I do next?
+        LLM-->>Agent: Reasoning & suggestions
+        
+        Note over Agent: 🎯 ACT Phase
+        Agent->>Tools: Execute planned action
+        Tools->>Cache: Check for cached results
+        alt Cache Miss
+            Tools->>LLM: Process/summarize content
+            LLM-->>Tools: Processed results
+            Tools->>Cache: Store results
+        end
+        Cache-->>Tools: Return results
+        Tools-->>Agent: Action results
+        
+        Note over Agent: 👁️ OBSERVE Phase
+        Agent->>Agent: Process results
+        Agent->>Agent: Update understanding
+        Agent->>Agent: Check goal progress
+    end
+    
+    Agent-->>Supervisor: Analysis complete
+    Supervisor-->>User: Comprehensive insights
+```
+
+## 🛠️ Tool Ecosystem
+
+Each ReAct agent has access to 8 specialized tools:
+
+### Core Exploration Tools
+- **🔍 SCAN_DIRECTORY**: Recursive directory structure exploration
+- **📋 LIST_FILES**: Pattern-based file discovery
+- **📖 READ_FILE**: Intelligent file content analysis
+- **🔎 SEARCH_FILES**: Multi-file pattern searching
+
+### Advanced Analysis Tools
+- **⚙️ ANALYZE_CODE**: Code structure and complexity analysis
+- **🧠 LLM_REASONING**: AI-powered decision making
+- **📝 LLM_SUMMARY**: Intelligent content summarization
+- **💾 CACHE_OPERATIONS**: Persistent memory management
+
+## 🎛️ Configuration & Performance
+
+### Environment Variables
+```bash
+# ReAct Loop Configuration
+CF_REACT_MAX_ITERATIONS=20          # Maximum iterations per agent
+CF_REACT_ITERATION_TIMEOUT=30.0     # Timeout per iteration (seconds)
+CF_REACT_TOTAL_TIMEOUT=600.0        # Total analysis timeout
+
+# Caching Configuration
+CF_REACT_CACHE_ENABLED=true         # Enable persistent caching
+CF_REACT_CACHE_MAX_SIZE=1000        # Maximum cache entries
+CF_REACT_CACHE_TTL=3600             # Cache TTL (seconds)
+
+# Tracing Configuration
+CF_REACT_TRACING_ENABLED=true       # Enable execution tracing
+CF_REACT_TRACE_DIR=./traces         # Trace output directory
+
+# Error Handling
+CF_REACT_ERROR_RECOVERY=true        # Enable error recovery
+CF_REACT_MAX_CONSECUTIVE_ERRORS=3   # Circuit breaker threshold
+```
+
+### Performance Profiles
+```bash
+# Fast Analysis (10 iterations, 15s timeout)
+CF_REACT_MAX_ITERATIONS=10 python -m cf.run.simple_run analyze /repo
+
+# Thorough Analysis (50 iterations, 60s timeout)  
+CF_REACT_MAX_ITERATIONS=50 python -m cf.run.simple_run analyze /repo
+
+# Custom Configuration
+CF_REACT_MAX_ITERATIONS=30 CF_REACT_CACHE_MAX_SIZE=2000 python -m cf.run.simple_run analyze /repo
+```
+
+## 📊 Example Output
+
+```
+🤖 CodeFusion ReAct Analysis Results
+==================================================
+
+🎯 Multi-Agent Repository Analysis
+📁 Repository: /path/to/project
+⏱️  Total Time: 45.2 seconds
+🔄 Total Iterations: 18
+💾 Cache Hits: 12
+
+🤖 Documentation Agent Results:
+-------------------------------
+✅ Found 8 documentation files
+• README.md: Project overview and setup instructions
+• docs/architecture.md: System design and component descriptions  
+• docs/api.md: REST API endpoint documentation
+• CONTRIBUTING.md: Development workflow and guidelines
+
+Key Insights:
+- Well-structured documentation hierarchy
+- API documentation covers 23 endpoints
+- Architecture follows microservices pattern
+
+🤖 Codebase Agent Results:
+--------------------------
+✅ Analyzed 156 source files across 12 modules
+• 45 classes identified with inheritance relationships
+• 234 functions analyzed for complexity
+• 12 design patterns detected (Factory, Observer, Strategy)
+
+Code Quality Metrics:
+- Average cyclomatic complexity: 3.2
+- Test coverage: 78% (estimated from test files)
+- Clean architecture principles followed
+
+🤖 Architecture Agent Results:
+------------------------------
+✅ System architecture analysis complete
+• 6 core components identified
+• Microservices architecture with API gateway
+• Event-driven communication via message queues
+
+Architectural Patterns:
+- Clean Architecture (hexagonal)
+- CQRS with Event Sourcing
+- Database per service pattern
+
+🔄 Cross-Agent Insights:
+-----------------------
+• Documentation accurately reflects implemented architecture
+• Code structure aligns with documented design patterns
+• API endpoints match documented microservice boundaries
+• Testing strategy covers both unit and integration levels
+
+💡 Recommendations:
+------------------
+• Consider adding performance monitoring documentation
+• Some legacy modules could benefit from refactoring
+• API documentation could include more error handling examples
+```
+
+## 🔧 Advanced Usage
 
 ### Python API
 
 ```python
-from cf import CfConfig
-from cf.aci import LocalCodeRepo, EnvironmentManager
+from cf.agents.react_supervisor_agent import ReActSupervisorAgent
+from cf.aci.repo import LocalCodeRepo
+from cf.config import CfConfig
 
-# Configure the system
-config = CfConfig.from_file("config.yaml")
+# Create supervisor for comprehensive analysis
+repo = LocalCodeRepo("/path/to/repo")
+config = CfConfig()
+supervisor = ReActSupervisorAgent(repo, config)
 
-# Initialize repository
-repo = LocalCodeRepo("/path/to/target/codebase")
+# Run multi-agent analysis
+results = supervisor.explore_repository(focus="all")
 
-# Create environment manager
-env = EnvironmentManager(repo, config)
+# Access individual agent results
+doc_results = results['agent_results']['documentation']
+code_results = results['agent_results']['codebase']
+arch_results = results['agent_results']['architecture']
 
-# Get repository overview
-overview = env.get_repository_overview()
-print(f"Primary language: {overview['primary_language']}")
-
-# Get exploration suggestions
-suggestions = env.suggest_exploration_strategy()
-for suggestion in suggestions:
-    print(f"💡 {suggestion}")
+# Get cross-agent insights
+insights = results['cross_agent_insights']
 ```
 
-### Configuration Examples
+### Custom Agent Development
 
-**Basic config (config.yaml):**
-```yaml
-kb_type: "text"
-kb_path: "./kb"
-exploration_strategy: "react"
+```python
+from cf.core.react_agent import ReActAgent, ReActAction, ActionType
+
+class SecurityAnalysisAgent(ReActAgent):
+    def reason(self) -> str:
+        if not self.state.observations:
+            return "Start by scanning for security-related files"
+        return "Search for potential security vulnerabilities"
+    
+    def plan_action(self, reasoning: str) -> ReActAction:
+        if "scan" in reasoning.lower():
+            return ReActAction(
+                action_type=ActionType.SEARCH_FILES,
+                description="Find security-related files",
+                parameters={'pattern': 'auth|security|crypto', 'file_types': ['.py']}
+            )
+        # ... additional action planning
+    
+    def _generate_summary(self) -> str:
+        return f"Security analysis complete: {len(self.state.observations)} findings"
 ```
 
-**Vector database config:**
-```yaml
-kb_type: "vector"
-kb_path: "./kb_vector"
-embedding_model: "all-MiniLM-L6-v2"
-exploration_strategy: "react"
+## 📈 Monitoring & Debugging
+
+### Execution Tracing
+```bash
+# Enable detailed tracing
+CF_REACT_TRACING_ENABLED=true CF_REACT_TRACE_DIR=./traces python -m cf.run.simple_run analyze /repo
+
+# View trace files
+ls -la ./traces/
+cat ./traces/trace_12345_supervisor.json
 ```
 
-## Development Status
+### Performance Monitoring
+```python
+from cf.core.react_tracing import tracer
 
-- ✅ Core architecture implemented
-- ✅ Configuration management (YAML-based)
-- ✅ Repository abstraction (local/remote)
-- ✅ Environment with search capabilities
-- ✅ Knowledge base implementation (text + Neo4j ready)
-- ✅ Agentic indexer (ReAct strategy)
-- ✅ LLM integration (LiteLLM + tracing)
-- ✅ CLI interface (demo, index, query, explore)
-- ✅ Code inspector (AST analysis)
-- ✅ Type system and exception handling
-- ✅ Test framework (pytest)
-- ✅ Python packaging (pyproject.toml)
-- ✅ Vector database integration (FAISS + sentence-transformers)
-- ✅ Advanced relationship detection (AST-based analysis)
-- ✅ Neo4j graph database support (with fallback)
-- ✅ Plan-then-Act and Sense-then-Act strategies
-- ✅ Agent Computer Interface (ACI) with system access
-- ✅ Content analysis and intelligent question answering
-- 🚧 Web interface
+# Get global metrics
+metrics = tracer.get_global_metrics()
+print(f"Total sessions: {metrics['total_sessions']}")
+print(f"Average duration: {metrics['avg_session_duration']:.2f}s")
+print(f"Success rate: {(1 - metrics['total_errors']/metrics['total_sessions']):.2%}")
+```
 
-## Contributing
+### Debug Mode
+```bash
+# Enable verbose debugging
+CF_REACT_LOG_LEVEL=DEBUG CF_REACT_VERBOSE_LOGGING=true python -m cf.run.simple_run analyze /repo
 
-This project is in early development. Architecture feedback and contributions welcome!
+# Disable caching for testing
+CF_REACT_CACHE_ENABLED=false python -m cf.run.simple_run analyze /repo
+```
 
-## License
+## 🆚 Why ReAct Framework?
+
+### Traditional Code Analysis Tools
+- ❌ Static analysis with limited context
+- ❌ One-time indexing without adaptation
+- ❌ No reasoning about findings
+- ❌ Limited multi-perspective analysis
+
+### CodeFusion ReAct Framework
+- ✅ Dynamic, adaptive exploration
+- ✅ AI-powered reasoning and decision making
+- ✅ Multi-agent collaborative analysis
+- ✅ Persistent learning across sessions
+- ✅ Comprehensive error recovery
+- ✅ Configurable depth and focus
+
+## 📚 Documentation
+
+- [**Architecture Guide**](./docs/dev/architecture.md) - Detailed system architecture
+- [**ReAct Framework Documentation**](./docs/react-framework.md) - Complete framework guide
+- [**Configuration Reference**](./docs/usage/configuration.md) - All configuration options
+- [**CLI Usage**](./docs/usage/cli.md) - Command line interface guide
+
+## 🧪 Testing
+
+```bash
+# Run comprehensive test suite
+pytest tests/test_react_framework.py -v
+
+# Test specific components
+pytest tests/test_react_framework.py::TestReActAgent -v
+
+# Run with coverage
+pytest tests/test_react_framework.py --cov=cf.core --cov=cf.agents
+```
+
+## 🤝 Contributing
+
+We welcome contributions that enhance the ReAct framework:
+
+1. **Maintain ReAct Principles**: Preserve the Reason → Act → Observe pattern
+2. **Add Specialized Agents**: Create domain-specific analysis agents
+3. **Extend Tool Ecosystem**: Add new tools for enhanced capabilities
+4. **Improve LLM Integration**: Support additional providers and models
+5. **Enhance Error Recovery**: Strengthen resilience and fault tolerance
+
+## 🔮 Roadmap
+
+### Upcoming Features
+- **Parallel Tool Execution**: Concurrent action execution for faster analysis
+- **Interactive Mode**: Real-time user feedback integration  
+- **Plugin Architecture**: Dynamic agent and tool loading
+- **Advanced Caching**: Semantic similarity-based cache keys
+- **Distributed Tracing**: Multi-node execution monitoring
+
+### LLM Integration Enhancements
+- **Model Switching**: Dynamic model selection based on task complexity
+- **Context Window Management**: Intelligent truncation and summarization
+- **Cost Optimization**: Efficient token usage and provider selection
+- **Custom Fine-tuning**: Domain-specific model optimization
+
+## 📜 License
 
 Apache 2.0 License
+
+---
+
+*Built on the ReAct pattern for systematic, intelligent code exploration through reasoning, acting, and observing.*

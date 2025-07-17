@@ -1,5 +1,5 @@
-site_name: CodeFusion Documentation
-site_description: A code understanding tool for rapid codebase exploration
+site_name: CodeFusion ReAct Framework
+site_description: ReAct (Reasoning + Acting) framework for intelligent code exploration and analysis
 site_url: https://codefusionagent.github.io/codefusion/
 repo_url: https://github.com/CodeFusionAgent/codefusion
 repo_name: CodeFusionAgent/codefusion
@@ -35,27 +35,30 @@ theme:
 
 nav:
   - Home: index.md
+  - ReAct Framework: react-framework.md
   - Installation:
     - Quick Start: installation/quickstart.md
-    - From Source: installation/from-source.md
     - Setup Guide: installation/setup.md
-    - Dependencies: installation/dependencies.md
   - Usage:
     - CLI Commands: usage/cli.md
     - Configuration: usage/configuration.md
     - Examples: usage/examples.md
-  - Configuration:
-    - Overview: config/overview.md
-    - Settings Reference: config/reference.md
-    - Exploration Strategies: config/strategies.md
+  - API Reference:
+    - Overview: api/index.md
+    - Core Components:
+      - ReAct Agent: api/react-agent.md
+      - Supervisor Agent: api/supervisor-agent.md
+    - Specialized Agents:
+      - Documentation Agent: api/documentation-agent.md
+      - Codebase Agent: api/codebase-agent.md
+      - Architecture Agent: api/architecture-agent.md
+    - Infrastructure:
+      - LLM Integration: api/llm.md
+      - Tools: api/tools.md
+      - Configuration: api/config.md
   - Development:
     - Contributing: dev/contributing.md
     - Architecture: dev/architecture.md
-    - Workflow Diagrams: dev/workflow.md
-  - Reference:
-    - Python API: reference/api.md
-    - CLI Reference: reference/cli.md
-    - Configuration Schema: reference/config-schema.md
 
 plugins:
   - search

@@ -1,10 +1,10 @@
 # Installation and Setup Guide
 
-This guide covers setting up CodeFusion for development and usage.
+This guide covers setting up CodeFusion for human-like code exploration.
 
 ## Prerequisites
 
-- **Python 3.8+**: Required for all functionality
+- **Python 3.10+**: Required for all functionality
 - **Git**: For cloning repositories and version control
 - **Virtual Environment**: Highly recommended to avoid dependency conflicts
 
@@ -33,78 +33,55 @@ Your terminal prompt should show `(venv)` when the virtual environment is active
 
 ```bash
 (venv) $ python --version
-Python 3.12.x
+Python 3.10.x
 ```
 
 ## Installation Options
 
 ### Basic Installation
 
-Install core functionality with text-based knowledge base:
+Install CodeFusion with human-like exploration capabilities:
 
 ```bash
 pip install -e .
 ```
 
 This includes:
-- Core system architecture
-- Text-based knowledge base
-- CLI interface
-- Configuration management
+- Core human-like exploration system
+- Simple CLI interface
+- Text-based caching
+- Repository access layer
+- Basic configuration management
 
-### Vector Database Support
+### Development Installation
 
-For semantic search and code embeddings:
-
-```bash
-pip install -e ".[vector]"
-```
-
-Adds:
-- FAISS vector database
-- Sentence transformers for embeddings
-- Semantic code search capabilities
-
-### LLM Integration
-
-For AI-powered code analysis:
-
-```bash
-pip install -e ".[llm]"
-```
-
-Adds:
-- LiteLLM for multiple AI providers
-- OpenAI, Anthropic, Cohere support
-- LLM tracing and monitoring
-
-### Graph Database
-
-For complex relationship analysis:
-
-```bash
-pip install -e ".[neo4j]"
-```
-
-Adds:
-- Neo4j driver
-- Graph-based knowledge storage
-- Advanced relationship queries
-
-### Development Tools
-
-For contributing to CodeFusion:
+For development and contributing:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-Adds:
-- pytest testing framework
-- Code formatting (black, isort)
-- Type checking (mypy)
+This adds:
+- Testing framework (pytest)
+- Code formatting (black)
+- Import sorting (isort)
 - Linting (flake8)
+- Type checking (mypy)
 - Pre-commit hooks
+
+### Documentation Installation
+
+For building and serving documentation:
+
+```bash
+pip install -e ".[docs]"
+```
+
+This adds:
+- MkDocs for documentation
+- Material theme
+- Mermaid diagrams
+- Python docstring support
 
 ### Complete Installation
 
@@ -114,130 +91,293 @@ Install everything:
 pip install -e ".[all]"
 ```
 
-## Verification
+## Verify Installation
 
-Test your installation:
+### Basic Verification
 
 ```bash
-# Check CLI is working
+# Check if cf command is available
 cf --help
 
-# Run a quick demo
-cf demo
-
-# Test vector database (if installed)
-python -c "from cf.kb.vector_kb import VectorKB; print('Vector DB available!')"
+# Verify Python imports work
+python -c "import cf; print(f'CodeFusion v{cf.__version__}')"
 ```
 
-## Configuration
+### Test with Sample Repository
+
+```bash
+# Test basic exploration
+cf explore . "How does the simple explorer work?"
+
+# Test with a larger repository
+cf explore /path/to/some/repo "What is the overall architecture?"
+```
+
+## Initial Configuration
 
 ### Default Configuration
 
-CodeFusion looks for configuration in these locations (in order):
-1. Command line `--config` parameter
-2. Current directory `config.yaml`
-3. Default built-in configuration
+CodeFusion works out of the box with sensible defaults. The default configuration is located at:
 
-### Basic Configuration File
-
-Create `config.yaml`:
-
-```yaml
-# Basic text-based setup
-kb_type: "text"
-kb_path: "./kb"
-exploration_strategy: "react"
-max_file_size: 1048576  # 1MB
-excluded_dirs: [".git", "__pycache__", "node_modules", ".venv"]
+```
+config/default/config.yaml
 ```
 
-### Vector Database Configuration
+### Custom Configuration
 
-For semantic search capabilities:
+Create your own configuration file:
 
-```yaml
-# Vector database setup
-kb_type: "vector"
-kb_path: "./kb_vector"
-embedding_model: "all-MiniLM-L6-v2"
-exploration_strategy: "react"
-max_file_size: 1048576
-excluded_dirs: [".git", "__pycache__", "node_modules", ".venv"]
+```bash
+# Copy default configuration
+cp config/default/config.yaml my-config.yaml
+
+# Edit configuration
+nano my-config.yaml
+
+# Use custom configuration
+cf --config my-config.yaml explore /path/to/repo "How does authentication work?"
 ```
 
-### LLM Configuration
+## Development Setup
 
-For AI-powered analysis:
+### Additional Development Tools
 
-```yaml
-# LLM integration
-kb_type: "vector"
-kb_path: "./kb_vector"
-llm_model: "gpt-3.5-turbo"
-llm_api_key: "your-api-key-here"  # Optional, can use env var
-embedding_model: "all-MiniLM-L6-v2"
-exploration_strategy: "react"
+```bash
+# Install pre-commit hooks
+pre-commit install
+
+# Run tests
+pytest
+
+# Format code
+black .
+
+# Sort imports
+isort .
+
+# Check types
+mypy cf/
+
+# Lint code
+flake8 cf/
+```
+
+### IDE Configuration
+
+#### VS Code
+
+Install recommended extensions:
+
+```json
+{
+    "recommendations": [
+        "ms-python.python",
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "ms-python.flake8",
+        "ms-python.mypy-type-checker"
+    ]
+}
+```
+
+#### PyCharm
+
+Configure interpreters:
+1. Go to File → Settings → Project → Python Interpreter
+2. Select the virtual environment: `./venv/bin/python`
+3. Enable type checking and linting
+
+## Common Installation Issues
+
+### Python Version Issues
+
+```bash
+# Check Python version
+python --version
+
+# If you have multiple Python versions, use specific version
+python3.10 -m venv venv
+```
+
+### Permission Issues
+
+```bash
+# On macOS/Linux, if you get permission errors:
+sudo chown -R $(whoami) ~/.local/lib/python3.10/site-packages/
+
+# Or use user installation
+pip install --user -e .
+```
+
+### Virtual Environment Issues
+
+```bash
+# Deactivate and recreate virtual environment
+deactivate
+rm -rf venv
+python -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -e .
+```
+
+### Dependencies Issues
+
+```bash
+# Clear pip cache
+pip cache purge
+
+# Upgrade pip and setuptools
+pip install --upgrade pip setuptools wheel
+
+# Reinstall dependencies
+pip install --force-reinstall -e .
+```
+
+## Directory Structure
+
+After installation, your directory structure should look like:
+
+```
+codefusion/
+├── cf/                          # Main package
+│   ├── core/
+│   │   └── simple_explorer.py   # Main exploration interface
+│   ├── agents/
+│   │   └── human_explorer.py    # Human-like investigation
+│   ├── run/
+│   │   └── simple_run.py        # CLI interface
+│   ├── aci/
+│   │   └── repo.py              # Repository access
+│   └── config.py                # Configuration management
+├── config/
+│   └── default/
+│       └── config.yaml          # Default configuration
+├── examples/
+│   └── human_exploration_demo.py # Demo script
+├── tests/                       # Test suite
+├── docs/                        # Documentation
+├── pyproject.toml               # Package configuration
+└── README.md                    # Main documentation
 ```
 
 ## Environment Variables
 
-Set these environment variables for convenience:
+CodeFusion uses minimal environment variables:
 
 ```bash
-# API keys (optional)
-export OPENAI_API_KEY="your-openai-key"
-export ANTHROPIC_API_KEY="your-anthropic-key"
+# Optional: Set default configuration path
+export CF_CONFIG_PATH="/path/to/config.yaml"
 
-# Default config file
-export CF_CONFIG="./config.yaml"
+# Optional: Enable debug mode
+export CF_DEBUG=1
+
+# Optional: Set output directory
+export CF_OUTPUT_DIR="/path/to/output"
 ```
 
 ## Troubleshooting
 
-### Common Issues
-
-**ImportError: No module named 'faiss'**
-```bash
-pip install -e ".[vector]"
-```
-
-**sentence-transformers not found**
-```bash
-pip install sentence-transformers
-```
-
-**Virtual environment not activated**
-```bash
-source venv/bin/activate  # macOS/Linux
-venv\Scripts\activate     # Windows
-```
-
-### Dependency Conflicts
-
-If you encounter dependency conflicts:
+### Command Not Found
 
 ```bash
-# Create fresh virtual environment
-rm -rf venv
-python -m venv venv
-source venv/bin/activate
+# Check if cf is in PATH
+which cf
 
-# Reinstall with specific versions
-pip install -e ".[all]"
+# If not found, try:
+pip install -e . --force-reinstall
+
+# Or use python module execution
+python -m cf --help
 ```
 
-### Performance Issues
+### Import Errors
 
-For large codebases:
+```bash
+# Check if package is installed
+pip list | grep codefusion
 
-1. Increase `max_file_size` in config
-2. Add more directories to `excluded_dirs`
-3. Use vector database for faster search
-4. Consider using smaller embedding models
+# If not listed, reinstall
+pip install -e .
+
+# Check for import issues
+python -c "import cf; print('OK')"
+```
+
+### Configuration Errors
+
+```bash
+# Validate configuration
+cf --config config.yaml summary /path/to/repo
+
+# Check YAML syntax
+python -c "import yaml; yaml.safe_load(open('config.yaml'))"
+```
+
+## Performance Optimization
+
+### For Large Repositories
+
+```bash
+# Create optimized configuration
+cat > large-repo-config.yaml << 'EOF'
+max_file_size: 2097152  # 2MB
+max_exploration_depth: 3
+excluded_dirs:
+  - ".git"
+  - "__pycache__"
+  - "node_modules"
+  - ".venv"
+  - "dist"
+  - "build"
+  - "target"
+  - "vendor"
+EOF
+
+# Use optimized configuration
+cf --config large-repo-config.yaml explore /path/to/large/repo "How does X work?"
+```
+
+### Memory Usage
+
+```bash
+# Monitor memory usage
+/usr/bin/time -v cf explore /path/to/repo "How does X work?"
+
+# For memory-constrained environments
+export CF_MAX_FILE_SIZE=524288  # 512KB
+```
 
 ## Next Steps
 
-1. **Quick Start**: Try `cf demo` to see CodeFusion in action
-2. **Explore a Codebase**: Run `cf explore /path/to/your/project`
-3. **Configuration**: Customize `config.yaml` for your needs
-4. **Documentation**: Read the usage guides in `docs/usage/`
+1. **Try the demo**: Run `python examples/human_exploration_demo.py`
+2. **Explore a repository**: Use `cf explore /path/to/repo "How does X work?"`
+3. **Read the documentation**: Check out the [CLI Usage](../usage/cli.md) guide
+4. **Configure for your needs**: See [Configuration](../usage/configuration.md)
+5. **Contributing**: Check the development setup above
+
+## Getting Help
+
+If you encounter issues:
+
+1. **Check the documentation**: Look through the docs/ directory
+2. **Run diagnostics**: Use `cf --verbose` for detailed output
+3. **Check dependencies**: Ensure all required packages are installed
+4. **Test configuration**: Validate your configuration files
+5. **Create an issue**: Report bugs or request features in the repository
+
+## Uninstallation
+
+To remove CodeFusion:
+
+```bash
+# Uninstall package
+pip uninstall codefusion
+
+# Remove virtual environment
+deactivate
+rm -rf venv
+
+# Clean up cache (optional)
+rm -rf ~/.cache/pip/
+```

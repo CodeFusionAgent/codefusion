@@ -1,19 +1,14 @@
-"""Agents module for CodeFusion agentic exploration strategies."""
+"""Agents module for CodeFusion ReAct Framework."""
 
-from .reasoning_agent import ReasoningAgent, ReasoningResult, ReasoningStep
-from ..aci.system_access import SystemAccess
-from .plan_then_act import PlanThenActAgent, ExplorationPlan, PlanResult
-from .sense_then_act import SenseThenActAgent, ExplorationSession, SenseActCycle
+# ReAct Framework Agents
+from .react_supervisor_agent import ReActSupervisorAgent
+from .react_documentation_agent import ReActDocumentationAgent
+from .react_codebase_agent import ReActCodebaseAgent
+from .react_architecture_agent import ReActArchitectureAgent
 
 __all__ = [
-    "ReasoningAgent",
-    "ReasoningResult", 
-    "ReasoningStep",
-    "SystemAccess",
-    "PlanThenActAgent",
-    "ExplorationPlan",
-    "PlanResult",
-    "SenseThenActAgent",
-    "ExplorationSession",
-    "SenseActCycle"
+    "ReActSupervisorAgent",
+    "ReActDocumentationAgent", 
+    "ReActCodebaseAgent",
+    "ReActArchitectureAgent",
 ]
