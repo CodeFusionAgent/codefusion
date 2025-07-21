@@ -1,9 +1,9 @@
 """CodeFusion: A ReAct (Reasoning + Acting) framework for intelligent code exploration and analysis."""
 
-from .aci.repo import CodeAction, CodeRepo, FileInfo, LocalCodeRepo, RemoteCodeRepo
-from .config import CfConfig
-from .agents.react_supervisor_agent import ReActSupervisorAgent
-from .core.react_agent import ReActAgent, ReActAction, ReActObservation, ActionType
+from cf.aci.repo import CodeAction, CodeRepo, FileInfo, LocalCodeRepo, RemoteCodeRepo
+from cf.config import CfConfig
+from cf.agents.react_supervisor_agent import ReActSupervisorAgent
+from cf.core.react_agent import ReActAgent, ReActAction, ReActObservation, ActionType
 
 __version__ = "0.1.0"
 __author__ = "CodeFusion Team"

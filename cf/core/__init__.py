@@ -1,6 +1,6 @@
 """Core components for CodeFusion."""
 
-from .react_agent import ReActAgent, ReActState, ReActAction, ReActObservation, ReActCache
+from cf.core.react_agent import ReActAgent, ReActState, ReActAction, ReActObservation, ReActCache
 
 __all__ = [
     "ReActAgent",

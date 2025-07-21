@@ -12,21 +12,21 @@ Welcome to the CodeFusion ReAct Framework API documentation. This section provid
 
 ### Specialized Agents
 
-- **[Supervisor Agent](supervisor-agent.md)** - Multi-agent orchestration and coordination
+- **[Supervisor Agent](supervisor-agent.md)** - Multi-agent orchestration and **Life of X narrative generation**
 - **[Documentation Agent](documentation-agent.md)** - Documentation analysis and processing
-- **[Codebase Agent](codebase-agent.md)** - Source code analysis and pattern detection
-- **[Architecture Agent](architecture-agent.md)** - System design and architectural analysis
+- **[Code Architecture Agent](code-architecture-agent.md)** - **Combined** source code analysis and architectural analysis
 
 ### Infrastructure
 
 - **[LLM Integration](llm.md)** - Language model providers and interfaces
+- **[Life of X Utilities](life-of-x-utilities.md)** - Narrative generation, prompt templates, and response parsing
 - **[Tools](tools.md)** - Exploration tool ecosystem
 - **[Repository Interface](repository.md)** - Code repository access and operations
 - **[Configuration](config.md)** - Global configuration management
 
 ## Quick API Examples
 
-### Basic ReAct Agent Usage
+### Life of X Narrative Generation
 
 ```python
 from cf.agents.react_supervisor_agent import ReActSupervisorAgent
@@ -38,6 +38,20 @@ repo = LocalCodeRepo("/path/to/repository")
 config = CfConfig()
 supervisor = ReActSupervisorAgent(repo, config)
 
+# Generate Life of X narrative
+narrative = supervisor.generate_life_of_x_narrative(
+    question="How does authentication work?"
+)
+
+# Access narrative components
+story = narrative['narrative']
+journey = narrative['journey_stages']
+components = narrative['key_components']
+```
+
+### Traditional Multi-Agent Analysis
+
+```python
 # Run multi-agent analysis
 results = supervisor.explore_repository(
     goal="analyze authentication system",
@@ -73,10 +87,12 @@ class CustomAnalysisAgent(ReActAgent):
         return f"Custom analysis complete: {len(self.state.observations)} findings"
 ```
 
-### LLM Integration
+### LLM Integration with Life of X
 
 ```python
 from cf.llm.real_llm import RealLLM, LLMConfig
+from cf.llm.prompt_templates import PromptBuilder
+from cf.llm.response_parser import ResponseParser
 
 # Configure LLM provider
 config = LLMConfig(
@@ -88,19 +104,51 @@ config = LLMConfig(
 
 llm = RealLLM(config)
 
+# Generate Life of X narrative
+narrative_result = llm.generate_life_of_x_narrative(
+    question="How does authentication work?",
+    insights={'agents': 'results'},
+    components=[{'name': 'AuthController', 'type': 'api'}],
+    flows=[{'source': 'Client', 'target': 'AuthService'}]
+)
+
 # Use for reasoning
 reasoning_result = llm.reasoning(
     context="Current codebase state",
     question="What should I analyze next?",
     agent_type="codebase"
 )
+```
 
-# Use for summarization
-summary_result = llm.summarize(
-    content="Analysis findings...",
-    summary_type="comprehensive",
-    focus="security patterns"
+### Life of X Utilities
+
+```python
+from cf.tools.narrative_utils import extract_key_entity, display_life_of_x_narrative
+from cf.llm.prompt_templates import PromptBuilder
+from cf.llm.response_parser import ResponseParser, LIFE_OF_X_SCHEMA
+
+# Extract entity from question
+entity = extract_key_entity("How does authentication work?")
+# Returns: "Authentication"
+
+# Build prompts using templates
+builder = PromptBuilder()
+prompt = builder.build_life_of_x_prompt(
+    question="How does authentication work?",
+    insights="System insights...",
+    components="Key components...",
+    flows="Data flows...",
+    code_examples="Code examples...",
+    key_entity="Authentication",
+    model_name="gpt-4"
 )
+
+# Parse responses with schema validation
+parser = ResponseParser()
+parsed = parser.parse_response(llm_response, LIFE_OF_X_SCHEMA)
+
+# Display narrative with beautiful formatting
+display_life_of_x_narrative(parsed, "How does authentication work?")
 ```
 
 ## Navigation

@@ -10,16 +10,20 @@ This module provides the foundation for agents that follow the ReAct pattern:
 import json
 import time
 import logging
+import signal
+import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, Callable, Set
 from enum import Enum
 from pathlib import Path
 
-from ..config import CfConfig
-from ..aci.repo import CodeRepo
-from .react_config import ReActConfig, react_config
-from .react_tracing import ReActTracer, tracer
+from cf.config import CfConfig
+from cf.aci.repo import CodeRepo
+from cf.core.react_config import ReActConfig, react_config
+from cf.core.react_tracing import ReActTracer, tracer
+from cf.llm.real_llm import get_real_llm
+from cf.llm.simple_llm import llm
 
 
 class ActionType(Enum):
@@ -199,7 +203,6 @@ class ReActCache:
     
     def _hash_key(self, key: str) -> str:
         """Create a safe filename from cache key."""
-        import hashlib
         return hashlib.md5(key.encode()).hexdigest()
 
 
@@ -587,10 +590,23 @@ class ReActAgent(ABC):
         
         try:
             contents = []
+            # Directories to exclude from scanning
+            excluded_dirs = {'.git', '.github', 'node_modules', '__pycache__', '.venv', 'venv', '.pytest_cache'}
+            
             for file_info in self.repo.walk_repository():
-                if file_info.path.startswith(directory):
-                    # Calculate depth
-                    depth = len(Path(file_info.path).relative_to(Path(directory)).parts) - 1
+                # Handle root directory case where directory="." but paths don't start with "."
+                if directory == "." or file_info.path.startswith(directory):
+                    # Skip excluded directories
+                    path_parts = Path(file_info.path).parts
+                    if any(part in excluded_dirs for part in path_parts):
+                        continue
+                    
+                    # Calculate depth relative to scan directory
+                    if directory == ".":
+                        depth = len(Path(file_info.path).parts) - 1
+                    else:
+                        depth = len(Path(file_info.path).relative_to(Path(directory)).parts) - 1
+                        
                     if depth <= max_depth:
                         contents.append({
                             'path': file_info.path,
@@ -624,8 +640,16 @@ class ReActAgent(ABC):
         
         try:
             files = []
+            # Directories to exclude from listing
+            excluded_dirs = {'.git', '.github', 'node_modules', '__pycache__', '.venv', 'venv', '.pytest_cache'}
+            
             for file_info in self.repo.walk_repository():
                 if not file_info.is_directory and file_info.path.startswith(directory):
+                    # Skip excluded directories
+                    path_parts = Path(file_info.path).parts
+                    if any(part in excluded_dirs for part in path_parts):
+                        continue
+                    
                     # Simple pattern matching
                     if pattern == '*' or pattern in file_info.path:
                         files.append({
@@ -696,8 +720,16 @@ class ReActAgent(ABC):
         
         try:
             results = []
+            # Directories to exclude from searching
+            excluded_dirs = {'.git', '.github', 'node_modules', '__pycache__', '.venv', 'venv', '.pytest_cache'}
+            
             for file_info in self.repo.walk_repository():
                 if file_info.is_directory:
+                    continue
+                
+                # Skip excluded directories
+                path_parts = Path(file_info.path).parts
+                if any(part in excluded_dirs for part in path_parts):
                     continue
                 
                 # Check file type filter
@@ -780,13 +812,14 @@ class ReActAgent(ABC):
         
         # Try real LLM first, fallback to simple LLM
         try:
-            from ..llm.real_llm import real_llm
-            result = real_llm.reasoning(context, question, agent_type)
-            return result
+            if get_real_llm() is not None:
+                result = get_real_llm().reasoning(context, question, agent_type)
+                return result
+            else:
+                raise Exception("Real LLM not available")
         except Exception as e:
             self.logger.warning(f"Real LLM failed, using fallback: {e}")
             # Fallback to simple reasoning
-            from ..llm.simple_llm import llm
             try:
                 result = llm.reasoning(context, question, agent_type)
                 result['fallback'] = True
@@ -808,13 +841,14 @@ class ReActAgent(ABC):
         
         # Try real LLM first, fallback to simple LLM
         try:
-            from ..llm.real_llm import real_llm
-            result = real_llm.summarize(content, summary_type, focus)
-            return result
+            if get_real_llm() is not None:
+                result = get_real_llm().summarize(content, summary_type, focus)
+                return result
+            else:
+                raise Exception("Real LLM not available")
         except Exception as e:
             self.logger.warning(f"Real LLM failed, using fallback: {e}")
             # Fallback to simple summarization
-            from ..llm.simple_llm import llm
             try:
                 result = llm.summarize(content, summary_type, focus)
                 result['fallback'] = True
@@ -1069,7 +1103,6 @@ class ReActAgent(ABC):
     
     def _execute_tool_with_timeout(self, tool_func: Callable, parameters: Dict[str, Any]) -> Any:
         """Execute tool function with timeout."""
-        import signal
         
         def timeout_handler(signum, frame):
             raise TimeoutError(f"Tool execution timed out after {self.react_config.tool_timeout}s")

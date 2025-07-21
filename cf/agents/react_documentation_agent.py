@@ -10,9 +10,9 @@ import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from ..aci.repo import CodeRepo
-from ..config import CfConfig
-from ..core.react_agent import ReActAgent, ReActAction, ActionType
+from cf.aci.repo import CodeRepo
+from cf.config import CfConfig
+from cf.core.react_agent import ReActAgent, ReActAction, ActionType
 
 
 class ReActDocumentationAgent(ReActAgent):
@@ -123,23 +123,27 @@ class ReActDocumentationAgent(ReActAgent):
                 expected_outcome="Identify markdown and documentation files"
             )
         
-        # Read high-priority documentation files
-        if self.found_docs and not self.analyzed_docs:
-            # Prioritize README files
-            readme_files = [f for f in self.found_docs if 'readme' in f.lower()]
-            if readme_files:
+        # Read and analyze documentation files (read up to 5 files)
+        if self.found_docs and len(self.analyzed_docs) < min(5, len(self.found_docs)):
+            # Find next unanalyzed doc
+            unanalyzed_docs = [f for f in self.found_docs if f not in self.analyzed_docs]
+            if unanalyzed_docs:
+                # Prioritize README files first, then important docs
+                priority_docs = []
+                for f in unanalyzed_docs:
+                    if any(keyword in f.lower() for keyword in ['readme', 'index', 'getting-started', 'quickstart', 'tutorial']):
+                        priority_docs.append(f)
+                
+                if priority_docs:
+                    next_doc = priority_docs[0]
+                else:
+                    next_doc = unanalyzed_docs[0]
+                
                 return ReActAction(
                     action_type=ActionType.READ_FILE,
-                    description=f"Read README file: {readme_files[0]}",
-                    parameters={'file_path': readme_files[0], 'max_lines': 200},
-                    expected_outcome="Understand project overview and main documentation"
-                )
-            else:
-                return ReActAction(
-                    action_type=ActionType.READ_FILE,
-                    description=f"Read documentation file: {self.found_docs[0]}",
-                    parameters={'file_path': self.found_docs[0], 'max_lines': 200},
-                    expected_outcome="Understand documentation content"
+                    description=f"Read documentation file: {next_doc}",
+                    parameters={'file_path': next_doc, 'max_lines': 500},  # Increased max lines
+                    expected_outcome="Understand documentation content and extract key information"
                 )
         
         # Search for specific patterns related to the goal

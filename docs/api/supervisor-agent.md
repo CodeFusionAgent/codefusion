@@ -18,8 +18,7 @@ The Supervisor Agent implements a hierarchical ReAct pattern:
 The supervisor coordinates these specialized agents:
 
 - **Documentation Agent**: Analyzes README files, guides, and documentation
-- **Codebase Agent**: Examines source code, functions, and patterns  
-- **Architecture Agent**: Studies system design and architectural patterns
+- **Code Architecture Agent**: Examines source code, functions, patterns, and system design
 
 ## Usage Examples
 
@@ -44,12 +43,10 @@ results = supervisor.explore_repository(
 # Access individual agent results
 agent_results = supervisor.get_agent_results()
 doc_results = agent_results.get('documentation')
-code_results = agent_results.get('codebase')
-arch_results = agent_results.get('architecture')
+code_arch_results = agent_results.get('code_architecture')
 
 print(f"Documentation findings: {doc_results.get('summary')}")
-print(f"Code analysis: {code_results.get('summary')}")
-print(f"Architecture insights: {arch_results.get('summary')}")
+print(f"Code & Architecture analysis: {code_arch_results.get('summary')}")
 ```
 
 ### Focused Analysis
@@ -61,16 +58,10 @@ doc_results = supervisor.explore_repository(
     focus="docs"
 )
 
-# Architecture-focused analysis
-arch_results = supervisor.explore_repository(
-    goal="understand system design patterns",
-    focus="arch"
-)
-
-# Code-focused analysis
-code_results = supervisor.explore_repository(
-    goal="identify security vulnerabilities",
-    focus="code"
+# Code and architecture analysis
+code_arch_results = supervisor.explore_repository(
+    goal="understand system design patterns and identify security vulnerabilities",
+    focus="code_arch"
 )
 ```
 
@@ -106,7 +97,7 @@ print(f"Execution Time: {report['execution_time']}")
 print(f"Summary: {report['summary']}")
 
 # Agent-specific summaries
-for agent_name in ['documentation', 'codebase', 'architecture']:
+for agent_name in ['documentation', 'code_architecture']:
     summary_key = f"{agent_name}_summary"
     if summary_key in report:
         print(f"{agent_name.title()} Summary: {report[summary_key]}")
@@ -136,10 +127,8 @@ class CustomSupervisor(ReActSupervisorAgent):
     
     def _activate_primary_agent(self):
         """Activate primary agent based on goal."""
-        if 'security' in self.state.goal.lower():
-            return self._create_activation_action('codebase', 'security analysis')
-        elif 'design' in self.state.goal.lower():
-            return self._create_activation_action('architecture', 'design analysis')
+        if 'security' in self.state.goal.lower() or 'design' in self.state.goal.lower():
+            return self._create_activation_action('code_architecture', 'security and design analysis')
         else:
             return self._create_activation_action('documentation', 'overview analysis')
 ```
@@ -219,10 +208,10 @@ class RobustSupervisor(ReActSupervisorAgent):
             self.logger.error(f"Agent {agent_name} activation failed: {e}")
             
             # Attempt recovery with alternative agent
-            if agent_name == 'codebase':
+            if agent_name == 'code_architecture':
                 return self._activate_agent('documentation', parameters)
-            elif agent_name == 'architecture':
-                return self._activate_agent('codebase', parameters)
+            elif agent_name == 'documentation':
+                return self._activate_agent('code_architecture', parameters)
             else:
                 return {'error': f'All agents failed: {e}', 'recovery_attempted': True}
 ```
@@ -244,16 +233,10 @@ def comprehensive_security_audit(repo_path: str) -> Dict[str, Any]:
         focus="docs"
     )
     
-    # Phase 2: Code security analysis
-    code_security = supervisor.explore_repository(
-        goal="security vulnerabilities and patterns",
-        focus="code"
-    )
-    
-    # Phase 3: Architecture security assessment
-    arch_security = supervisor.explore_repository(
-        goal="security architecture and design",
-        focus="arch"
+    # Phase 2: Code and architecture security analysis
+    code_arch_security = supervisor.explore_repository(
+        goal="security vulnerabilities, patterns, and architecture",
+        focus="code_arch"
     )
     
     # Generate comprehensive security report

@@ -27,9 +27,8 @@ from cf.core.react_agent import (
 )
 from cf.core.react_config import ReActConfig
 from cf.core.react_tracing import ReActTracer, ReActTrace, ReActSession
-from cf.agents.react_codebase_agent import ReActCodebaseAgent
+from cf.agents.react_code_architecture_agent import ReActCodeArchitectureAgent
 from cf.agents.react_documentation_agent import ReActDocumentationAgent
-from cf.agents.react_architecture_agent import ReActArchitectureAgent
 from cf.agents.react_supervisor_agent import ReActSupervisorAgent
 from cf.aci.repo import CodeRepo
 from cf.config import CfConfig
@@ -398,9 +397,9 @@ class TestSpecializedAgents:
         self.repo = MockRepo()
         self.config = CfConfig()
     
-    def test_codebase_agent(self):
-        """Test ReAct codebase agent."""
-        agent = ReActCodebaseAgent(self.repo, self.config)
+    def test_code_architecture_agent(self):
+        """Test ReAct code architecture agent."""
+        agent = ReActCodeArchitectureAgent(self.repo, self.config)
         
         # Test reasoning
         reasoning = agent.reason()
@@ -434,18 +433,6 @@ class TestSpecializedAgents:
         summary = agent._generate_summary()
         assert isinstance(summary, str)
     
-    def test_architecture_agent(self):
-        """Test ReAct architecture agent."""
-        agent = ReActArchitectureAgent(self.repo, self.config)
-        
-        reasoning = agent.reason()
-        assert isinstance(reasoning, str)
-        
-        action = agent.plan_action(reasoning)
-        assert isinstance(action, ReActAction)
-        
-        summary = agent._generate_summary()
-        assert isinstance(summary, str)
     
     def test_supervisor_agent(self):
         """Test ReAct supervisor agent."""
@@ -616,21 +603,16 @@ class TestIntegration:
         supervisor = ReActSupervisorAgent(self.repo, self.config)
         
         # Mock the individual agents to avoid complex execution
-        with patch.object(supervisor, '_create_documentation_agent') as mock_doc, \
-             patch.object(supervisor, '_create_codebase_agent') as mock_code, \
-             patch.object(supervisor, '_create_architecture_agent') as mock_arch:
+        with patch.object(supervisor.agents['documentation'], 'scan_documentation') as mock_doc, \
+             patch.object(supervisor.agents['code_architecture'], 'analyze_code_architecture') as mock_code_arch:
             
             # Mock agent results
-            mock_doc.return_value.execute_react_loop.return_value = {
+            mock_doc.return_value = {
                 'summary': 'Documentation analysis complete',
                 'goal_achieved': True
             }
-            mock_code.return_value.execute_react_loop.return_value = {
-                'summary': 'Codebase analysis complete',
-                'goal_achieved': True
-            }
-            mock_arch.return_value.execute_react_loop.return_value = {
-                'summary': 'Architecture analysis complete',
+            mock_code_arch.return_value = {
+                'summary': 'Code architecture analysis complete',
                 'goal_achieved': True
             }
             
@@ -643,7 +625,7 @@ class TestIntegration:
     def test_end_to_end_analysis(self):
         """Test end-to-end repository analysis."""
         # Test with a single specialized agent
-        agent = ReActCodebaseAgent(self.repo, self.config)
+        agent = ReActCodeArchitectureAgent(self.repo, self.config)
         
         # Configure for quick execution
         agent.react_config.max_iterations = 5
