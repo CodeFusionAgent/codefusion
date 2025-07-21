@@ -8,7 +8,8 @@ Usage:
     python -m cf summary /path/to/repo
 """
 
-from .run.simple_run import main
+# Import at module level to avoid import warnings
+from cf.run.simple_run import main
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,7 @@
 """Configuration management for CodeFusion."""
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -35,6 +36,15 @@ class CfConfig:
         "summary": {"enabled": True, "max_sections": 10, "cheat_sheet_format": "markdown"}
     })
     
+    # LLM settings
+    llm: Dict[str, Any] = field(default_factory=lambda: {
+        "model": "claude-3-sonnet-20240229",
+        "api_key": "",
+        "max_tokens": 1000,
+        "temperature": 0.7,
+        "provider": "anthropic"
+    })
+    
     # Error recovery settings
     error_recovery: Dict[str, Any] = field(default_factory=lambda: {
         "enabled": True,
@@ -42,6 +52,20 @@ class CfConfig:
         "circuit_breaker_threshold": 5,
         "loop_detection_window": 10
     })
+    
+    # Logging settings
+    logging: Dict[str, Any] = field(default_factory=lambda: {
+        "enable_execution_logs": False,  # Main toggle for execution flow logging
+        "enable_llm_logs": False,        # LLM API call logging
+        "enable_tool_logs": False,       # Tool execution logging
+        "enable_agent_logs": False,      # Agent reasoning/action logging
+        "log_level": "INFO",             # Standard logging level
+        "show_progress": True            # Show progress indicators
+    })
+    
+    def __post_init__(self):
+        """Load environment overrides after initialization."""
+        self._load_env_overrides()
 
     @classmethod
     def from_file(cls, config_path: str) -> "CfConfig":
@@ -81,6 +105,7 @@ class CfConfig:
             "excluded_extensions": self.excluded_extensions,
             "max_exploration_depth": self.max_exploration_depth,
             "agents": self.agents,
+            "llm": self.llm,
             "error_recovery": self.error_recovery,
         }
 
@@ -109,5 +134,55 @@ class CfConfig:
 
     def _load_env_overrides(self) -> None:
         """Load environment variable overrides."""
-        # Simple configuration - no environment overrides needed for basic exploration
-        pass
+        # LLM environment variable overrides
+        if os.getenv('CF_LLM_MODEL'):
+            self.llm['model'] = os.getenv('CF_LLM_MODEL')
+        
+        if os.getenv('CF_LLM_API_KEY'):
+            self.llm['api_key'] = os.getenv('CF_LLM_API_KEY')
+        
+        # Also check standard API key environment variables
+        if not self.llm['api_key']:
+            if os.getenv('ANTHROPIC_API_KEY'):
+                self.llm['api_key'] = os.getenv('ANTHROPIC_API_KEY')
+                self.llm['provider'] = 'anthropic'
+            elif os.getenv('OPENAI_API_KEY'):
+                self.llm['api_key'] = os.getenv('OPENAI_API_KEY')
+                self.llm['provider'] = 'openai'
+        
+        # Temperature and max_tokens overrides
+        if os.getenv('CF_LLM_TEMPERATURE'):
+            try:
+                self.llm['temperature'] = float(os.getenv('CF_LLM_TEMPERATURE'))
+            except ValueError:
+                pass
+        
+        if os.getenv('CF_LLM_MAX_TOKENS'):
+            try:
+                self.llm['max_tokens'] = int(os.getenv('CF_LLM_MAX_TOKENS'))
+            except ValueError:
+                pass
+        
+        # Logging environment overrides
+        if os.getenv('CF_ENABLE_LOGS'):
+            enable_logs = os.getenv('CF_ENABLE_LOGS').lower() in ['true', '1', 'yes', 'on']
+            self.logging['enable_execution_logs'] = enable_logs
+            self.logging['enable_llm_logs'] = enable_logs
+            self.logging['enable_tool_logs'] = enable_logs
+            self.logging['enable_agent_logs'] = enable_logs
+        
+        # Individual logging toggles
+        if os.getenv('CF_ENABLE_EXECUTION_LOGS'):
+            self.logging['enable_execution_logs'] = os.getenv('CF_ENABLE_EXECUTION_LOGS').lower() in ['true', '1', 'yes', 'on']
+        
+        if os.getenv('CF_ENABLE_LLM_LOGS'):
+            self.logging['enable_llm_logs'] = os.getenv('CF_ENABLE_LLM_LOGS').lower() in ['true', '1', 'yes', 'on']
+        
+        if os.getenv('CF_ENABLE_TOOL_LOGS'):
+            self.logging['enable_tool_logs'] = os.getenv('CF_ENABLE_TOOL_LOGS').lower() in ['true', '1', 'yes', 'on']
+        
+        if os.getenv('CF_ENABLE_AGENT_LOGS'):
+            self.logging['enable_agent_logs'] = os.getenv('CF_ENABLE_AGENT_LOGS').lower() in ['true', '1', 'yes', 'on']
+        
+        if os.getenv('CF_SHOW_PROGRESS'):
+            self.logging['show_progress'] = os.getenv('CF_SHOW_PROGRESS').lower() in ['true', '1', 'yes', 'on']

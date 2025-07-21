@@ -1,9 +1,9 @@
 """LLM interfaces for CodeFusion."""
 
-from .simple_llm import SimpleLLM, llm
+from cf.llm.simple_llm import SimpleLLM, llm
 
 try:
-    from .real_llm import RealLLM, real_llm
+    from cf.llm.real_llm import RealLLM, real_llm
     __all__ = [
         "SimpleLLM",
         "llm",

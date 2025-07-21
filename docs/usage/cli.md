@@ -1,14 +1,48 @@
 # CLI Commands
 
-CodeFusion provides a comprehensive command-line interface for ReAct framework-based code analysis.
+CodeFusion provides an **interactive, multi-agent command-line interface** for intelligent codebase exploration and analysis. The system features continuous question-answer sessions with persistent memory, adaptive response formats, and seamless web search integration.
 
 ## Overview
 
-The main CLI entry point uses Python module execution:
+CodeFusion offers both **interactive sessions** and **single-question commands**:
 
 ```bash
-python -m cf.run.simple_run --help
+# Interactive mode with persistent memory
+python -m cf interactive /path/to/repo --session-dir ./my_sessions
+
+# Single question with multi-agent coordination
+python -m cf explore /path/to/repo "How does routing work?"
+
+# Traditional analysis mode
+python -m cf.run.simple_run analyze /path/to/repo --focus=all
 ```
+
+## Adaptive Response Formats
+
+CodeFusion's innovation is **intelligent response format detection** that automatically selects the optimal format based on your question type:
+
+### 🎯 Journey Format (Life of X)
+For process flows and system architecture:
+- "How does authentication work?"
+- "What happens when a user logs in?"
+- "How is data processed?"
+
+### 🔍 Comparison Format  
+For performance analysis and technical trade-offs:
+- "async def vs def performance implications?"
+- "FastAPI vs Django differences?"
+- "SQLite vs PostgreSQL for this use case?"
+
+### 📚 Explanation Format
+For conceptual questions and configurations:
+- "What is dependency injection?"
+- "How to configure Docker for production?"
+
+**Key Features:**
+- 🧠 **LLM-Powered Format Detection**: Automatically selects optimal response format
+- 🤖 **Multi-Agent Coordination**: Uses 1-3 specialized agents based on complexity
+- 🌐 **Web Search Integration**: External knowledge woven naturally into responses
+- 💾 **Session Memory**: Remembers context across questions in interactive mode
 
 ## Global Options
 
@@ -18,69 +52,128 @@ These options are available for all commands:
 python -m cf.run.simple_run [OPTIONS] COMMAND [ARGS]...
 
 Global Options:
-  --config, -c PATH    Configuration file path
-  --verbose, -v        Enable verbose output
-  --help               Show help message
+  --config, -c PATH         Configuration file path
+  --session-dir PATH        Directory for saving session data (default: ./cf_sessions)
+  --verbose, -v            Enable verbose output  
+  --help                   Show help message
 ```
 
 ## Commands
 
-### `analyze` - Multi-Agent Analysis
+### `interactive` - Interactive Session Mode ⭐ **PRIMARY COMMAND**
 
-Perform comprehensive multi-agent analysis using the ReAct framework.
-
-```bash
-python -m cf.run.simple_run analyze [OPTIONS] REPO_PATH
-```
-
-**Arguments:**
-- `REPO_PATH`: Path to the repository to analyze
-
-**Options:**
-- `--focus {all,docs,code,arch}`: Analysis focus (default: all)
-
-**Examples:**
-```bash
-# Comprehensive multi-agent analysis
-python -m cf.run.simple_run analyze /path/to/repository --focus=all
-
-# Documentation-focused analysis
-python -m cf.run.simple_run analyze /path/to/repository --focus=docs
-
-# Codebase-focused analysis
-python -m cf.run.simple_run analyze /path/to/repository --focus=code
-
-# Architecture-focused analysis
-python -m cf.run.simple_run analyze /path/to/repository --focus=arch
-```
-
-### `explore` - Question-Based Exploration
-
-Explore a repository to answer a specific question using ReAct agents.
+Start a continuous question-answer session with persistent memory and context building.
 
 ```bash
-python -m cf.run.simple_run explore [OPTIONS] REPO_PATH QUESTION
+python -m cf interactive [OPTIONS] REPO_PATH
 ```
 
 **Arguments:**
 - `REPO_PATH`: Path to the repository to explore
-- `QUESTION`: Question to investigate about the codebase
+
+**Options:**
+- `--session-dir PATH`: Directory to save session data (default: ./cf_sessions)
 
 **Examples:**
 ```bash
-# Basic exploration
-python -m cf.run.simple_run explore /path/to/repository "How does authentication work?"
+# Start interactive session with default session directory
+python -m cf interactive /tmp/fastapi_test
 
-# Explore API structure
-python -m cf.run.simple_run explore /path/to/repository "What are the main API endpoints?"
+# Start session with custom session directory  
+python -m cf interactive /tmp/fastapi_test --session-dir ./my_sessions
 
-# Security analysis
-python -m cf.run.simple_run explore /path/to/repository "What security patterns are used?"
+# Session example:
+# You: How does FastAPI routing work?
+# 🤖 [Journey format response with routing flow...]
+# 
+# You: What about async def vs def performance?
+# 🤖 [Comparison format response, remembers routing context...]
+# 
+# You: exit
+# Session saved to: ./my_sessions/fastapi_test_session_20240115_143025.json
+```
+
+### `explore` - Single Question Analysis
+
+Ask a single question with automatic multi-agent coordination and adaptive response format.
+
+```bash
+python -m cf explore [OPTIONS] REPO_PATH QUESTION
+```
+
+**Arguments:**
+- `REPO_PATH`: Path to the repository to explore
+- `QUESTION`: Question to ask (any type - system will detect optimal format)
+
+**Examples:**
+```bash
+# Journey format - process flow questions
+python -m cf explore /tmp/fastapi_test "How does authentication work?"
+# Output: 🎯 Life of Authentication: A Journey Through the System
+
+# Comparison format - performance questions  
+python -m cf explore /tmp/fastapi_test "async def vs def performance implications?"
+# Output: 🔍 Technical Comparison Analysis: async def vs def
+
+# Explanation format - conceptual questions
+python -m cf explore /tmp/fastapi_test "What is dependency injection?"
+# Output: 📚 Conceptual explanation format
+
+# Automatic multi-agent coordination (3 agents for complex questions)
+python -m cf explore /tmp/fastapi_test "Explain the relationship between FastAPI and Starlette"
+# 🤖 Agents used: 3 | Code analysis, documentation, web search
+```
+
+**Sample Journey Output:**
+```
+🎯 Life of Routing: A Journey Through the System
+======================================================================
+
+🏗️ **Architecture & Flow:** When an HTTP request arrives at `/api/users/{user_id}`, 
+FastAPI's routing system springs into action. The journey begins in main.py where the 
+FastAPI application instance routes the request through its internal ASGI middleware 
+stack, ultimately reaching the path operation function that handles user retrieval.
+
+🛤️ **Technical Flow:** The process follows this path:
+   **1. Request Reception:** FastAPI receives the HTTP request and parses the URL path 
+   **2. Route Matching:** The router in routing.py:156 matches `/api/users/{user_id}` pattern
+   **3. Path Parameter Extraction:** FastAPI extracts `user_id` from the URL path
+   **4. Handler Execution:** The get_user() function in api/users.py:45 processes the request
+
+💻 **Code Examples:** Implementation details:
+   • In main.py:23: @app.get('/api/users/{user_id}') async def get_user(user_id: int)
+   • In api/users.py:45: return await UserService.get_by_id(user_id)
+
+📈 ⏱️  Response time: 28.3s | 🤖 Agents used: 3 | 💾 Cache hits: 2
+```
+
+**Sample Comparison Output:**
+```
+🔍 Technical Comparison Analysis: async def vs def performance implications
+======================================================================
+
+📉 **Analysis:** In FastAPI applications, the choice between `async def` and `def` 
+for path operation functions significantly impacts performance and concurrency handling.
+
+⚖️ **Key Comparisons:**
+
+   **Performance:**
+   • async def: Non-blocking I/O operations, handles 1000+ concurrent requests efficiently
+   • def: Blocking operations, limited to thread pool size (~40 concurrent requests)
+   • Recommendation: Use async def for I/O-heavy operations, def for CPU-intensive tasks
+
+💻 **Code Examples:**
+   • async def get_user(user_id: int): return await db.fetch_user(user_id)  # Non-blocking
+   • def get_user_sync(user_id: int): return db.fetch_user_sync(user_id)    # Blocking
+
+🎯 **Conclusion:** Use async def for I/O operations and def for CPU-intensive tasks
+
+📈 **Analysis Confidence:** 92.5%
 ```
 
 ### `ask` - Ask a Question (alias for explore)
 
-Ask a natural language question about a codebase.
+Ask a natural language question about a codebase and receive a Life of X narrative.
 
 ```bash
 python -m cf.run.simple_run ask [OPTIONS] REPO_PATH QUESTION
@@ -99,9 +192,9 @@ python -m cf.run.simple_run ask /path/to/repo "What testing frameworks are used?
 python -m cf.run.simple_run ask /path/to/repo "How is this application deployed?"
 ```
 
-### `continue` - Continue Previous Analysis
+### `continue` - Continue Life of X Narrative
 
-Continue exploring by building on previous investigations.
+Continue exploring by building on previous Life of X investigations to create connected architectural stories.
 
 ```bash
 python -m cf.run.simple_run continue [OPTIONS] REPO_PATH QUESTION --previous PREVIOUS_QUESTION
@@ -119,6 +212,35 @@ python -m cf.run.simple_run continue /path/to/repo "How are user sessions manage
 
 # Continue from API to validation
 python -m cf.run.simple_run continue /path/to/repo "How is input validation handled?" --previous "What are the main API endpoints?"
+
+# Continue from data processing to storage
+python -m cf.run.simple_run continue /path/to/repo "How is data persisted?" --previous "How is data processed?"
+```
+
+### `analyze` - Traditional Multi-Agent Analysis
+
+Perform comprehensive multi-agent analysis using the ReAct framework (traditional mode).
+
+```bash
+python -m cf.run.simple_run analyze [OPTIONS] REPO_PATH
+```
+
+**Arguments:**
+- `REPO_PATH`: Path to the repository to analyze
+
+**Options:**
+- `--focus {all,docs,code_arch}`: Analysis focus (default: all)
+
+**Examples:**
+```bash
+# Comprehensive multi-agent analysis
+python -m cf.run.simple_run analyze /path/to/repository --focus=all
+
+# Documentation-focused analysis
+python -m cf.run.simple_run analyze /path/to/repository --focus=docs
+
+# Code and architecture analysis
+python -m cf.run.simple_run analyze /path/to/repository --focus=code_arch
 ```
 
 ### `summary` - Show Analysis Summary
@@ -157,8 +279,7 @@ CodeFusion follows the **ReAct (Reasoning + Acting) pattern**:
 The supervisor agent orchestrates specialized agents:
 
 - **📚 Documentation Agent**: Analyzes README files, guides, and documentation
-- **💻 Codebase Agent**: Examines source code, functions, and patterns
-- **🏗️ Architecture Agent**: Studies system design and architectural patterns
+- **💻🏗️ Code Architecture Agent**: Examines source code, functions, patterns, and system design
 
 ### Example Analysis Flow
 
@@ -174,11 +295,10 @@ $ python -m cf.run.simple_run analyze /path/to/repo --focus=all
 
 📋 Analysis Summary:
 Supervisor Coordination Summary:
-• Coordinated 3 agents
+• Coordinated 2 agents
 • Generated 2 cross-agent insights
 • Documentation agent: Successfully completed analysis
-• Codebase agent: Successfully completed analysis
-• Architecture agent: Successfully completed analysis
+• Code architecture agent: Successfully completed analysis
 • Cross-agent insights: documentation_code_consistency, architecture_code_alignment
 • Total cache hits: 8
 
@@ -304,11 +424,8 @@ Target specific analysis areas:
 # Documentation quality and coverage
 python -m cf.run.simple_run analyze /repo --focus=docs
 
-# Code patterns and security
-python -m cf.run.simple_run analyze /repo --focus=code
-
-# System architecture and design
-python -m cf.run.simple_run analyze /repo --focus=arch
+# Code patterns, security, and architecture
+python -m cf.run.simple_run analyze /repo --focus=code_arch
 
 # Complete multi-agent analysis
 python -m cf.run.simple_run analyze /repo --focus=all

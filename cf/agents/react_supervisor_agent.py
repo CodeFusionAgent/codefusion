@@ -10,12 +10,15 @@ import logging
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
-from ..aci.repo import CodeRepo
-from ..config import CfConfig
-from ..core.react_agent import ReActAgent, ReActAction, ReActObservation, ActionType
-from .react_documentation_agent import ReActDocumentationAgent
-from .react_codebase_agent import ReActCodebaseAgent
-from .react_architecture_agent import ReActArchitectureAgent
+from cf.aci.repo import CodeRepo
+from cf.config import CfConfig
+from cf.core.react_agent import ReActAgent, ReActAction, ReActObservation, ActionType
+from cf.agents.react_documentation_agent import ReActDocumentationAgent
+from cf.agents.react_code_architecture_agent import ReActCodeArchitectureAgent
+from cf.agents.web_search_agent import WebSearchAgent
+from cf.llm.real_llm import init_real_llm, get_real_llm
+from cf.utils.logging_utils import agent_log, progress_log, error_log
+from cf.tools.narrative_utils import extract_key_entity
 
 
 @dataclass
@@ -41,11 +44,14 @@ class ReActSupervisorAgent(ReActAgent):
     def __init__(self, repo: CodeRepo, config: CfConfig):
         super().__init__(repo, config, "SupervisorAgent")
         
+        # Initialize LLM with CodeFusion config
+        init_real_llm(config.to_dict())
+        
         # Initialize specialized ReAct agents
         self.agents = {
             'documentation': ReActDocumentationAgent(repo, config),
-            'codebase': ReActCodebaseAgent(repo, config),
-            'architecture': ReActArchitectureAgent(repo, config)
+            'web_search': WebSearchAgent(repo, config),
+            'code_architecture': ReActCodeArchitectureAgent(repo, config)
         }
         
         # Agent coordination state
@@ -57,8 +63,7 @@ class ReActSupervisorAgent(ReActAgent):
         # Agent priorities based on goal
         self.agent_priorities = {
             'documentation': ['doc', 'readme', 'guide', 'manual', 'help'],
-            'codebase': ['code', 'function', 'class', 'implementation', 'logic'],
-            'architecture': ['architecture', 'design', 'pattern', 'component', 'system']
+            'code_architecture': ['code', 'function', 'class', 'implementation', 'logic', 'architecture', 'design', 'pattern', 'component', 'system']
         }
         
     def explore_repository(self, goal: str = "comprehensive analysis", focus: str = "all") -> Dict[str, Any]:
@@ -67,13 +72,25 @@ class ReActSupervisorAgent(ReActAgent):
         
         Args:
             goal: Primary exploration goal
-            focus: Focus area ('all', 'docs', 'code', 'arch')
+            focus: Focus area ('all', 'docs', 'code_arch')
             
         Returns:
             Comprehensive analysis results from orchestrated agents
         """
+        
+        agent_log(f"\n🎯 [SupervisorAgent] STARTING REPOSITORY EXPLORATION")
+        agent_log(f"🎯 [SupervisorAgent] Goal: {goal}")
+        agent_log(f"🔍 [SupervisorAgent] Focus: {focus}")
+        agent_log(f"📁 [SupervisorAgent] Repository: {self.repo.repo_path}")
+        agent_log(f"🤖 [SupervisorAgent] Available agents: {list(self.agents.keys())}")
+        
         exploration_goal = f"Orchestrate agents to {goal} with focus on {focus}"
-        return self.execute_react_loop(exploration_goal, max_iterations=12)
+        agent_log(f"🎯 [SupervisorAgent] Exploration goal: {exploration_goal}")
+        
+        result = self.execute_react_loop(exploration_goal, max_iterations=12)
+        
+        progress_log(f"✅ [SupervisorAgent] Repository exploration completed")
+        return result
     
     def reason(self) -> str:
         """
@@ -82,48 +99,59 @@ class ReActSupervisorAgent(ReActAgent):
         Returns:
             Reasoning about next coordination action
         """
+        
+        agent_log(f"\n🧠 [SupervisorAgent] REASONING PHASE - Iteration {self.state.iteration}")
+        agent_log(f"🎯 [SupervisorAgent] Goal: {self.state.goal}")
+        agent_log(f"📊 [SupervisorAgent] Agent results: {len(self.agent_results)} agents completed")
+        agent_log(f"🔍 [SupervisorAgent] Available agents: {list(self.agents.keys())}")
+        
         current_context = self.state.current_context
         iteration = self.state.iteration
         goal = self.state.goal
         
         # Parse focus from goal
         focus = self._extract_focus_from_goal(goal)
+        agent_log(f"🎯 [SupervisorAgent] Extracted focus: {focus}")
         
         # First iteration: Plan agent activation strategy
         if iteration == 1:
+            agent_log(f"🚀 [SupervisorAgent] Initial planning: Setting up agent activation strategy")
             return f"I need to coordinate multiple agents to achieve the goal: {goal}. I should determine which agents to activate based on the focus and start with the most relevant ones."
         
         # Early iterations: Activate agents based on focus
         if iteration <= 3:
+            agent_log(f"🔧 [SupervisorAgent] Early iteration phase: Agent activation strategy")
             active_agents = list(self.agent_results.keys())
+            agent_log(f"📋 [SupervisorAgent] Currently active agents: {active_agents}")
             
             if focus == "all":
                 if not active_agents:
-                    return "I should start by activating all three agents (documentation, codebase, architecture) to get comprehensive coverage."
-                elif len(active_agents) < 3:
+                    agent_log(f"🚀 [SupervisorAgent] Starting comprehensive analysis with all agents")
+                    return "I should start by activating both agents (documentation, code_architecture) to get comprehensive coverage."
+                elif len(active_agents) < 2:
                     missing_agents = set(self.agents.keys()) - set(active_agents)
+                    agent_log(f"⚡ [SupervisorAgent] Need to activate remaining agents: {missing_agents}")
                     return f"I have activated {len(active_agents)} agents. I should now activate the remaining agents: {', '.join(missing_agents)}"
             
             elif focus == "docs":
                 if 'documentation' not in active_agents:
+                    agent_log(f"📚 [SupervisorAgent] Focusing on documentation analysis")
                     return "The focus is on documentation. I should primarily activate the documentation agent."
-                elif 'architecture' not in active_agents:
-                    return "Documentation analysis is running. I should also activate the architecture agent to understand system design from docs."
+                elif 'code_architecture' not in active_agents:
+                    agent_log(f"🏗️ [SupervisorAgent] Adding code architecture agent for system design analysis")
+                    return "Documentation analysis is running. I should also activate the code_architecture agent to understand system design from docs."
             
-            elif focus == "code":
-                if 'codebase' not in active_agents:
-                    return "The focus is on code. I should primarily activate the codebase agent."
-                elif 'architecture' not in active_agents:
-                    return "Codebase analysis is running. I should also activate the architecture agent to understand code structure."
-            
-            elif focus == "arch":
-                if 'architecture' not in active_agents:
-                    return "The focus is on architecture. I should primarily activate the architecture agent."
+            elif focus == "code_arch":
+                if 'code_architecture' not in active_agents:
+                    agent_log(f"🏗️ [SupervisorAgent] Focusing on code and architecture analysis")
+                    return "The focus is on code and architecture. I should primarily activate the code_architecture agent."
                 elif 'documentation' not in active_agents:
-                    return "Architecture analysis is running. I should also activate the documentation agent to find design docs."
+                    agent_log(f"📚 [SupervisorAgent] Adding documentation agent for design docs")
+                    return "Code architecture analysis is running. I should also activate the documentation agent to find design docs."
         
         # Middle iterations: Monitor agents and guide their analysis
         if iteration <= 6:
+            agent_log(f"📊 [SupervisorAgent] Middle iteration phase: Monitoring and guidance")
             # Check if we need to provide more specific guidance to agents
             if self.agent_results:
                 incomplete_agents = []
@@ -132,19 +160,25 @@ class ReActSupervisorAgent(ReActAgent):
                         incomplete_agents.append(agent_name)
                 
                 if incomplete_agents:
+                    agent_log(f"⏳ [SupervisorAgent] Incomplete agents: {incomplete_agents}")
                     return f"Agents {', '.join(incomplete_agents)} haven't achieved their goals yet. I should provide more specific guidance or wait for them to complete."
             
+            agent_log(f"🔄 [SupervisorAgent] Preparing for result synthesis")
             return "I should continue monitoring agent progress and start preparing for result synthesis."
         
         # Later iterations: Synthesis and cross-agent insights
         if iteration <= 9:
+            agent_log(f"🔗 [SupervisorAgent] Synthesis phase: Cross-agent insights")
             if len(self.agent_results) >= 2:
+                agent_log(f"📊 [SupervisorAgent] Have {len(self.agent_results)} agent results, synthesizing findings")
                 return "I have results from multiple agents. I should synthesize their findings to generate cross-agent insights and comprehensive understanding."
             else:
+                agent_log(f"⏳ [SupervisorAgent] Need more agent results for synthesis")
                 return "I need more agent results before I can perform meaningful synthesis."
         
         # Final iterations: Generate comprehensive results
         if iteration <= 12:
+            agent_log(f"📋 [SupervisorAgent] Final phase: Comprehensive analysis generation")
             return "I should generate the final comprehensive analysis by combining all agent results and insights."
         
         # Default reasoning
@@ -160,17 +194,24 @@ class ReActSupervisorAgent(ReActAgent):
         Returns:
             Action to take
         """
+        
+        agent_log(f"\n📋 [SupervisorAgent] PLANNING ACTION - Iteration {self.state.iteration}")
+        agent_log(f"🧠 [SupervisorAgent] Reasoning: {reasoning[:100]}{'...' if len(reasoning) > 100 else ''}")
+        
         iteration = self.state.iteration
         goal = self.state.goal
         focus = self._extract_focus_from_goal(goal)
+        agent_log(f"🎯 [SupervisorAgent] Planning for focus: {focus}")
         
         # Early iterations: Agent activation
         if iteration <= 3:
+            agent_log(f"🚀 [SupervisorAgent] Early iteration: Planning agent activation")
             # Determine which agent to activate
             active_agents = list(self.agent_results.keys())
             
             if focus == "all":
                 if 'documentation' not in active_agents:
+                    agent_log(f"📚 [SupervisorAgent] Planning to activate documentation agent")
                     return ReActAction(
                         action_type=ActionType.LLM_REASONING,
                         description="Activate documentation agent for comprehensive doc analysis",
@@ -181,27 +222,17 @@ class ReActSupervisorAgent(ReActAgent):
                         },
                         expected_outcome="Get documentation analysis results"
                     )
-                elif 'codebase' not in active_agents:
+                elif 'code_architecture' not in active_agents:
+                    agent_log(f"🏗️ [SupervisorAgent] Planning to activate code_architecture agent")
                     return ReActAction(
                         action_type=ActionType.LLM_REASONING,
-                        description="Activate codebase agent for code analysis",
+                        description="Activate code_architecture agent for comprehensive code and architecture analysis",
                         parameters={
                             'context': f"Goal: {goal}, Focus: {focus}",
-                            'question': "What specific code aspects should be analyzed?",
-                            'agent_to_activate': 'codebase'
+                            'question': "What specific code and architectural aspects should be analyzed?",
+                            'agent_to_activate': 'code_architecture'
                         },
-                        expected_outcome="Get codebase analysis results"
-                    )
-                elif 'architecture' not in active_agents:
-                    return ReActAction(
-                        action_type=ActionType.LLM_REASONING,
-                        description="Activate architecture agent for architectural analysis",
-                        parameters={
-                            'context': f"Goal: {goal}, Focus: {focus}",
-                            'question': "What specific architectural aspects should be analyzed?",
-                            'agent_to_activate': 'architecture'
-                        },
-                        expected_outcome="Get architecture analysis results"
+                        expected_outcome="Get comprehensive code and architecture analysis results"
                     )
             
             elif focus == "docs":
@@ -216,53 +247,29 @@ class ReActSupervisorAgent(ReActAgent):
                         },
                         expected_outcome="Get focused documentation analysis"
                     )
-                elif 'architecture' not in active_agents:
+                elif 'code_architecture' not in active_agents:
                     return ReActAction(
                         action_type=ActionType.LLM_REASONING,
-                        description="Activate architecture agent to understand system design",
+                        description="Activate code_architecture agent to understand system design",
                         parameters={
                             'context': f"Goal: {goal}, Focus: {focus}",
                             'question': "What architectural aspects can be understood from documentation?",
-                            'agent_to_activate': 'architecture'
+                            'agent_to_activate': 'code_architecture'
                         },
-                        expected_outcome="Get architecture insights from documentation"
+                        expected_outcome="Get code and architecture insights from documentation"
                     )
             
-            elif focus == "code":
-                if 'codebase' not in active_agents:
+            elif focus == "code_arch":
+                if 'code_architecture' not in active_agents:
                     return ReActAction(
                         action_type=ActionType.LLM_REASONING,
-                        description="Activate codebase agent for focused code analysis",
+                        description="Activate code_architecture agent for focused analysis",
                         parameters={
                             'context': f"Goal: {goal}, Focus: {focus}",
-                            'question': "What code aspects should be analyzed for this goal?",
-                            'agent_to_activate': 'codebase'
+                            'question': "What code and architectural aspects should be analyzed for this goal?",
+                            'agent_to_activate': 'code_architecture'
                         },
-                        expected_outcome="Get focused codebase analysis"
-                    )
-                elif 'architecture' not in active_agents:
-                    return ReActAction(
-                        action_type=ActionType.LLM_REASONING,
-                        description="Activate architecture agent to understand code structure",
-                        parameters={
-                            'context': f"Goal: {goal}, Focus: {focus}",
-                            'question': "What architectural patterns can be found in the code?",
-                            'agent_to_activate': 'architecture'
-                        },
-                        expected_outcome="Get architecture insights from code"
-                    )
-            
-            elif focus == "arch":
-                if 'architecture' not in active_agents:
-                    return ReActAction(
-                        action_type=ActionType.LLM_REASONING,
-                        description="Activate architecture agent for focused architectural analysis",
-                        parameters={
-                            'context': f"Goal: {goal}, Focus: {focus}",
-                            'question': "What architectural aspects should be analyzed for this goal?",
-                            'agent_to_activate': 'architecture'
-                        },
-                        expected_outcome="Get focused architecture analysis"
+                        expected_outcome="Get focused code and architecture analysis"
                     )
                 elif 'documentation' not in active_agents:
                     return ReActAction(
@@ -270,14 +277,15 @@ class ReActSupervisorAgent(ReActAgent):
                         description="Activate documentation agent to find design docs",
                         parameters={
                             'context': f"Goal: {goal}, Focus: {focus}",
-                            'question': "What documentation supports architectural understanding?",
+                            'question': "What documentation supports code and architectural understanding?",
                             'agent_to_activate': 'documentation'
                         },
-                        expected_outcome="Get documentation supporting architecture"
+                        expected_outcome="Get documentation supporting code and architecture"
                     )
         
         # Middle iterations: Synthesis and cross-agent insights
         if iteration <= 9 and len(self.agent_results) >= 2:
+            agent_log(f"🔗 [SupervisorAgent] Planning synthesis action with {len(self.agent_results)} agent results")
             return ReActAction(
                 action_type=ActionType.LLM_SUMMARY,
                 description="Synthesize results from multiple agents",
@@ -290,6 +298,7 @@ class ReActSupervisorAgent(ReActAgent):
             )
         
         # Final iterations: Generate comprehensive results
+        agent_log(f"📋 [SupervisorAgent] Planning final comprehensive analysis action")
         return ReActAction(
             action_type=ActionType.LLM_SUMMARY,
             description="Generate final comprehensive analysis",
@@ -341,28 +350,43 @@ class ReActSupervisorAgent(ReActAgent):
         Returns:
             Agent execution results
         """
+        
+        agent_log(f"\n🎯 [SupervisorAgent] ACTIVATING AGENT: {agent_name}")
+        agent_log(f"📝 [SupervisorAgent] Parameters: {parameters}")
+        
         if agent_name not in self.agents:
+            error_log(f"❌ [SupervisorAgent] Agent {agent_name} not found in registry")
             return {'error': f'Agent {agent_name} not found'}
         
         agent = self.agents[agent_name]
         context = parameters.get('context', '')
         question = parameters.get('question', '')
         
+        agent_log(f"❓ [SupervisorAgent] Question for {agent_name}: {question}")
+        agent_log(f"📋 [SupervisorAgent] Context: {context}")
         self.logger.info(f"🎯 Activating {agent_name} agent with question: {question}")
         
         try:
+            agent_log(f"🚀 [SupervisorAgent] Starting {agent_name} agent execution...")
             # Execute the agent's main method
             if agent_name == 'documentation':
                 result = agent.scan_documentation(question)
-            elif agent_name == 'codebase':
-                result = agent.analyze_codebase(question)
-            elif agent_name == 'architecture':
-                result = agent.map_architecture(question)
+            elif agent_name == 'code_architecture':
+                result = agent.analyze_code_architecture(question)
             else:
+                error_log(f"❌ [SupervisorAgent] Unknown agent method for {agent_name}")
                 result = {'error': f'Unknown agent method for {agent_name}'}
             
             # Store the result
             self.agent_results[agent_name] = result
+            
+            agent_log(f"✅ [SupervisorAgent] {agent_name} agent execution completed")
+            if isinstance(result, dict) and result.get('goal_achieved'):
+                agent_log(f"🎯 [SupervisorAgent] {agent_name} achieved its goal successfully")
+            elif isinstance(result, dict) and result.get('error'):
+                error_log(f"❌ [SupervisorAgent] {agent_name} completed with errors")
+            else:
+                agent_log(f"🔄 [SupervisorAgent] {agent_name} completed with partial results")
             
             self.logger.info(f"✅ {agent_name} agent completed analysis")
             return result
@@ -400,34 +424,29 @@ class ReActSupervisorAgent(ReActAgent):
         if len(self.agent_results) < 2:
             return
         
-        # Compare documentation and code findings
-        if 'documentation' in self.agent_results and 'codebase' in self.agent_results:
+        # Compare documentation and code_architecture findings
+        if 'documentation' in self.agent_results and 'code_architecture' in self.agent_results:
             doc_results = self.agent_results['documentation']
-            code_results = self.agent_results['codebase']
+            code_arch_results = self.agent_results['code_architecture']
             
-            # Look for consistency between documentation and code
-            if doc_results.get('summary') and code_results.get('summary'):
+            # Look for consistency between documentation and code/architecture
+            if doc_results.get('summary') and code_arch_results.get('summary'):
                 insight = SupervisorInsight(
                     insight_type='documentation_code_consistency',
-                    content='Analyzed consistency between documentation and code implementation',
-                    confidence=0.7,
-                    contributing_agents=['documentation', 'codebase'],
-                    evidence=[doc_results.get('summary', ''), code_results.get('summary', '')]
+                    content='Analyzed consistency between documentation and code/architecture implementation',
+                    confidence=0.8,
+                    contributing_agents=['documentation', 'code_architecture'],
+                    evidence=[doc_results.get('summary', ''), code_arch_results.get('summary', '')]
                 )
                 self.cross_agent_insights.append(insight)
-        
-        # Compare architecture and code findings
-        if 'architecture' in self.agent_results and 'codebase' in self.agent_results:
-            arch_results = self.agent_results['architecture']
-            code_results = self.agent_results['codebase']
-            
-            if arch_results.get('summary') and code_results.get('summary'):
+                
+                # Additional insight for architecture alignment
                 insight = SupervisorInsight(
                     insight_type='architecture_code_alignment',
-                    content='Analyzed alignment between architectural design and code structure',
+                    content='Analyzed alignment between documented design and implemented code/architecture',
                     confidence=0.8,
-                    contributing_agents=['architecture', 'codebase'],
-                    evidence=[arch_results.get('summary', ''), code_results.get('summary', '')]
+                    contributing_agents=['documentation', 'code_architecture'],
+                    evidence=[doc_results.get('summary', ''), code_arch_results.get('summary', '')]
                 )
                 self.cross_agent_insights.append(insight)
     
@@ -437,10 +456,8 @@ class ReActSupervisorAgent(ReActAgent):
         
         if 'docs' in goal_lower or 'documentation' in goal_lower:
             return 'docs'
-        elif 'code' in goal_lower or 'implementation' in goal_lower:
-            return 'code'
-        elif 'arch' in goal_lower or 'architecture' in goal_lower:
-            return 'arch'
+        elif 'code' in goal_lower or 'implementation' in goal_lower or 'arch' in goal_lower or 'architecture' in goal_lower:
+            return 'code_arch'
         else:
             return 'all'
     
@@ -511,3 +528,203 @@ class ReActSupervisorAgent(ReActAgent):
                 report[f'{agent_name}_summary'] = result['summary']
         
         return report
+    
+    def generate_life_of_x_narrative(self, question: str) -> Dict[str, Any]:
+        """
+        Generate a comprehensive "Life of X" narrative from collected insights.
+        
+        Args:
+            question: The user's question to explore
+            
+        Returns:
+            Life of X narrative response
+        """
+        # First, run the exploration if not already done
+        if not self.agent_results:
+            self.explore_repository(goal=question, focus="all")
+        
+        # Collect comprehensive data for narrative generation
+        insights = {}
+        components = []
+        flows = []
+        code_examples = []
+        documentation_insights = []
+        
+        # Extract rich information from agent results
+        for agent_name, result in self.agent_results.items():
+            if isinstance(result, dict):
+                # Store agent insights
+                insights[agent_name] = {
+                    'summary': result.get('summary', ''),
+                    'iterations': result.get('iterations', 0),
+                    'observations': result.get('observations', []),
+                    'final_context': result.get('final_context', {})
+                }
+                
+                if agent_name == 'code_architecture':
+                    # Extract components with more detail
+                    agent_components = result.get('components', [])
+                    if isinstance(agent_components, list):
+                        components.extend(agent_components)
+                    
+                    # Extract flows
+                    agent_flows = result.get('data_flows', [])
+                    if isinstance(agent_flows, list):
+                        flows.extend(agent_flows)
+                    
+                    # Extract analyzed files as code examples
+                    analyzed_files = result.get('analyzed_files', {})
+                    if isinstance(analyzed_files, dict):
+                        for file_path, file_analysis in analyzed_files.items():
+                            if isinstance(file_analysis, dict):
+                                sample_code = file_analysis.get('sample_code', '')
+                                functions = file_analysis.get('functions', [])
+                                classes = file_analysis.get('classes', [])
+                                
+                                # Extract enhanced function and class details
+                                function_details = file_analysis.get('function_details', [])
+                                class_details = file_analysis.get('class_details', [])
+                                
+                                if sample_code or functions or classes or function_details or class_details:
+                                    code_example = {
+                                        'file_path': file_path,
+                                        'snippet': sample_code,
+                                        'functions': functions,
+                                        'classes': classes,
+                                        'language': file_analysis.get('language', 'unknown'),
+                                        'complexity': file_analysis.get('complexity', 'unknown'),
+                                        'context': f"Core {file_analysis.get('language', '')} module"
+                                    }
+                                    
+                                    # Add enhanced function details with signatures and purposes
+                                    if function_details:
+                                        code_example['function_details'] = []
+                                        for func in function_details[:3]:  # Top 3 functions
+                                            func_info = {
+                                                'name': func.get('name', 'unknown'),
+                                                'signature': func.get('signature', ''),
+                                                'purpose': func.get('purpose', ''),
+                                                'parameters': func.get('parameters', []),
+                                                'line_number': func.get('line_number', 0)
+                                            }
+                                            code_example['function_details'].append(func_info)
+                                    
+                                    # Add enhanced class details with methods and purposes
+                                    if class_details:
+                                        code_example['class_details'] = []
+                                        for cls in class_details[:2]:  # Top 2 classes
+                                            cls_info = {
+                                                'name': cls.get('name', 'unknown'),
+                                                'signature': cls.get('signature', ''),
+                                                'purpose': cls.get('purpose', ''),
+                                                'inheritance': cls.get('inheritance', ''),
+                                                'methods': cls.get('methods', [])[:3],  # Top 3 methods
+                                                'line_number': cls.get('line_number', 0)
+                                            }
+                                            code_example['class_details'].append(cls_info)
+                                    
+                                    code_examples.append(code_example)
+                    
+                    # Extract LLM-detected architectural patterns
+                    patterns = result.get('patterns', [])
+                    if patterns:
+                        insights[agent_name]['patterns'] = patterns
+                    
+                    # Extract enhanced pattern analysis from LLM
+                    for file_path, file_analysis in analyzed_files.items():
+                        if isinstance(file_analysis, dict):
+                            pattern_analysis = file_analysis.get('pattern_analysis', {})
+                            if pattern_analysis:
+                                # Add LLM-detected patterns to insights
+                                llm_patterns = pattern_analysis.get('patterns', [])
+                                if llm_patterns:
+                                    if 'llm_patterns' not in insights[agent_name]:
+                                        insights[agent_name]['llm_patterns'] = []
+                                    insights[agent_name]['llm_patterns'].extend(llm_patterns)
+                                
+                                # Add architectural insights
+                                arch_insights = pattern_analysis.get('architectural_insights', [])
+                                if arch_insights:
+                                    if 'architectural_insights' not in insights[agent_name]:
+                                        insights[agent_name]['architectural_insights'] = []
+                                    insights[agent_name]['architectural_insights'].extend(arch_insights)
+                    
+                    # Extract code entities as component details
+                    code_entities = result.get('code_entities', {})
+                    if isinstance(code_entities, dict):
+                        for file_path, entities in code_entities.items():
+                            if isinstance(entities, list):
+                                for entity in entities[:2]:  # Limit to 2 per file
+                                    if hasattr(entity, 'signature') and entity.signature:
+                                        code_examples.append({
+                                            'file_path': file_path,
+                                            'snippet': entity.signature,
+                                            'context': f"{entity.type} definition"
+                                        })
+                
+                elif agent_name == 'documentation':
+                    # Extract documentation insights
+                    analyzed_docs = result.get('analyzed_docs', {})
+                    if isinstance(analyzed_docs, dict):
+                        for doc_path, doc_analysis in analyzed_docs.items():
+                            if isinstance(doc_analysis, dict):
+                                doc_content = doc_analysis.get('content_summary', '')
+                                doc_type = doc_analysis.get('doc_type', 'general')
+                                if doc_content:
+                                    documentation_insights.append({
+                                        'file_path': doc_path,
+                                        'type': doc_type,
+                                        'summary': doc_content,
+                                        'key_sections': doc_analysis.get('key_sections', [])
+                                    })
+                    
+                    # Extract high-level insights from observations
+                    observations = result.get('observations', [])
+                    if observations:
+                        for obs in observations:
+                            if isinstance(obs, dict) and obs.get('insight'):
+                                insight_text = obs['insight']
+                                if len(insight_text) > 50:  # Only meaningful insights
+                                    documentation_insights.append({
+                                        'type': 'observation',
+                                        'summary': insight_text,
+                                        'source': 'documentation_agent'
+                                    })
+        
+        # Add documentation insights to the insights dict
+        if documentation_insights:
+            insights['documentation']['doc_insights'] = documentation_insights
+        
+        # Generate narrative using LLM
+        try:
+            # Extract key entity for Life of X format
+            key_entity = extract_key_entity(question)
+            
+            real_llm = get_real_llm()
+            if real_llm and real_llm.client:
+                narrative_result = real_llm.generate_life_of_x_narrative(
+                    question=question,
+                    insights=insights,
+                    components=components,
+                    flows=flows,
+                    code_examples=code_examples,
+                    key_entity=key_entity
+                )
+            else:
+                raise Exception("Real LLM not available")
+            
+            self.logger.info(f"Generated Life of X narrative for: {question}")
+            return narrative_result
+            
+        except Exception as e:
+            self.logger.error(f"Failed to generate Life of X narrative: {e}")
+            # Return a basic narrative structure
+            return {
+                'narrative': f"Analysis completed for: {question}",
+                'journey_stages': ["Exploration", "Analysis", "Synthesis"],
+                'key_components': [comp.get('name', 'Unknown') for comp in components[:5]] if components else [],
+                'flow_summary': f"Analyzed {len(components)} components and {len(flows)} flows",
+                'code_insights': ["Code analysis completed"],
+                'confidence': 0.6,
+                'error': str(e)
+            }

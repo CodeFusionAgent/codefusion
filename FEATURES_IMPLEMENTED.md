@@ -4,11 +4,13 @@ This document summarizes the features implemented in CodeFusion's human-like exp
 
 ## ✅ Core Architecture
 
-### 🧠 Human-like Explorer
-- **React Exploration Loop**: Reason → Act → Observe investigation pattern
-- **Simple Tools**: List directories, read files, grep search patterns
-- **Text-based Cache**: Simple JSON caching instead of complex databases
-- **Progressive Learning**: Build understanding incrementally through exploration
+### 🧠 Advanced ReAct Framework
+- **ReAct Exploration Loop**: Reason → Act → Observe investigation pattern with LLM integration
+- **Multi-Agent System**: Specialized agents for documentation, code architecture, and supervision
+- **LLM-Powered Tools**: AI-driven tool selection and reasoning capabilities
+- **Intelligent Caching**: Persistent cross-session memory with TTL and LRU eviction
+- **Progressive Learning**: Build understanding incrementally through AI-guided exploration
+- **Error Recovery**: Circuit breakers, retry logic, and graceful fallback strategies
 
 ### 📁 Repository Interface
 - **Local Repository Access**: Read files, list directories, check existence

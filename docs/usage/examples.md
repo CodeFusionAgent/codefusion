@@ -290,18 +290,96 @@ cf --config my-config.yaml summary /path/to/repo
 python -c "import yaml; yaml.safe_load(open('my-config.yaml'))"
 ```
 
+## LLM Function Calling Examples
+
+### Basic LLM-Driven Exploration
+
+```bash
+# LLM selects optimal tools for FastAPI exploration
+python -m cf.run.simple_run explore /path/to/fastapi "How does request routing work?"
+
+# LLM-powered architectural analysis
+python -m cf.run.simple_run explore /path/to/project "Life of an API Request"
+
+# Dynamic tool selection based on context
+python -m cf.run.simple_run explore /path/to/microservices "How do services communicate?"
+```
+
+### LLM Function Calling with Life of X Narratives
+
+```bash
+# Generate technical architectural stories
+python -m cf.run.simple_run explore /path/to/webapp "Life of User Authentication"
+
+# Follow data through the system
+python -m cf.run.simple_run explore /path/to/ecommerce "Life of a Shopping Cart Item"
+
+# Trace request flows
+python -m cf.run.simple_run explore /path/to/api "Life of a Database Query"
+```
+
+### Configuration for LLM Function Calling
+
+```yaml
+# llm-config.yaml
+llm:
+  model: "claude-3-sonnet-20240229"  # or gpt-4, together_ai/meta-llama/...
+  api_key: "${CF_LLM_API_KEY}"
+  max_tokens: 2000
+  temperature: 0.7
+  provider: "anthropic"
+
+# ReAct agent settings
+agents:
+  code_architecture:
+    llm_reasoning_enabled: true
+    llm_function_calling_enabled: true
+    fallback_to_hardcoded: true
+```
+
+### Environment Variables for LLM Integration
+
+```bash
+# OpenAI Configuration
+export CF_LLM_MODEL=gpt-4
+export CF_LLM_API_KEY=your-openai-api-key
+
+# Anthropic Configuration  
+export CF_LLM_MODEL=claude-3-sonnet-20240229
+export CF_LLM_API_KEY=your-anthropic-api-key
+
+# LLaMA via Together AI
+export CF_LLM_MODEL=together_ai/meta-llama/Llama-2-7b-chat-hf
+export CF_LLM_API_KEY=your-together-ai-key
+
+# Run with LLM function calling
+python -m cf.run.simple_run explore /path/to/repo "How does authentication work?"
+```
+
+### Advanced LLM Function Calling Examples
+
+```bash
+# Complex architectural analysis with LLM tool selection
+python -m cf.run.simple_run explore /path/to/distributed/system "How does the system handle distributed transactions?"
+
+# LLM-driven security analysis
+python -m cf.run.simple_run explore /path/to/webapp "How are security vulnerabilities prevented?"
+
+# Performance analysis with intelligent tool selection
+python -m cf.run.simple_run explore /path/to/high/traffic/app "How does the system handle high load?"
+```
+
 ## Multi-Agent Framework Examples
 
 ### Comprehensive Repository Analysis
 
 ```bash
-# Run comprehensive multi-agent analysis
-cf analyze /path/to/repo
+# Run comprehensive multi-agent analysis with LLM function calling
+python -m cf.run.simple_run analyze /path/to/repo --focus=all
 
-# Focus on specific areas
-cf analyze /path/to/repo --focus docs
-cf analyze /path/to/repo --focus code
-cf analyze /path/to/repo --focus arch
+# Focus on specific areas with LLM-driven tool selection
+python -m cf.run.simple_run analyze /path/to/repo --focus=docs
+python -m cf.run.simple_run analyze /path/to/repo --focus=code_arch
 ```
 
 ### Advanced Multi-Agent Workflows
