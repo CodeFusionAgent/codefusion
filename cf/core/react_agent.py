@@ -287,6 +287,11 @@ class ReActAgent(ABC):
                     self.logger.warning(f"⏰ Total timeout ({self.react_config.total_timeout}s) reached")
                     break
                 
+                # Check for forced completion from recovery
+                if self.state.current_context.get('forced_completion', False):
+                    self.logger.info("🎯 Forced completion detected, exiting ReAct loop")
+                    break
+                
                 self.state.iteration += 1
                 iteration_start = time.time()
                 iteration_timeout = iteration_start + self.react_config.iteration_timeout
@@ -536,25 +541,30 @@ class ReActAgent(ABC):
     
     def _detect_stuck_loop(self) -> bool:
         """Detect if the agent is stuck in a loop."""
-        if len(self.state.actions_taken) < 5:  # Require more actions before detecting
+        if len(self.state.actions_taken) < 3:  # More aggressive detection
             return False
         
-        # Check for repeated actions (same action 4+ times in a row)
-        recent_actions = self.state.actions_taken[-4:]
-        if len(set(recent_actions)) == 1:  # Same action repeated 4 times
+        # Check for repeated actions (same action 3+ times in a row)
+        recent_actions = self.state.actions_taken[-3:]
+        if len(set(recent_actions)) == 1:  # Same action repeated 3 times
+            self.logger.warning(f"🔄 Detected repeated action: {recent_actions[0]}")
             return True
         
-        # Check for oscillating between two actions (more conservative)
-        if len(self.state.actions_taken) >= 6:
-            last_six = self.state.actions_taken[-6:]
-            # Check if pattern repeats 3 times
-            if (last_six[0] == last_six[2] == last_six[4] and 
-                last_six[1] == last_six[3] == last_six[5]):
+        # Check for very recent oscillation (2 actions back and forth)
+        if len(self.state.actions_taken) >= 4:
+            last_four = self.state.actions_taken[-4:]
+            if (last_four[0] == last_four[2] and last_four[1] == last_four[3]):
+                self.logger.warning(f"🔄 Detected oscillation: {last_four[0]} <-> {last_four[1]}")
                 return True
+        
+        # Check for too many iterations without progress
+        if self.state.iteration > 8:
+            self.logger.warning(f"🔄 Too many iterations ({self.state.iteration}), forcing completion")
+            return True
         
         return False
     
-    def _attempt_recovery(self):
+    def _attempt_recovery(self) -> bool:
         """Attempt to recover from stuck state."""
         recovery_action = self._get_recovery_action()
         if recovery_action:
@@ -562,19 +572,41 @@ class ReActAgent(ABC):
             # Add some randomness to break the loop
             self.state.current_context['recovery_attempt'] = time.time()
             self.state.stuck_detection.append(recovery_action)
+            
+            # Force specific recovery actions
+            if recovery_action == "escalate_to_human" or len(self.state.stuck_detection) >= 3:
+                self.logger.error("❌ Recovery failed after multiple attempts, forcing completion")
+                # Force goal completion to exit the loop
+                self.state.current_context['forced_completion'] = True
+                return False
+                
+            elif recovery_action == "force_completion":
+                self.logger.info("🎯 Forcing early completion due to stuck loop")
+                self.state.current_context['forced_completion'] = True
+                return False
+            
+            # Add recovery context to influence next action selection
+            self.state.current_context['recovery_mode'] = recovery_action
+            self.state.current_context['avoid_actions'] = self.state.actions_taken[-3:]
+            
+            return True
+        
+        return False
     
     def _get_recovery_action(self) -> Optional[str]:
         """Get a recovery action based on current state."""
-        if len(self.state.stuck_detection) > 3:
-            return "escalate_to_human"
+        # More aggressive recovery - force completion after 2 attempts
+        if len(self.state.stuck_detection) >= 2:
+            return "force_completion"
         
+        # Check what we're stuck on
         recent_actions = self.state.actions_taken[-3:]
         if all("read_file" in action for action in recent_actions):
-            return "switch_to_directory_scan"
+            return "force_completion"  # If we're stuck reading files, just complete
         elif all("scan_directory" in action for action in recent_actions):
-            return "switch_to_file_search"
+            return "force_completion"  # If we're stuck scanning, just complete
         else:
-            return "try_llm_reasoning"
+            return "force_completion"  # Default to completion for any stuck state
     
     # Tool implementations
     def _tool_scan_directory(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -644,19 +676,22 @@ class ReActAgent(ABC):
             excluded_dirs = {'.git', '.github', 'node_modules', '__pycache__', '.venv', 'venv', '.pytest_cache'}
             
             for file_info in self.repo.walk_repository():
-                if not file_info.is_directory and file_info.path.startswith(directory):
-                    # Skip excluded directories
-                    path_parts = Path(file_info.path).parts
-                    if any(part in excluded_dirs for part in path_parts):
-                        continue
-                    
-                    # Simple pattern matching
-                    if pattern == '*' or pattern in file_info.path:
-                        files.append({
-                            'path': file_info.path,
-                            'size': file_info.size,
-                            'extension': Path(file_info.path).suffix
-                        })
+                if not file_info.is_directory:
+                    # Handle root directory case where directory="." but paths don't start with "."
+                    if directory == "." or file_info.path.startswith(directory):
+                        # Skip excluded directories
+                        path_parts = Path(file_info.path).parts
+                        if any(part in excluded_dirs for part in path_parts):
+                            continue
+                        
+                        # Pattern matching - support glob patterns
+                        import fnmatch
+                        if pattern == '*' or fnmatch.fnmatch(file_info.path, pattern):
+                            files.append({
+                                'path': file_info.path,
+                                'size': file_info.size,
+                                'extension': Path(file_info.path).suffix
+                            })
             
             result = {
                 'pattern': pattern,

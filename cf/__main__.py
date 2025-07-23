@@ -3,13 +3,13 @@
 Direct execution entry point for CodeFusion module.
 
 Usage:
-    python -m cf explore /path/to/repo "How does authentication work?"
-    python -m cf ask /path/to/repo "What are the main API endpoints?"
+    python -m cf ask /path/to/repo "How does authentication work?"
     python -m cf summary /path/to/repo
+    python -m cf interactive /path/to/repo
 """
 
 # Import at module level to avoid import warnings
-from cf.run.simple_run import main
+from cf.run.main import main
 
 if __name__ == "__main__":
     main()

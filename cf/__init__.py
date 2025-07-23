@@ -1,27 +1,28 @@
-"""CodeFusion: A ReAct (Reasoning + Acting) framework for intelligent code exploration and analysis."""
+"""CodeFusion: Clean, LLM-driven code analysis framework."""
 
-from cf.aci.repo import CodeAction, CodeRepo, FileInfo, LocalCodeRepo, RemoteCodeRepo
-from cf.config import CfConfig
-from cf.agents.react_supervisor_agent import ReActSupervisorAgent
-from cf.core.react_agent import ReActAgent, ReActAction, ReActObservation, ActionType
+from cf.configs.config_mgr import ConfigManager
+from cf.agents.supervisor import SupervisorAgent
+from cf.agents.base import BaseAgent
+from cf.agents.code import CodeAgent
+from cf.agents.docs import DocsAgent
+from cf.agents.web import WebAgent
+from cf.llm.client import LLMClient
+from cf.tools.registry import ToolRegistry
 
 __version__ = "0.1.0"
 __author__ = "CodeFusion Team"
 __description__ = (
-    "ReAct framework for systematic code exploration through reasoning, acting, and observing. "
-    "Enables multi-agent collaborative analysis of codebases with LLM-powered intelligence."
+    "Clean LLM-driven framework for intelligent code analysis. "
+    "Multi-agent system with function calling loops for comprehensive codebase understanding."
 )
 
 __all__ = [
-    "CfConfig",
-    "CodeRepo",
-    "LocalCodeRepo",
-    "RemoteCodeRepo", 
-    "CodeAction",
-    "FileInfo",
-    "ReActSupervisorAgent",
-    "ReActAgent",
-    "ReActAction", 
-    "ReActObservation",
-    "ActionType",
+    "ConfigManager",
+    "SupervisorAgent",
+    "BaseAgent",
+    "CodeAgent",
+    "DocsAgent", 
+    "WebAgent",
+    "LLMClient",
+    "ToolRegistry",
 ]
