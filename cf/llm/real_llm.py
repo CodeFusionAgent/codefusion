@@ -380,6 +380,7 @@ class RealLLM:
     
     def _enhance_narrative_from_insights(self, question: str, insights: Dict[str, Any], components: List[Dict], flows: List[Dict]) -> str:
         """Generate enhanced narrative from available insights."""
+        from cf.tools.narrative_utils import extract_key_entity
         key_entity = extract_key_entity(question)
         
         narrative = f"Life of {key_entity}:\n\n"
@@ -488,6 +489,7 @@ class RealLLM:
     
     def _generate_flow_summary(self, question: str, components: List[Dict], flows: List[Dict]) -> str:
         """Generate flow summary from available data."""
+        from cf.tools.narrative_utils import extract_key_entity
         key_entity = extract_key_entity(question)
         
         if components and flows:
@@ -576,6 +578,7 @@ class RealLLM:
     def _fallback_life_of_x_narrative(self, question: str, insights: Dict[str, Any], components: List[Dict], flows: List[Dict], code_examples: List[Dict] = None, key_entity: str = None) -> Dict[str, Any]:
         """Fallback Life of X narrative when LLM is unavailable."""
         # Extract key entity for narrative
+        from cf.tools.narrative_utils import extract_key_entity
         key_entity = extract_key_entity(question)
         
         # Create a basic narrative structure
