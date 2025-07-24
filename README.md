@@ -1,158 +1,146 @@
-# CodeFusion Interactive Code Intelligence
+# CodeFusion - AI-Powered Codebase Analysis
 
-An **interactive, multi-agent LLM-powered system** for intelligent codebase exploration and analysis. CodeFusion provides continuous question-answer sessions with persistent memory, web search integration, and adaptive response formats tailored to different types of technical questions.
+An **intelligent multi-agent system** for deep codebase exploration and analysis. CodeFusion uses LLM-driven function calling and verbose logging to provide comprehensive technical narratives about how systems work.
 
-## 🧠 ReAct Architecture Overview
+## 🏗️ Clean Architecture
 
 ```mermaid
 graph TB
-    %% User Interface Layer
-    subgraph UI ["🖥️ User Interface"]
-        CLI[CLI Interface<br/>python -m cf]
-        EXPLORE[cf explore<br/>Question-based Analysis]
-        CONTINUE[cf continue<br/>Follow-up Investigation]
-        ANALYZE[cf analyze<br/>Comprehensive Review]
-        SUMMARY[cf summary<br/>Results Overview]
+    %% User Interface
+    subgraph UI ["🖥️ Command Line Interface"]
+        CLI[python -m cf.run.main<br/>--verbose ask]
     end
     
-    %% Interactive Session Layer
-    subgraph INTERACTIVE ["🔄 Interactive Session"]
-        SESSION_MGR[Session Manager<br/>Persistent Memory & Context]
-        MULTI_AGENT[Multi-Agent Coordinator<br/>Intelligent Agent Selection]
-        WEB_SEARCH[Web Search Agent<br/>External Documentation & Best Practices]
-        FORMAT_DETECT[Response Format Detection<br/>Journey vs Comparison vs Explanation]
+    %% Core Package Structure  
+    subgraph CF ["📦 cf/ - Core Package"]
+        direction TB
+        
+        subgraph AGENTS ["🤖 cf/agents/ - Multi-Agent System"]
+            SUPERVISOR[supervisor.py<br/>Orchestrates & Synthesizes]
+            CODE_AGENT[code.py<br/>LLM Function Calling Loop]
+            DOCS_AGENT[docs.py<br/>Documentation Analysis] 
+            WEB_AGENT[web.py<br/>Web Search Integration]
+            BASE_AGENT[base.py<br/>Common Agent Functionality]
+        end
+        
+        subgraph TOOLS ["🛠️ cf/tools/ - Tool Ecosystem"]
+            REGISTRY[registry.py<br/>Schema Management]
+            REPO_TOOLS[repo_tools.py<br/>File System Operations]
+            LLM_TOOLS[llm_tools.py<br/>AI-Powered Analysis]
+            WEB_TOOLS[web_tools.py<br/>External Search]
+        end
+        
+        subgraph LLM ["🧠 cf/llm/ - AI Integration"]
+            CLIENT[client.py<br/>LiteLLM Multi-Provider]
+        end
+        
+        subgraph INFRA ["⚙️ cf/ - Infrastructure"]
+            RUN[run/main.py<br/>CLI Entry Point]
+            CONFIGS[configs/config_mgr.py<br/>Configuration Management]
+            CACHE[cache/semantic.py<br/>Persistent Caching]
+            TRACE[trace/tracer.py<br/>Performance Monitoring]
+            UTILS[utils/logger.py<br/>Verbose Logging System]
+        end
     end
     
-    %% ReAct Agent Layer
-    subgraph REACT ["🤖 ReAct Agent Framework"]
-        SUPERVISOR[ReAct Supervisor<br/>Multi-Agent Orchestration & Narrative Generation]
-        DOC_AGENT[Documentation Agent<br/>README & Docs Analysis]
-        CODE_ARCH_AGENT[Code Architecture Agent<br/>Source Code & System Design Analysis]
-        MEMORY[Exploration Memory<br/>LLM-Powered Question Analysis]
+    %% External Systems
+    subgraph EXTERNAL ["🌐 External Systems"]
+        LITELLM[LiteLLM<br/>Multi-Provider Support]
+        OPENAI[OpenAI GPT-4o<br/>Primary LLM Provider]
+        CONFIG_FILE[configs/config.yaml<br/>Configuration File]
     end
     
-    %% Core Infrastructure
-    subgraph CORE ["⚙️ Core Infrastructure"]
-        REACT_BASE[ReAct Base Agent<br/>Reason → Act → Observe]
-        TOOLS[Tool Ecosystem<br/>File System & Analysis Tools]
-        CACHE[Persistent Cache<br/>Cross-Session Memory with TTL]
-        TRACE[Execution Tracing<br/>Performance & Debug Monitoring]
-        ERROR_RECOVERY[Error Recovery<br/>Circuit Breakers & Fallbacks]
+    %% Data Storage
+    subgraph STORAGE ["💾 Generated Data"]
+        CF_CACHE[cf_cache/<br/>JSON Cache Files]
+        CF_TRACE[cf_trace/<br/>Execution Traces]
     end
     
-    %% LLM Integration - Enhanced
-    subgraph LLM ["🧠 Advanced LLM Integration"]
-        INIT[LLM Initialization<br/>Dynamic Module Loading]
-        LITELLM[LiteLLM Provider<br/>Unified API Access]
-        FUNC_CALL[Tool Registry<br/>Function Calling Schemas]
-        FALLBACK[Graceful Fallbacks<br/>Simple LLM Backup]
-        OPENAI[OpenAI GPT-4o<br/>Function Calling]
-        ANTHROPIC[Claude 3 Sonnet<br/>Advanced Reasoning]
-        LLAMA[Local LLaMA<br/>Privacy-Focused]
-    end
+    %% Data Flow
+    CLI --> RUN
+    RUN --> SUPERVISOR
     
-    %% Repository Interface
-    subgraph REPO ["📁 Repository Access"]
-        LOCAL[Local Files<br/>Smart Filtering]
-        REMOTE[Remote Git<br/>Future Support]
-        ACI[Agent Computer Interface<br/>Clean Abstractions]
-    end
+    SUPERVISOR --> CODE_AGENT
+    SUPERVISOR --> DOCS_AGENT  
+    SUPERVISOR --> WEB_AGENT
     
-    %% Configuration & Setup
-    subgraph CONFIG ["⚙️ Configuration"]
-        YAML_CONFIG[YAML Config<br/>Default Settings]
-        ENV_VARS[Environment Variables<br/>API Keys]
-        VENV[Virtual Environment<br/>Isolated Dependencies]
-    end
+    CODE_AGENT --> BASE_AGENT
+    DOCS_AGENT --> BASE_AGENT
+    WEB_AGENT --> BASE_AGENT
     
-    %% Enhanced Connections
-    CLI --> SESSION_MGR
-    SESSION_MGR --> MULTI_AGENT
-    MULTI_AGENT --> SUPERVISOR
-    MULTI_AGENT --> WEB_SEARCH
-    MULTI_AGENT --> FORMAT_DETECT
-    SUPERVISOR --> DOC_AGENT
-    SUPERVISOR --> CODE_ARCH_AGENT
-    SUPERVISOR --> MEMORY
+    BASE_AGENT --> REGISTRY
+    BASE_AGENT --> CLIENT
+    BASE_AGENT --> UTILS
     
-    DOC_AGENT --> REACT_BASE
-    CODE_ARCH_AGENT --> REACT_BASE
-    MEMORY --> REACT_BASE
+    REGISTRY --> REPO_TOOLS
+    REGISTRY --> LLM_TOOLS
+    REGISTRY --> WEB_TOOLS
     
-    REACT_BASE --> TOOLS
-    REACT_BASE --> CACHE
-    REACT_BASE --> TRACE
-    REACT_BASE --> ERROR_RECOVERY
-    
-    TOOLS --> FUNC_CALL
-    FUNC_CALL --> INIT
-    INIT --> LITELLM
+    CLIENT --> LITELLM
     LITELLM --> OPENAI
-    LITELLM --> ANTHROPIC
-    LITELLM --> LLAMA
-    INIT --> FALLBACK
     
-    REACT_BASE --> ACI
-    ACI --> LOCAL
-    ACI --> REMOTE
+    AGENTS --> CACHE
+    AGENTS --> TRACE
+    RUN --> CONFIGS
+    CONFIGS --> CONFIG_FILE
     
-    SUPERVISOR --> CONFIG
-    CONFIG --> YAML_CONFIG
-    CONFIG --> ENV_VARS
-    CONFIG --> VENV
+    CACHE --> CF_CACHE
+    TRACE --> CF_TRACE
     
-    %% Enhanced Styling
+    %% Styling
     classDef ui fill:#3b4d66,stroke:#2d3748,stroke-width:2px,color:#f7fafc
-    classDef react fill:#553c6b,stroke:#44337a,stroke-width:3px,color:#f7fafc
-    classDef core fill:#2d5a3d,stroke:#1a4d2e,stroke-width:2px,color:#f7fafc
-    classDef llm fill:#8b5a3c,stroke:#6b4423,stroke-width:2px,color:#f7fafc
-    classDef repo fill:#2c5282,stroke:#1a365d,stroke-width:2px,color:#f7fafc
-    classDef config fill:#744210,stroke:#553010,stroke-width:2px,color:#f7fafc
+    classDef cf fill:#553c6b,stroke:#44337a,stroke-width:3px,color:#f7fafc
+    classDef agents fill:#8b5a3c,stroke:#6b4423,stroke-width:2px,color:#f7fafc
+    classDef tools fill:#744e3a,stroke:#5a3a2a,stroke-width:2px,color:#f7fafc
+    classDef llm fill:#2c5282,stroke:#1a365d,stroke-width:2px,color:#f7fafc
+    classDef infra fill:#2d5a3d,stroke:#1a4d2e,stroke-width:2px,color:#f7fafc
+    classDef external fill:#805ad5,stroke:#553c9a,stroke-width:2px,color:#f7fafc
+    classDef storage fill:#4a5568,stroke:#2d3748,stroke-width:2px,color:#f7fafc
     
-    class UI,CLI,EXPLORE,CONTINUE,ANALYZE,SUMMARY ui
-    class REACT,SUPERVISOR,DOC_AGENT,CODE_ARCH_AGENT,MEMORY react
-    class CORE,REACT_BASE,TOOLS,CACHE,TRACE,ERROR_RECOVERY core
-    class LLM,INIT,LITELLM,FUNC_CALL,FALLBACK,OPENAI,ANTHROPIC,LLAMA llm
-    class REPO,LOCAL,REMOTE,ACI repo
-    class CONFIG,YAML_CONFIG,ENV_VARS,VENV config
+    class UI,CLI ui
+    class CF cf
+    class AGENTS,SUPERVISOR,CODE_AGENT,DOCS_AGENT,WEB_AGENT,BASE_AGENT agents
+    class TOOLS,REGISTRY,REPO_TOOLS,LLM_TOOLS,WEB_TOOLS tools
+    class LLM,CLIENT llm
+    class INFRA,RUN,CONFIGS,CACHE,TRACE,UTILS infra
+    class EXTERNAL,LITELLM,OPENAI,CONFIG_FILE external
+    class STORAGE,CF_CACHE,CF_TRACE storage
 ```
 
-## 🎯 Core Features
+> **📋 For detailed workflow diagrams and system execution flow, see [Architecture Documentation](docs/dev/architecture.md#system-workflow-overview)**
 
-### ✅ **ReAct Pattern Implementation**
-- **Systematic Reasoning**: AI-powered analysis of current state and goal progress
-- **Intelligent Action Selection**: 8 specialized tools for comprehensive code exploration
-- **Adaptive Observation**: Learning from results to improve future actions
-- **Goal-Oriented Loops**: Iterative refinement until objectives are achieved
+## 🎯 Current Features
 
-### ✅ **Interactive Multi-Agent Architecture**
-- **Interactive Session Manager**: Maintains persistent memory and context across questions
-- **Multi-Agent Coordinator**: Intelligently selects and coordinates specialized agents based on question type
-- **Documentation Agent**: Analyzes README files, guides, and documentation
-- **Code Architecture Agent**: Examines source code, functions, patterns, and system design  
-- **Web Search Agent**: Integrates external documentation and best practices using DuckDuckGo API
-- **Supervisor Agent**: Orchestrates agents and generates unified responses using LLM consolidation
+### ✅ **Multi-Agent Coordination**
+- **SupervisorAgent**: Orchestrates 3 specialized agents and synthesizes responses
+- **CodeAgent**: Deep code analysis using LLM function calling loops
+- **DocsAgent**: Documentation analysis and README parsing
+- **WebAgent**: Web search integration for external knowledge
+- **Response Time Tracking**: Accurate execution time measurement (fixed from 0.0s issue)
 
-### ✅ **Advanced LLM Integration**
-- **Multiple Providers**: OpenAI, Anthropic, LLaMA via LiteLLM
-- **LLM Function Calling**: AI selects tools by generating structured output
-- **Intelligent Reasoning**: Context-aware decision making for exploration strategy
-- **Dynamic Tool Selection**: LLM chooses optimal tools based on current state and goals
-- **Robust Fallbacks**: Graceful degradation when LLMs unavailable
-- **Provider-Specific Optimization**: Tailored prompts for each model
+### ✅ **LLM Function Calling System**
+- **Conversation History**: Multi-turn dialogue with context preservation
+- **Dynamic Tool Selection**: LLM intelligently selects tools with parameters
+- **Tool Registry**: Schema-based tool management and dispatch
+- **Available Tools**: `scan_directory`, `read_file`, `search_files`, `analyze_code`, `web_search`
 
-### ✅ **Adaptive Response Formats**
-- **Journey Format (Life of X)**: For process flow and system architecture questions
-- **Comparison Format**: For performance comparisons and technical trade-off analysis  
-- **Explanation Format**: For conceptual explanations and configuration questions
-- **LLM-Driven Format Detection**: Automatically selects optimal response format based on question type
-- **Web Search Integration**: External insights woven naturally into responses, not shown separately
+### ✅ **Verbose Logging System**
+- **Action Planning Phases**: Shows agent reasoning and decision making
+- **Tool Selection Logging**: Displays which tools LLM selects and why
+- **Progress Tracking**: Real-time visibility into agent activity
+- **Dual Logging**: Technical debug logs + user-friendly verbose output
 
-### ✅ **Enterprise-Grade Infrastructure**
-- **Persistent Caching**: Cross-session memory with TTL and LRU eviction
-- **Comprehensive Tracing**: Execution monitoring and performance metrics
-- **Error Recovery**: Circuit breakers, retry logic, and fallback strategies
-- **Configurable Performance**: Fast, balanced, and thorough analysis profiles
+### ✅ **Technical Narrative Generation**
+- **Architectural Overview**: Comprehensive technical stories about system components
+- **Life of X Format**: Detailed narratives following features through entire systems
+- **Code Pattern Recognition**: Identifies specific implementations, classes, and methods
+- **Framework Integration**: Understands relationships between technologies (e.g., FastAPI + Starlette)
+
+### ✅ **LLM Integration**
+- **LiteLLM Support**: Multi-provider integration (OpenAI, Anthropic, LLaMA)
+- **Primary Model**: GPT-4o with function calling capabilities
+- **Configuration**: YAML config + environment variable support
+- **API Key Management**: Secure credential handling
 
 ## 🚀 Quick Start
 
@@ -160,74 +148,92 @@ graph TB
 
 ```bash
 # 1. Create and activate virtual environment (REQUIRED)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# 2. Install CodeFusion
+# 2. Install dependencies
 pip install -e .
 
-# 3. Install LLM support (required for full AI features)
-pip install litellm
+# 3. Set up API key (choose one method)
+export OPENAI_API_KEY="your-openai-api-key"     # For GPT-4o
+# OR edit cf/configs/config.yaml directly
 
-# 4. Set up API key (choose one)
-export OPENAI_API_KEY="your-openai-api-key"     # For GPT-4
-export ANTHROPIC_API_KEY="your-anthropic-key"   # For Claude
-# OR edit config/default/config.yaml directly
+# 4. Verify installation
+python -m cf.run.main --help
+```
 
-# 5. Verify installation
-python -m cf explore --help
+### Package Structure
+
+The clean `cf/` package structure:
+
+```
+cf/
+├── __init__.py
+├── agents/           # Multi-agent system
+│   ├── base.py      # Common agent functionality  
+│   ├── supervisor.py # Orchestration & synthesis
+│   ├── code.py      # Code analysis with LLM function calling
+│   ├── docs.py      # Documentation processing
+│   └── web.py       # Web search integration
+├── tools/           # Tool ecosystem
+│   ├── registry.py  # Schema management for LLM function calling
+│   ├── repo_tools.py # File system operations
+│   ├── llm_tools.py  # AI-powered analysis tools
+│   └── web_tools.py  # External search capabilities
+├── llm/             # AI integration
+│   └── client.py    # LiteLLM multi-provider interface
+├── run/             # CLI interface
+│   └── main.py      # Entry point
+├── configs/         # Configuration
+│   ├── config.yaml  # Main configuration file
+│   └── config_mgr.py # Configuration management
+├── cache/           # Persistent caching
+│   └── semantic.py  # Cross-session memory
+├── trace/           # Performance monitoring
+│   └── tracer.py    # Execution tracing
+└── utils/           # Utilities
+    └── logger.py    # Verbose logging system
 ```
 
 ### Basic Usage
 
 ```bash
-# Interactive exploration with persistent memory
-python -m cf explore /path/to/repo "How does FastAPI routing work?"
-# Follows up with: "What is the performance implication of using async def vs. def?"
-# System remembers previous context and provides comparative analysis
+# Analyze a codebase with verbose logging
+python -m cf.run.main --verbose ask /path/to/repo "How does FastAPI routing work?"
 
-# Start interactive session for continuous Q&A
-python -m cf interactive /path/to/repo
-# > How does authentication work?
-# > What are the security implications?
-# > Show me code examples
+# Example output shows:
+# 📝 Processing: How does FastAPI routing work?
+# 🤖 Coordinating multiple specialized agents...
+# 🔍 Running code analysis agent...
+# 🎯 [CodeAgent] ACTION PLANNING PHASE
+# 🎯 [CodeAgent] LLM selected tool: search_files
+# 📚 Running documentation agent...
+# 🌐 Running web search agent...
+# 🤖 Consolidating results with LLM...
+# ⏱️ Response time: 30.4s
 
-# Single question with multi-agent coordination
-python -m cf explore /path/to/repo "Explain the relationship between FastAPI and Starlette"
-# Uses 3 agents: code analysis, documentation, web search
+# Different repository analysis
+python -m cf.run.main --verbose ask /tmp/fastapi "Explain the relationship between FastAPI and Starlette"
 ```
 
-### Advanced Usage
+### Configuration
 
+```yaml
+# cf/configs/config.yaml
+llm:
+  model: "gpt-4o"
+  api_key: "your-openai-api-key"  # Or use OPENAI_API_KEY env var
+  max_tokens: 1000
+  temperature: 0.7
+  provider: "openai"
+```
+
+### Environment Variables
 ```bash
-# Different response formats based on question type
-python -m cf explore /path/to/repo "How does routing work?"  # Journey format
-python -m cf explore /path/to/repo "async def vs def performance?"  # Comparison format
-python -m cf explore /path/to/repo "What is dependency injection?"  # Explanation format
-
-# Web search integration for external context
-export ENABLE_WEB_SEARCH=true
-python -m cf explore /path/to/repo "FastAPI best practices for production"
-
-# Use with custom configuration
-python -m cf explore /path/to/repo "question" --config=custom-config.yaml
-```
-
-### LLM Configuration
-# OpenAI Integration
-export CF_LLM_MODEL=gpt-4
-export CF_LLM_API_KEY=your-openai-api-key
-
-# Anthropic Integration
-export CF_LLM_MODEL=claude-3-sonnet-20240229
-export CF_LLM_API_KEY=your-anthropic-api-key
-
-# LLaMA Integration (via Together AI)
-export CF_LLM_MODEL=together_ai/meta-llama/Llama-2-7b-chat-hf
-export CF_LLM_API_KEY=your-together-ai-key
-
-# Run analysis with LLM
-python -m cf.run.simple_run analyze /repo --focus=all
+# Alternative to config.yaml
+export OPENAI_API_KEY="your-openai-api-key"
+export CF_LLM_MODEL="gpt-4o"
+export CF_LLM_MAX_TOKENS=1000
 ```
 
 ## 🔄 ReAct Process Flow
@@ -348,79 +354,59 @@ CF_REACT_MAX_ITERATIONS=50 python -m cf.run.simple_run analyze /repo --focus=all
 CF_REACT_MAX_ITERATIONS=30 CF_REACT_CACHE_MAX_SIZE=2000 python -m cf.run.simple_run analyze /repo
 ```
 
-## 📊 Example Interactive Session
+## 📊 Example Output
 
-### Journey Format Example
-```
-🎯 Life of Routing: A Journey Through the System
+### Actual Working Example
+```bash
+$ python -m cf.run.main --verbose ask /tmp/fastapi "Explain the relationship between FastAPI and Starlette"
+
+🚀 CodeFusion - Ask
+📁 /tmp/fastapi | 🤖 code, docs, web
+==================================================
+📝 [SupervisorAgent] Processing: Explain the relationship between FastAPI and Starlette...
+
+🧠 [SupervisorAgent] Analyzing question and building context...
+🤖 [SupervisorAgent] Coordinating multiple specialized agents...
+🔍 [SupervisorAgent] Running code analysis agent...
+🎯 [CodeAgent] ACTION PLANNING PHASE
+💭 [CodeAgent] Based on reasoning: Since there are no code files found yet, the first step is to identify and explore...
+🔧 [CodeAgent] Using LLM function calling for intelligent tool selection
+📡 [CodeAgent] Calling LLM with function calling enabled...
+🎯 [CodeAgent] LLM selected tool: search_files
+📋 [CodeAgent] Tool arguments: {'pattern': 'FastAPI', 'file_types': ['*.py'], 'max_results': 5}
+✅ [SupervisorAgent] Code analysis completed
+📚 [SupervisorAgent] Running documentation agent...
+🎯 [DocsAgent] ACTION PLANNING PHASE
+💭 [DocsAgent] Based on reasoning: Analyzing documentation files to understand the system architecture...
+✅ [SupervisorAgent] Documentation analysis completed
+🌐 [SupervisorAgent] Running web search agent...
+🎯 [WebAgent] ACTION PLANNING PHASE
+💭 [WebAgent] Based on reasoning: Searching the web for external documentation and related information...
+✅ [SupervisorAgent] Web search completed
+🤖 Consolidating results with LLM...
+============================================================
+✅ [SupervisorAgent] Integrated 6 insights into narrative
+
+🎯 Life of FastAPI: The Role of Starlette
 ======================================================================
 
-🏗️ **Architecture & Flow:** When an HTTP request arrives at `/api/users/{user_id}`, 
-FastAPI's routing system springs into action. The journey begins in main.py where the 
-FastAPI application instance routes the request through its internal ASGI middleware 
-stack, ultimately reaching the path operation function that handles user retrieval.
+🏗️ **Architectural Overview:** When a developer decides to use FastAPI for building a web application, 
+the journey begins with FastAPI itself, which is a modern, fast (high-performance), web framework for 
+building APIs with Python 3.6+ based on standard Python type hints. The underlying technology that 
+FastAPI relies on is Starlette, a lightweight ASGI (Asynchronous Server Gateway Interface) framework. 
+Starlette handles several core responsibilities that are critical for the operation of FastAPI. The entry 
+point for handling HTTP requests in FastAPI typically involves the `FastAPI` class, which is defined in 
+a FastAPI-specific file but leverages Starlette's routing and ASGI capabilities. FastAPI uses Starlette's 
+capabilities to manage HTTP requests, responses, WebSocket support, and background tasks. For example, 
+when an HTTP request is made to a FastAPI endpoint, Starlette's built-in routing system directs the 
+request to the appropriate endpoint defined in the FastAPI application.
 
-🛤️ **Technical Flow:** The process follows this path:
-   **1. Request Reception:** FastAPI receives the HTTP request and parses the URL path 
-   **2. Route Matching:** The router in routing.py:156 matches `/api/users/{user_id}` pattern
-   **3. Path Parameter Extraction:** FastAPI extracts `user_id` from the URL path
-   **4. Dependency Resolution:** The dependency injection system resolves UserService
-   **5. Handler Execution:** The get_user() function in api/users.py:45 processes the request
-
-💻 **Code Examples:** Implementation details:
-   • In main.py:23: @app.get('/api/users/{user_id}') async def get_user(user_id: int)
-   • In api/users.py:45: return await UserService.get_by_id(user_id)
-
-📈 ⏱️  Response time: 28.3s | 🤖 Agents used: 3 | 💾 Cache hits: 2
-```
-
-### Comparison Format Example  
-```
-🔍 Technical Comparison Analysis: async def vs def performance implications
-======================================================================
-
-📊 **Analysis:** In FastAPI applications, the choice between `async def` and `def` 
-for path operation functions significantly impacts performance and concurrency handling.
-
-⚖️ **Key Comparisons:**
-
-   **Performance:**
-   • async def: Non-blocking I/O operations, handles 1000+ concurrent requests efficiently
-   • def: Blocking operations, limited to thread pool size (~40 concurrent requests)
-   • Recommendation: Use async def for I/O-heavy operations, def for CPU-intensive tasks
-
-   **Memory Usage:**
-   • async def: Lower memory footprint due to coroutines vs threads
-   • def: Higher memory usage due to thread overhead (8MB per thread)
-   • Recommendation: async def for high-concurrency applications
-
-💻 **Code Examples:**
-   • async def get_user(user_id: int): return await db.fetch_user(user_id)  # Non-blocking
-   • def get_user_sync(user_id: int): return db.fetch_user_sync(user_id)    # Blocking
-
-⚡ **Performance Insights:**
-   • async def can handle 10x more concurrent connections with same resources
-   • CPU-bound tasks should use def to avoid blocking the event loop
-
-🎯 **Conclusion:** Use async def for I/O operations and def for CPU-intensive tasks
-
-📈 **Analysis Confidence:** 92.5%
-```
-
-### Interactive Memory Example
-```
-Session: /path/to/fastapi-project (Started: 2024-01-15 14:30)
-
-You: How does FastAPI routing work?
-🤖 [Journey format response about routing...]
-
-You: What about async def vs def performance?  
-🤖 [Comparison format response, remembering routing context...]
-
-You: Show me middleware examples
-🤖 [Journey format showing middleware flow, building on routing knowledge...]
-
-💾 Session Memory: 3 questions | 🧠 Context: routing, performance, middleware
+📊 **Analysis Confidence:** 75.0%
+🤖 **Powered by:** gpt-4o
+🎯 **Agents used:** 3
+💡 This unified narrative traces the complete journey of how your
+   question flows through interconnected system components.
+⏱️  Response time: 30.4s
 ```
 
 ## 🔧 Advanced Usage

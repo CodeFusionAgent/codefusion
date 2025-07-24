@@ -1,79 +1,92 @@
-# CodeFusion ReAct Framework Documentation
+# CodeFusion Documentation
 
-CodeFusion is a comprehensive **ReAct (Reasoning + Acting) agent framework** for intelligent code exploration and analysis. **The primary innovation is the "Life of X" narrative system** that generates compelling architectural stories following features through entire systems - similar to "Life of a Search Query in Google".
+CodeFusion is an **AI-powered multi-agent system** for intelligent codebase exploration and analysis. The system uses LLM function calling and verbose logging to provide comprehensive technical narratives about how systems work.
 
-## 🎯 Life of X Philosophy
+## 🎯 Current System Overview
 
-CodeFusion transforms code exploration through architectural storytelling:
+CodeFusion provides detailed analysis through:
 
-- **📖 NARRATIVE**: Generate compelling stories that follow features through entire systems
-- **🧠 REASON**: AI-powered analysis of current state and goal progress
-- **🎯 ACT**: Execute specialized tools based on reasoning
-- **👁️ OBSERVE**: Process results and update understanding
-- **🔄 REPEAT**: Continue until architectural story is complete
+- **🤖 MULTI-AGENT COORDINATION**: SupervisorAgent orchestrates specialized agents
+- **🔧 LLM FUNCTION CALLING**: AI dynamically selects tools with parameters  
+- **📝 VERBOSE LOGGING**: Real-time visibility into agent decision making
+- **📖 TECHNICAL NARRATIVES**: Comprehensive architectural overviews
+- **⏱️ PERFORMANCE TRACKING**: Accurate execution time measurement
 
-This creates intelligent, narrative-driven exploration that generates educational architectural stories.
+This creates intelligent, observable exploration that generates educational technical stories.
 
-## 🚀 Key Features
+## 🚀 Current Features
 
-- **Life of X Narratives**: **PRIMARY FEATURE** - Generate architectural stories like "Life of a Search Query in Google"
-- **Multi-Agent Architecture**: Specialized agents for documentation and code/architecture analysis
-- **Template-Based Prompts**: Sophisticated prompt templates for different narrative types
-- **Unified Response Parsing**: Schema-based parsing for consistent LLM responses
-- **AI-Powered Reasoning**: LLM-driven decision making and goal tracking
-- **Rich Tool Ecosystem**: 8 specialized tools for comprehensive code exploration
-- **Persistent Caching**: Cross-session memory with TTL and LRU eviction
-- **Execution Tracing**: Performance monitoring and comprehensive logging
-- **Error Recovery**: Circuit breakers, retry logic, and fallback strategies
-- **LLM Integration**: Support for OpenAI, Anthropic, and LLaMA via LiteLLM
+- **Multi-Agent System**: SupervisorAgent, CodeAgent, DocsAgent, WebAgent coordination
+- **LLM Function Calling**: Dynamic tool selection with intelligent parameter generation  
+- **Verbose Logging**: Action planning phases and tool selection visibility
+- **Technical Narratives**: Architectural overview generation with "Life of X" format
+- **Response Time Tracking**: Accurate execution timing (fixed from 0.0s issue)
+- **Tool Ecosystem**: `scan_directory`, `read_file`, `search_files`, `analyze_code`, `web_search`
+- **LiteLLM Integration**: Multi-provider support (OpenAI, Anthropic, LLaMA)
+- **Configuration Management**: YAML config with environment variable support
 
-## 🔄 Life of X Process Flow
+## 🔄 Current System Flow
 
-CodeFusion follows the systematic **Reason → Act → Observe** cycle to generate architectural narratives:
+CodeFusion follows this multi-agent process:
 
-1. **🧠 REASONING**: AI analyzes question and determines exploration strategy
-2. **🎯 ACTING**: Execute specialized tools to gather system insights
-3. **👁️ OBSERVING**: Process results and extract architectural patterns
-4. **📖 NARRATING**: Generate compelling "Life of X" architectural story
+1. **📝 SUPERVISOR COORDINATION**: Orchestrates 3 specialized agents
+2. **🎯 AGENT PLANNING**: Each agent shows ACTION PLANNING PHASE reasoning  
+3. **🔧 LLM FUNCTION CALLING**: AI selects tools with dynamic parameters
+4. **📊 RESULT SYNTHESIS**: SupervisorAgent consolidates insights into narrative
+5. **⏱️ PERFORMANCE TRACKING**: Accurate timing and metrics reporting
 
-### Life of X Generation Example
+### Current System Example
 
-```
-Question: "How does authentication work?"
+```bash
+$ python -m cf.run.main --verbose ask /tmp/fastapi "How does routing work?"
 
-🤖 Supervisor Agent: Orchestrates narrative generation
-├── 📚 Documentation Agent: Reason → Search auth docs → Observe API patterns
-└── 💻🏗️ Code Architecture Agent: Reason → Scan auth/ directory → Observe JWT implementation & security patterns
+🔍 [SupervisorAgent] Running code analysis agent...
+🎯 [CodeAgent] ACTION PLANNING PHASE  
+🎯 [CodeAgent] LLM selected tool: search_files
+📋 [CodeAgent] Tool arguments: {'pattern': 'routing', 'file_types': ['*.py']}
 
-📖 Life of X Narrative: "Life of Authentication"
-🛤️ The Journey: Login → Validation → Token Generation → Secure Storage
-🏗️ Key Components: AuthController, UserService, JWTGenerator, CookieManager
+📚 [SupervisorAgent] Running documentation agent...
+🎯 [DocsAgent] ACTION PLANNING PHASE
+🎯 [DocsAgent] LLM selected tool: search_files
+📋 [DocsAgent] Tool arguments: {'pattern': 'routing', 'file_types': ['*.md']}
+
+🌐 [SupervisorAgent] Running web search agent...
+🎯 [WebAgent] ACTION PLANNING PHASE
+🎯 [WebAgent] LLM selected tool: web_search
+📋 [WebAgent] Tool arguments: {'query': 'FastAPI routing implementation'}
+
+🤖 Consolidating results with LLM...
+🎯 Life of FastAPI: Routing Architecture
+======================================================================
+🏗️ **Architectural Overview:** [Detailed technical narrative...]
+⏱️ Response time: 30.4s
 ```
 
 ## 🎯 Quick Start
 
-Get started with CodeFusion's Life of X narrative generation:
+Get started with CodeFusion analysis:
 
 ```bash
-# Install CodeFusion
+# 1. Setup environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e .
 
-# Install LLM support (optional but recommended)
-pip install litellm
+# 2. Configure API key
+export OPENAI_API_KEY="your-openai-api-key"
+# OR edit cf/configs/config.yaml
 
-# Generate Life of X architectural narratives
-python -m cf.run.simple_run explore /path/to/repo "How does authentication work?"
-python -m cf.run.simple_run ask /path/to/repo "What happens when a user logs in?"
-python -m cf.run.simple_run explore /path/to/repo "How is data processed?"
+# 3. Run analysis with verbose logging  
+python -m cf.run.main --verbose ask /path/to/repo "How does routing work?"
+python -m cf.run.main --verbose ask /tmp/fastapi "Explain FastAPI and Starlette relationship"
+python -m cf.run.main --verbose ask /path/to/repo "What specific responsibilities does X handle?"
 
-# Continue narrative exploration
-python -m cf.run.simple_run continue /path/to/repo "How is the response sent back?" --previous "How does authentication work?"
-
-# Traditional multi-agent analysis
-python -m cf.run.simple_run analyze /path/to/repo --focus=all
-
-# Demo the framework
-python demo_cf_framework.py /path/to/repo
+# 4. Check execution details
+# System shows:
+# - Agent coordination and planning phases
+# - LLM tool selection with parameters  
+# - Real-time progress and results
+# - Accurate response time measurement
 ```
 
 ## 📚 Documentation Structure

@@ -1,67 +1,34 @@
 # Codebase Agent
 
-::: cf.agents.react_codebase_agent.ReActCodebaseAgent
+**Note**: This functionality has been integrated into the CodeAgent in the clean architecture.
 
-The Codebase Agent specializes in comprehensive source code analysis using the ReAct pattern.
+The CodeAgent in `cf/agents/code.py` now handles comprehensive codebase analysis using LLM function calling.
 
-## Overview
+## Current Implementation
 
-The Codebase Agent excels at:
+See [CodeAgent API Documentation](index.md#codeagent) for the current implementation.
 
-- Source code analysis and pattern detection
-- Function and class extraction
-- Dependency analysis
-- Code complexity assessment
-- Language-specific analysis (Python, JavaScript, TypeScript, etc.)
+### Migration Guide
 
-## Usage Examples
-
-### Basic Code Analysis
+The previous `ReActCodebaseAgent` functionality is now available through:
 
 ```python
-from cf.agents.react_codebase_agent import ReActCodebaseAgent
-from cf.aci.repo import LocalCodeRepo
-from cf.config import CfConfig
+from cf.agents.code import CodeAgent
+from cf.configs.config_mgr import CfConfig
 
-# Initialize agent
-repo = LocalCodeRepo("/path/to/repository")
-config = CfConfig()
-code_agent = ReActCodebaseAgent(repo, config)
+# Initialize CodeAgent (replaces ReActCodebaseAgent)
+config = CfConfig.load_from_file("cf/configs/config.yaml")
+code_agent = CodeAgent("/path/to/repository", config)
 
-# Analyze codebase
-results = code_agent.analyze_codebase("comprehensive code structure analysis")
-
-print(f"Code files analyzed: {len(results.get('analyzed_files', {}))}")
-print(f"Code entities found: {len(results.get('code_entities', {}))}")
-print(f"Patterns detected: {len(results.get('code_patterns', []))}")
+# Comprehensive codebase analysis
+result = code_agent.analyze("analyze entire codebase structure and patterns")
 ```
 
-### Language-Specific Analysis
+The CodeAgent provides the same capabilities with improved LLM function calling:
+- Source code analysis
+- Pattern detection  
+- Code quality assessment
+- Dependency mapping
+- Architecture exploration
 
-```python
-# Python-specific analysis
-python_results = code_agent.analyze_codebase("Python code patterns and structure")
-
-# JavaScript/TypeScript analysis  
-js_results = code_agent.analyze_codebase("JavaScript and TypeScript analysis")
-
-# Access language statistics
-language_stats = code_agent.get_language_stats()
-print(f"Languages found: {language_stats}")
-```
-
-### Code Entity Extraction
-
-```python
-# Get detailed code entities
-entities = code_agent.get_code_entities()
-
-for file_path, file_entities in entities.items():
-    print(f"File: {file_path}")
-    for entity in file_entities:
-        print(f"  {entity.type}: {entity.name} (lines {entity.line_start}-{entity.line_end})")
-        if entity.docstring:
-            print(f"    Docstring: {entity.docstring[:100]}...")
-```
-
-For complete API documentation, see the [source code](../../cf/agents/react_codebase_agent.py).
+For complete documentation, see the [main API index](index.md).
