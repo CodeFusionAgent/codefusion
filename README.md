@@ -2,109 +2,72 @@
 
 An **intelligent multi-agent system** for deep codebase exploration and analysis. CodeFusion uses LLM-driven function calling and verbose logging to provide comprehensive technical narratives about how systems work.
 
-## 🏗️ Clean Architecture
+## 🏗️ System Architecture
 
 ```mermaid
 graph TB
-    %% User Interface
-    subgraph UI ["🖥️ Command Line Interface"]
-        CLI[python -m cf.run.main<br/>--verbose ask]
+    %% User Layer
+    User[👤 User<br/>Developer analyzing codebase]
+    
+    %% Interface Layer
+    CLI[🖥️ Command Line Interface<br/>python -m cf.run.main --verbose ask]
+    
+    %% Core System
+    Supervisor[🤖 SupervisorAgent<br/>Multi-Agent Orchestration]
+    
+    %% Specialized Agents
+    subgraph Agents ["🎯 Intelligent Agents"]
+        CodeAgent[🔍 CodeAgent<br/>Source Code Analysis]
+        DocsAgent[📚 DocsAgent<br/>Documentation Processing]
+        WebAgent[🌐 WebAgent<br/>External Knowledge Search]
     end
     
-    %% Core Package Structure  
-    subgraph CF ["📦 cf/ - Core Package"]
-        direction TB
-        
-        subgraph AGENTS ["🤖 cf/agents/ - Multi-Agent System"]
-            SUPERVISOR[supervisor.py<br/>Orchestrates & Synthesizes]
-            CODE_AGENT[code.py<br/>LLM Function Calling Loop]
-            DOCS_AGENT[docs.py<br/>Documentation Analysis] 
-            WEB_AGENT[web.py<br/>Web Search Integration]
-            BASE_AGENT[base.py<br/>Common Agent Functionality]
-        end
-        
-        subgraph TOOLS ["🛠️ cf/tools/ - Tool Ecosystem"]
-            REGISTRY[registry.py<br/>Schema Management]
-            REPO_TOOLS[repo_tools.py<br/>File System Operations]
-            LLM_TOOLS[llm_tools.py<br/>AI-Powered Analysis]
-            WEB_TOOLS[web_tools.py<br/>External Search]
-        end
-        
-        subgraph LLM ["🧠 cf/llm/ - AI Integration"]
-            CLIENT[client.py<br/>LiteLLM Multi-Provider]
-        end
-        
-        subgraph INFRA ["⚙️ cf/ - Infrastructure"]
-            RUN[run/main.py<br/>CLI Entry Point]
-            CONFIGS[configs/config_mgr.py<br/>Configuration Management]
-            CACHE[cache/semantic.py<br/>Persistent Caching]
-            TRACE[trace/tracer.py<br/>Performance Monitoring]
-            UTILS[utils/logger.py<br/>Verbose Logging System]
-        end
+    %% Infrastructure
+    subgraph Infrastructure ["⚙️ Core Infrastructure"]
+        Tools[🛠️ Tool System<br/>Repository & Analysis Tools]
+        LLM[🧠 LLM Integration<br/>GPT-4o Function Calling]
+        Cache[💾 Semantic Cache<br/>Persistent Memory]
     end
     
-    %% External Systems
-    subgraph EXTERNAL ["🌐 External Systems"]
-        LITELLM[LiteLLM<br/>Multi-Provider Support]
-        OPENAI[OpenAI GPT-4o<br/>Primary LLM Provider]
-        CONFIG_FILE[configs/config.yaml<br/>Configuration File]
-    end
+    %% Output
+    Narrative[📖 Technical Narrative<br/>Life of X Format]
     
-    %% Data Storage
-    subgraph STORAGE ["💾 Generated Data"]
-        CF_CACHE[cf_cache/<br/>JSON Cache Files]
-        CF_TRACE[cf_trace/<br/>Execution Traces]
-    end
+    %% Flow
+    User --> CLI
+    CLI --> Supervisor
+    Supervisor --> CodeAgent
+    Supervisor --> DocsAgent
+    Supervisor --> WebAgent
     
-    %% Data Flow
-    CLI --> RUN
-    RUN --> SUPERVISOR
+    CodeAgent --> Tools
+    DocsAgent --> Tools
+    WebAgent --> Tools
     
-    SUPERVISOR --> CODE_AGENT
-    SUPERVISOR --> DOCS_AGENT  
-    SUPERVISOR --> WEB_AGENT
+    Tools --> LLM
+    LLM --> Cache
     
-    CODE_AGENT --> BASE_AGENT
-    DOCS_AGENT --> BASE_AGENT
-    WEB_AGENT --> BASE_AGENT
+    CodeAgent --> Supervisor
+    DocsAgent --> Supervisor
+    WebAgent --> Supervisor
     
-    BASE_AGENT --> REGISTRY
-    BASE_AGENT --> CLIENT
-    BASE_AGENT --> UTILS
+    Supervisor --> Narrative
+    Narrative --> CLI
+    CLI --> User
     
-    REGISTRY --> REPO_TOOLS
-    REGISTRY --> LLM_TOOLS
-    REGISTRY --> WEB_TOOLS
+    %% Clean styling with good contrast
+    classDef user fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
+    classDef interface fill:#388e3c,stroke:#1b5e20,stroke-width:2px,color:#fff
+    classDef core fill:#7b1fa2,stroke:#4a148c,stroke-width:3px,color:#fff
+    classDef agents fill:#d32f2f,stroke:#b71c1c,stroke-width:2px,color:#fff
+    classDef infra fill:#f57c00,stroke:#e65100,stroke-width:2px,color:#fff
+    classDef output fill:#c2185b,stroke:#880e4f,stroke-width:3px,color:#fff
     
-    CLIENT --> LITELLM
-    LITELLM --> OPENAI
-    
-    AGENTS --> CACHE
-    AGENTS --> TRACE
-    RUN --> CONFIGS
-    CONFIGS --> CONFIG_FILE
-    
-    CACHE --> CF_CACHE
-    TRACE --> CF_TRACE
-    
-    %% Styling
-    classDef ui fill:#3b4d66,stroke:#2d3748,stroke-width:2px,color:#f7fafc
-    classDef cf fill:#553c6b,stroke:#44337a,stroke-width:3px,color:#f7fafc
-    classDef agents fill:#8b5a3c,stroke:#6b4423,stroke-width:2px,color:#f7fafc
-    classDef tools fill:#744e3a,stroke:#5a3a2a,stroke-width:2px,color:#f7fafc
-    classDef llm fill:#2c5282,stroke:#1a365d,stroke-width:2px,color:#f7fafc
-    classDef infra fill:#2d5a3d,stroke:#1a4d2e,stroke-width:2px,color:#f7fafc
-    classDef external fill:#805ad5,stroke:#553c9a,stroke-width:2px,color:#f7fafc
-    classDef storage fill:#4a5568,stroke:#2d3748,stroke-width:2px,color:#f7fafc
-    
-    class UI,CLI ui
-    class CF cf
-    class AGENTS,SUPERVISOR,CODE_AGENT,DOCS_AGENT,WEB_AGENT,BASE_AGENT agents
-    class TOOLS,REGISTRY,REPO_TOOLS,LLM_TOOLS,WEB_TOOLS tools
-    class LLM,CLIENT llm
-    class INFRA,RUN,CONFIGS,CACHE,TRACE,UTILS infra
-    class EXTERNAL,LITELLM,OPENAI,CONFIG_FILE external
-    class STORAGE,CF_CACHE,CF_TRACE storage
+    class User user
+    class CLI interface
+    class Supervisor core
+    class CodeAgent,DocsAgent,WebAgent agents
+    class Tools,LLM,Cache infra
+    class Narrative output
 ```
 
 > **📋 For detailed workflow diagrams and system execution flow, see [Architecture Documentation](docs/dev/architecture.md#system-workflow-overview)**
