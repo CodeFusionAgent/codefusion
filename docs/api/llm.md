@@ -1,358 +1,297 @@
 # LLM Integration
 
-The CodeFusion ReAct framework provides comprehensive Language Model integration for AI-powered reasoning and analysis.
+The CodeFusion framework provides comprehensive Language Model integration for AI-powered reasoning and analysis through the clean `cf/llm/` module.
 
-## Real LLM Provider
+## LLM Client
 
-::: cf.llm.real_llm.RealLLM
+The LLM integration is handled by the unified client in `cf/llm/client.py`:
 
-::: cf.llm.real_llm.LLMConfig
+```python
+from cf.llm.client import get_llm_client
 
-## Overview
+# Get configured LLM client
+llm_client = get_llm_client()
 
-The LLM integration supports multiple providers through LiteLLM:
+# Use for analysis
+response = llm_client.generate("Analyze this code pattern")
+```
 
-- **OpenAI**: GPT-4, GPT-3.5-turbo, and other models
-- **Anthropic**: Claude 3 Opus, Sonnet, and Haiku
-- **LLaMA**: Via Together AI, Replicate, or Ollama
-- **Other Providers**: 100+ models via LiteLLM
+## LLM Provider Support
 
-## Basic Usage
+The framework supports multiple LLM providers through LiteLLM:
 
 ### OpenAI Integration
 
 ```python
-from cf.llm.real_llm import RealLLM, LLMConfig
-import os
+from cf.configs.config_mgr import CfConfig
 
-# Configure OpenAI
-os.environ['CF_LLM_MODEL'] = 'gpt-4'
-os.environ['CF_LLM_API_KEY'] = 'your-openai-api-key'
-
-# Initialize LLM
-llm = RealLLM()
-
-# Use for reasoning
-reasoning_result = llm.reasoning(
-    context="Current codebase analysis state",
-    question="What should I examine next for security vulnerabilities?",
-    agent_type="codebase"
-)
-
-print(f"Reasoning: {reasoning_result['reasoning']}")
-print(f"Confidence: {reasoning_result['confidence']}")
-print(f"Suggested Actions: {reasoning_result['suggested_actions']}")
+# Configure for OpenAI
+config = CfConfig()
+config.llm.provider = "openai"
+config.llm.model = "gpt-4o"
+config.llm.api_key = "your-openai-api-key"
 ```
 
 ### Anthropic Integration
 
 ```python
-# Configure Anthropic Claude
-os.environ['CF_LLM_MODEL'] = 'claude-3-sonnet-20240229'
-os.environ['CF_LLM_API_KEY'] = 'your-anthropic-api-key'
-
-llm = RealLLM()
-
-# Use for summarization
-summary_result = llm.summarize(
-    content="Large codebase analysis results...",
-    summary_type="comprehensive",
-    focus="security patterns"
-)
-
-print(f"Summary: {summary_result['summary']}")
-print(f"Key Points: {summary_result['key_points']}")
+# Configure for Anthropic
+config.llm.provider = "anthropic"
+config.llm.model = "claude-3-sonnet-20240229"
+config.llm.api_key = "your-anthropic-api-key"
 ```
 
-### LLaMA Integration
+### Local LLM Integration
 
 ```python
-# Configure LLaMA via Together AI
-os.environ['CF_LLM_MODEL'] = 'together_ai/meta-llama/Llama-2-7b-chat-hf'
-os.environ['CF_LLM_API_KEY'] = 'your-together-ai-key'
+# Configure for local LLM
+config.llm.provider = "ollama"
+config.llm.model = "llama2"
+config.llm.base_url = "http://localhost:11434"
+```
 
-llm = RealLLM()
+## LLM Function Calling
 
-# LLaMA models use special prompt formatting automatically
-result = llm.reasoning(
+The framework supports LLM function calling for intelligent tool selection:
+
+```python
+from cf.tools.registry import ToolRegistry
+
+# Get tool schemas for LLM function calling
+registry = ToolRegistry("/path/to/repo")
+schemas = registry.get_all_schemas()
+
+# LLM can select tools based on context
+tools_available = [
+    "scan_directory",
+    "read_file", 
+    "search_files",
+    "analyze_code",
+    "web_search"
+]
+```
+
+## LLM Configuration
+
+### Basic Configuration
+
+```yaml
+# cf/configs/config.yaml
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  api_key: "your-api-key"
+  max_tokens: 1000
+  temperature: 0.7
+  timeout: 30
+```
+
+### Advanced Configuration
+
+```yaml
+llm:
+  provider: "openai"
+  model: "gpt-4o"
+  api_key: "your-api-key"
+  max_tokens: 2000
+  temperature: 0.5
+  top_p: 0.9
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  timeout: 60
+  retry_attempts: 3
+  retry_delay: 1.0
+```
+
+## Usage Examples
+
+### Basic LLM Usage
+
+```python
+from cf.llm.client import get_llm_client
+
+# Initialize LLM client
+llm_client = get_llm_client()
+
+# Generate response
+response = llm_client.generate(
+    prompt="Explain the architecture of this system",
+    max_tokens=1000
+)
+
+print(response)
+```
+
+### LLM with Function Calling
+
+```python
+from cf.agents.code import CodeAgent
+from cf.configs.config_mgr import CfConfig
+
+# CodeAgent uses LLM function calling internally
+config = CfConfig.load_from_file("cf/configs/config.yaml")
+code_agent = CodeAgent("/path/to/repo", config)
+
+# LLM will intelligently select tools
+result = code_agent.analyze("Find main application entry points")
+```
+
+### Multi-Agent LLM Coordination
+
+```python
+from cf.agents.supervisor import SupervisorAgent
+
+# SupervisorAgent coordinates LLM across multiple agents
+supervisor = SupervisorAgent("/path/to/repo", config)
+result = supervisor.analyze("How does authentication work?")
+
+# LLM synthesis combines insights from all agents
+print(result['narrative'])
+```
+
+## LLM Integration Patterns
+
+### Reasoning Pattern
+
+```python
+# Agents use LLM for reasoning about next actions
+reasoning = llm_client.reasoning(
+    context="Current repository state",
+    question="What should I analyze next?",
+    agent_type="code_analysis"
+)
+```
+
+### Tool Selection Pattern
+
+```python
+# LLM selects optimal tools based on context
+tool_selection = llm_client.function_calling(
     context="Repository analysis context",
-    question="Analyze the architectural patterns",
-    agent_type="architecture"
+    available_tools=tool_schemas,
+    goal="Find routing implementation"
 )
 ```
 
-## Advanced Configuration
-
-### Custom LLM Configuration
+### Synthesis Pattern
 
 ```python
-# Detailed configuration
-config = LLMConfig(
-    model="gpt-4",
-    api_key="your-api-key",
-    api_base="https://custom-endpoint.com/v1",  # Optional custom endpoint
-    max_tokens=2000,
-    temperature=0.3,  # Lower for more focused analysis
-    timeout=60
+# LLM synthesizes results from multiple sources
+narrative = llm_client.synthesize(
+    question="How does FastAPI routing work?",
+    code_insights=code_results,
+    docs_insights=docs_results,
+    web_insights=web_results
 )
-
-llm = RealLLM(config)
-```
-
-### Environment Variable Configuration
-
-```python
-# Set via environment variables
-import os
-
-# Model selection
-os.environ['CF_LLM_MODEL'] = 'gpt-4'
-os.environ['CF_LLM_API_KEY'] = 'your-api-key'
-
-# Performance tuning
-os.environ['CF_LLM_MAX_TOKENS'] = '1500'
-os.environ['CF_LLM_TEMPERATURE'] = '0.2'
-os.environ['CF_LLM_TIMEOUT'] = '45'
-
-# Custom endpoint (optional)
-os.environ['CF_LLM_API_BASE'] = 'https://custom-api.com/v1'
-
-llm = RealLLM()  # Automatically loads from environment
-```
-
-## Supported Models
-
-### OpenAI Models
-
-```python
-# Get available OpenAI models
-supported_models = llm.get_supported_models()['openai']
-print("OpenAI Models:", supported_models)
-# ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo', 'gpt-3.5-turbo-16k']
-```
-
-### Anthropic Models
-
-```python
-# Claude models
-anthropic_models = llm.get_supported_models()['anthropic']
-print("Anthropic Models:", anthropic_models)
-# ['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307']
-```
-
-### LLaMA Models
-
-```python
-# LLaMA via different providers
-together_models = llm.get_supported_models()['llama_together_ai']
-replicate_models = llm.get_supported_models()['llama_replicate']
-ollama_models = llm.get_supported_models()['llama_ollama']
-```
-
-## Fallback System
-
-### Simple LLM Fallback
-
-::: cf.llm.simple_llm.SimpleLLM
-
-```python
-# Automatic fallback when real LLM is unavailable
-llm = RealLLM()
-
-# If LiteLLM is not installed or API key is missing,
-# automatically falls back to SimpleLLM
-result = llm.reasoning(
-    context="Analysis context",
-    question="What to do next?",
-    agent_type="general"
-)
-
-# Check if fallback was used
-if result.get('fallback'):
-    print("Using fallback reasoning system")
-```
-
-## Integration with ReAct Agents
-
-### In Agent Implementation
-
-```python
-from cf.core.react_agent import ReActAgent, ActionType
-
-class LLMEnhancedAgent(ReActAgent):
-    def reason(self) -> str:
-        """Use LLM for enhanced reasoning."""
-        # Get LLM reasoning
-        llm_result = self.llm.reasoning(
-            context=str(self.state.current_context),
-            question=f"How to achieve: {self.state.goal}",
-            agent_type=self.agent_name
-        )
-        
-        # Combine with rule-based reasoning
-        if llm_result['confidence'] > 0.7:
-            return llm_result['reasoning']
-        else:
-            return self._fallback_reasoning()
-    
-    def _generate_summary(self) -> str:
-        """LLM-powered summary generation."""
-        summary_result = self.llm.summarize(
-            content=str(self.state.observations),
-            summary_type="agent_summary",
-            focus=self.state.goal
-        )
-        return summary_result['summary']
-```
-
-### Custom Prompts
-
-```python
-class CustomLLMAgent(ReActAgent):
-    def _create_custom_prompt(self, context: str, question: str) -> str:
-        """Create domain-specific prompts."""
-        if self.agent_name == "security":
-            return f"""
-            You are a security analysis expert. Given the context:
-            {context}
-            
-            Security Question: {question}
-            
-            Focus on:
-            1. Potential vulnerabilities
-            2. Security best practices
-            3. Risk assessment
-            4. Mitigation strategies
-            
-            Provide your analysis in JSON format.
-            """
-        
-        return super()._build_reasoning_prompt(context, question, self.agent_name)
 ```
 
 ## Error Handling
 
-### Robust LLM Usage
+### LLM Availability Checking
 
 ```python
-def safe_llm_reasoning(llm: RealLLM, context: str, question: str) -> Dict[str, Any]:
-    """Safe LLM reasoning with comprehensive error handling."""
-    try:
-        result = llm.reasoning(context, question, "general")
-        
-        # Validate result
-        if not result.get('reasoning'):
-            raise ValueError("Invalid LLM response")
-        
-        return result
-        
-    except Exception as e:
-        # Log error and use fallback
-        print(f"LLM reasoning failed: {e}")
-        
-        # Use simple fallback
-        from cf.llm.simple_llm import SimpleLLM
-        fallback_llm = SimpleLLM()
-        return fallback_llm.reasoning(context, question, "general")
+from cf.llm.client import get_llm_client
+
+llm_client = get_llm_client()
+if llm_client and llm_client.is_available():
+    # Use LLM functionality
+    response = llm_client.generate(prompt)
+else:
+    # Fallback to non-LLM methods
+    print("LLM not available, using fallback")
 ```
 
-### Rate Limiting and Retries
+### Graceful Degradation
 
 ```python
-import time
-from typing import Optional
-
-class RateLimitedLLM:
-    def __init__(self, base_llm: RealLLM, rate_limit: float = 1.0):
-        self.llm = base_llm
-        self.rate_limit = rate_limit
-        self.last_call = 0
-    
-    def reasoning(self, context: str, question: str, agent_type: str, retries: int = 3) -> Dict[str, Any]:
-        """Rate-limited reasoning with retries."""
-        for attempt in range(retries):
-            try:
-                # Enforce rate limit
-                time_since_last = time.time() - self.last_call
-                if time_since_last < self.rate_limit:
-                    time.sleep(self.rate_limit - time_since_last)
-                
-                result = self.llm.reasoning(context, question, agent_type)
-                self.last_call = time.time()
-                
-                return result
-                
-            except Exception as e:
-                if attempt == retries - 1:
-                    raise e
-                time.sleep(2 ** attempt)  # Exponential backoff
+try:
+    # Try LLM function calling
+    result = agent.llm_function_calling(context)
+except Exception as e:
+    # Fallback to hardcoded logic
+    logger.warning(f"LLM function calling failed: {e}")
+    result = agent.fallback_action_planning(context)
 ```
 
 ## Performance Optimization
 
+### Token Usage Optimization
+
+```python
+# Configure for efficient token usage
+config.llm.max_tokens = 1000  # Limit response length
+config.llm.temperature = 0.3  # More focused responses
+```
+
 ### Caching Integration
 
 ```python
-from cf.core.react_agent import ReActCache
+# LLM responses are automatically cached
+from cf.cache.semantic import SemanticCache
 
-class CachedLLM:
-    def __init__(self, base_llm: RealLLM, cache_dir: str = "./llm_cache"):
-        self.llm = base_llm
-        self.cache = ReActCache(max_size=1000, cache_dir=cache_dir, ttl=3600)
-    
-    def reasoning(self, context: str, question: str, agent_type: str) -> Dict[str, Any]:
-        """Cached LLM reasoning."""
-        # Create cache key
-        cache_key = f"reasoning_{hash(context + question + agent_type)}"
-        
-        # Check cache
-        cached_result = self.cache.get(cache_key)
-        if cached_result:
-            return cached_result
-        
-        # Get fresh result
-        result = self.llm.reasoning(context, question, agent_type)
-        
-        # Cache result
-        self.cache.set(cache_key, result)
-        
-        return result
+cache = SemanticCache()
+# Repeated similar queries will use cached responses
 ```
 
-### Batch Processing
+### Parallel LLM Calls
 
 ```python
-def batch_llm_analysis(llm: RealLLM, analysis_requests: List[Dict]) -> List[Dict]:
-    """Process multiple LLM requests efficiently."""
-    results = []
-    
-    for request in analysis_requests:
-        try:
-            if request['type'] == 'reasoning':
-                result = llm.reasoning(
-                    request['context'],
-                    request['question'],
-                    request['agent_type']
-                )
-            elif request['type'] == 'summary':
-                result = llm.summarize(
-                    request['content'],
-                    request['summary_type'],
-                    request['focus']
-                )
-            
-            results.append({
-                'request_id': request.get('id'),
-                'result': result,
-                'success': True
-            })
-            
-        except Exception as e:
-            results.append({
-                'request_id': request.get('id'),
-                'error': str(e),
-                'success': False
-            })
-    
-    return results
+# SupervisorAgent coordinates parallel LLM usage
+supervisor = SupervisorAgent("/path/to/repo", config)
+
+# Multiple agents can use LLM simultaneously
+result = supervisor.analyze("Complex multi-faceted question")
 ```
+
+## Troubleshooting
+
+### Common LLM Issues
+
+**API Key Problems**:
+```python
+# Test API key validity
+from cf.llm.client import get_llm_client
+
+try:
+    client = get_llm_client()
+    test_response = client.generate("Hello")
+    print("LLM connection successful")
+except Exception as e:
+    print(f"LLM connection failed: {e}")
+```
+
+**Rate Limiting**:
+```python
+# Configure retry behavior
+config.llm.retry_attempts = 5
+config.llm.retry_delay = 2.0
+config.llm.timeout = 60
+```
+
+**Model Availability**:
+```python
+# Check if model is available
+try:
+    response = client.generate("test", model="gpt-4o")
+except Exception as e:
+    print(f"Model unavailable: {e}")
+    # Fallback to different model
+    response = client.generate("test", model="gpt-3.5-turbo")
+```
+
+## Migration Guide
+
+If migrating from the old LLM system:
+
+```python
+# Old way (no longer available)
+# from cf.llm.real_llm import RealLLM
+
+# New way (clean architecture)
+from cf.llm.client import get_llm_client
+
+# Get LLM client
+client = get_llm_client()
+```
+
+For complete documentation, see the [main API index](index.md).

@@ -1,12 +1,14 @@
 """Agents module for CodeFusion ReAct Framework."""
 
 # ReAct Framework Agents
-from cf.agents.react_supervisor_agent import ReActSupervisorAgent
-from cf.agents.react_documentation_agent import ReActDocumentationAgent
-from cf.agents.react_code_architecture_agent import ReActCodeArchitectureAgent
+from cf.agents.supervisor import SupervisorAgent
+from cf.agents.docs import DocsAgent
+from cf.agents.code import CodeAgent
+from cf.agents.web import WebAgent
 
 __all__ = [
-    "ReActSupervisorAgent",
-    "ReActDocumentationAgent", 
-    "ReActCodeArchitectureAgent",
+    "SupervisorAgent",
+    "DocsAgent",
+    "CodeAgent",
+    "WebAgent"
 ]

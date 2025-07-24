@@ -1,52 +1,77 @@
 # API Reference
 
-Welcome to the CodeFusion ReAct Framework API documentation. This section provides comprehensive documentation for all classes, methods, and interfaces in the framework.
+Welcome to the CodeFusion API documentation. This section provides comprehensive documentation for the current working multi-agent system with LLM function calling.
 
 ## Core Components
 
-### ReAct Foundation
+### Multi-Agent System
 
-- **[ReAct Agent](react-agent.md)** - Base agent implementing Reason → Act → Observe loops
-- **[ReAct Config](react-config.md)** - Configuration and performance tuning
-- **[ReAct Tracing](react-tracing.md)** - Execution monitoring and metrics
-
-### Specialized Agents
-
-- **[Supervisor Agent](supervisor-agent.md)** - Multi-agent orchestration and **Life of X narrative generation**
-- **[Documentation Agent](documentation-agent.md)** - Documentation analysis and processing
-- **[Code Architecture Agent](code-architecture-agent.md)** - **Combined** source code analysis and architectural analysis
+- **[SupervisorAgent](supervisor-agent.md)** - Orchestrates agents and synthesizes responses
+- **[CodeAgent](#code-agent)** - Code analysis using LLM function calling loops
+- **[DocsAgent](#docs-agent)** - Documentation analysis and processing  
+- **[WebAgent](#web-agent)** - Web search integration
 
 ### Infrastructure
 
-- **[LLM Integration](llm.md)** - Language model providers and interfaces
-- **[Life of X Utilities](life-of-x-utilities.md)** - Narrative generation, prompt templates, and response parsing
-- **[Tools](tools.md)** - Exploration tool ecosystem
-- **[Repository Interface](repository.md)** - Code repository access and operations
-- **[Configuration](config.md)** - Global configuration management
+- **[BaseAgent](#base-agent)** - Common agent functionality and LLM integration
+- **[ToolRegistry](#tool-registry)** - Function calling schema management
+- **[LLM Integration](llm.md)** - LiteLLM and multi-provider support
+- **[Configuration](config.md)** - YAML configuration and environment variables
 
 ## Quick API Examples
 
-### Life of X Narrative Generation
+### Current Multi-Agent Analysis
 
 ```python
-from cf.agents.react_supervisor_agent import ReActSupervisorAgent
-from cf.aci.repo import LocalCodeRepo
+from cf.agents.supervisor import SupervisorAgent
 from cf.config import CfConfig
 
 # Initialize components
-repo = LocalCodeRepo("/path/to/repository")
-config = CfConfig()
-supervisor = ReActSupervisorAgent(repo, config)
+config = CfConfig.load_from_file("cf/configs/config.yaml")
+supervisor = SupervisorAgent("/path/to/repository", config)
 
-# Generate Life of X narrative
-narrative = supervisor.generate_life_of_x_narrative(
-    question="How does authentication work?"
-)
+# Analyze with multi-agent coordination
+result = supervisor.analyze("How does FastAPI routing work?")
 
-# Access narrative components
-story = narrative['narrative']
-journey = narrative['journey_stages']
-components = narrative['key_components']
+# Access results
+narrative = result['narrative']
+confidence = result['confidence']
+agents_used = result['agents_consulted']
+insights = result['insights']
+execution_time = result['execution_time']
+```
+
+### Using Individual Agents
+
+```python
+from cf.agents.code import CodeAgent
+from cf.agents.docs import DocsAgent
+from cf.agents.web import WebAgent
+
+# Initialize agents
+code_agent = CodeAgent("/path/to/repo", config)
+docs_agent = DocsAgent("/path/to/repo", config)
+web_agent = WebAgent("/path/to/repo", config)
+
+# Run individual analysis
+code_result = code_agent.analyze("Find FastAPI routing implementation")
+docs_result = docs_agent.analyze("Look for routing documentation")
+web_result = web_agent.analyze("Search for FastAPI routing best practices")
+```
+
+### Tool Registry Usage
+
+```python
+from cf.tools.registry import ToolRegistry
+
+# Initialize tool registry
+tools = ToolRegistry("/path/to/repo")
+
+# Get available tool schemas for LLM function calling
+schemas = tools.get_all_schemas()
+
+# Execute specific tool
+result = tools.use_tool("search_files", pattern="FastAPI", file_types=["*.py"])
 ```
 
 ### Traditional Multi-Agent Analysis
@@ -181,5 +206,108 @@ except Exception as e:
     print(f"Analysis failed: {e}")
     # Framework includes automatic recovery mechanisms
 ```
+
+## Agent API Documentation
+
+### CodeAgent
+
+The CodeAgent specializes in analyzing source code using LLM function calling loops.
+
+```python
+from cf.agents.code import CodeAgent
+from cf.configs.config_mgr import CfConfig
+
+# Initialize agent
+config = CfConfig.load_from_file("cf/configs/config.yaml")
+code_agent = CodeAgent("/path/to/repo", config)
+
+# Analyze code with LLM function calling
+result = code_agent.analyze("Find FastAPI routing implementation")
+print(result['insights'])
+```
+
+**Key Methods:**
+- `analyze(goal: str)` - Main analysis method with LLM function calling
+- `plan_action(reasoning: str)` - LLM-driven action planning
+- `execute_action(action)` - Tool execution with registry
+
+### DocsAgent
+
+The DocsAgent processes documentation and README files.
+
+```python
+from cf.agents.docs import DocsAgent
+
+# Initialize and analyze documentation
+docs_agent = DocsAgent("/path/to/repo", config)
+result = docs_agent.analyze("Look for routing documentation")
+print(result['documentation_insights'])
+```
+
+**Key Methods:**
+- `analyze(goal: str)` - Documentation analysis
+- `extract_documentation_patterns()` - Find doc patterns
+- `analyze_readme_quality()` - README assessment
+
+### WebAgent
+
+The WebAgent integrates external knowledge via web search.
+
+```python
+from cf.agents.web import WebAgent
+
+# Initialize and search web
+web_agent = WebAgent("/path/to/repo", config)
+result = web_agent.analyze("Search for FastAPI routing best practices")
+print(result['web_insights'])
+```
+
+**Key Methods:**
+- `analyze(goal: str)` - Web search analysis
+- `generate_search_queries()` - LLM-driven query generation
+- `process_web_results()` - Result integration
+
+### BaseAgent
+
+Common functionality shared by all agents.
+
+```python
+from cf.agents.base import BaseAgent
+
+# BaseAgent provides common methods:
+# - LLM integration patterns
+# - Logging and tracing
+# - Tool registry access
+# - Configuration management
+```
+
+**Key Methods:**
+- `call_llm(prompt: str)` - LLM interaction
+- `get_tool_registry()` - Access to tools
+- `log_action(action: str)` - Progress logging
+
+### ToolRegistry
+
+Centralized tool management for LLM function calling.
+
+```python
+from cf.tools.registry import ToolRegistry
+
+# Initialize tool registry
+tools = ToolRegistry("/path/to/repo")
+
+# Get available tool schemas for LLM function calling
+schemas = tools.get_all_schemas()
+
+# Execute specific tool
+result = tools.execute_tool("search_files", {"pattern": "FastAPI", "file_types": ["*.py"]})
+```
+
+**Available Tools:**
+- `scan_directory` - Repository structure exploration
+- `read_file` - File content analysis
+- `search_files` - Pattern-based file search
+- `analyze_code` - Code complexity analysis
+- `web_search` - External knowledge search
 
 For detailed information about specific components, explore the individual API documentation pages.
