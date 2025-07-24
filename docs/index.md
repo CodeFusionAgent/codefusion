@@ -1,85 +1,179 @@
 # CodeFusion Documentation
 
-CodeFusion is a powerful code understanding tool designed for senior developers to quickly ramp up on large codebases. It provides agentic exploration capabilities, semantic search, and comprehensive analysis of code repositories.
+CodeFusion is an **AI-powered multi-agent system** for intelligent codebase exploration and analysis. The system uses LLM function calling and verbose logging to provide comprehensive technical narratives about how systems work.
 
-## 🚀 Key Features
+## 🎯 Current System Overview
 
-- **Agentic Exploration**: Intelligent code exploration using ReAct, Plan-then-Act, and Sense-then-Act strategies
-- **Multi-Backend Knowledge Base**: Support for Neo4j graph database and vector databases for semantic search
-- **LLM Integration**: Comprehensive reasoning with support for OpenAI, Anthropic, and other LLM providers
-- **Advanced Analysis**: Deep code relationship detection and architectural pattern analysis
-- **Interactive CLI**: Intuitive command-line interface for repository exploration and querying
-- **Flexible Configuration**: Extensive configuration options for different use cases
+CodeFusion provides detailed analysis through:
 
-## 🏗️ Architecture Overview
+- **🤖 MULTI-AGENT COORDINATION**: SupervisorAgent orchestrates specialized agents
+- **🔧 LLM FUNCTION CALLING**: AI dynamically selects tools with parameters  
+- **📝 VERBOSE LOGGING**: Real-time visibility into agent decision making
+- **📖 TECHNICAL NARRATIVES**: Comprehensive architectural overviews
+- **⏱️ PERFORMANCE TRACKING**: Accurate execution time measurement
 
-CodeFusion consists of several key components:
+This creates intelligent, observable exploration that generates educational technical stories.
 
-- **ACI (Agent Computer Interface)**: System interaction layer for file system, environment, and repository access
-- **Knowledge Base**: Dual-backend storage supporting both graph (Neo4j) and vector (FAISS) databases
-- **Indexer**: Code analysis and entity extraction with relationship detection
-- **Agents**: Reasoning agents for different exploration strategies
-- **LLM Integration**: Large language model integration for natural language understanding
+## 🚀 Current Features
+
+- **Multi-Agent System**: SupervisorAgent, CodeAgent, DocsAgent, WebAgent coordination
+- **LLM Function Calling**: Dynamic tool selection with intelligent parameter generation  
+- **Verbose Logging**: Action planning phases and tool selection visibility
+- **Technical Narratives**: Architectural overview generation with "Life of X" format
+- **Response Time Tracking**: Accurate execution timing (fixed from 0.0s issue)
+- **Tool Ecosystem**: `scan_directory`, `read_file`, `search_files`, `analyze_code`, `web_search`
+- **LiteLLM Integration**: Multi-provider support (OpenAI, Anthropic, LLaMA)
+- **Configuration Management**: YAML config with environment variable support
+
+## 🔄 Current System Flow
+
+CodeFusion follows this multi-agent process:
+
+1. **📝 SUPERVISOR COORDINATION**: Orchestrates 3 specialized agents
+2. **🎯 AGENT PLANNING**: Each agent shows ACTION PLANNING PHASE reasoning  
+3. **🔧 LLM FUNCTION CALLING**: AI selects tools with dynamic parameters
+4. **📊 RESULT SYNTHESIS**: SupervisorAgent consolidates insights into narrative
+5. **⏱️ PERFORMANCE TRACKING**: Accurate timing and metrics reporting
+
+### Current System Example
+
+```bash
+$ python -m cf.run.main --verbose ask /tmp/fastapi "How does routing work?"
+
+🔍 [SupervisorAgent] Running code analysis agent...
+🎯 [CodeAgent] ACTION PLANNING PHASE  
+🎯 [CodeAgent] LLM selected tool: search_files
+📋 [CodeAgent] Tool arguments: {'pattern': 'routing', 'file_types': ['*.py']}
+
+📚 [SupervisorAgent] Running documentation agent...
+🎯 [DocsAgent] ACTION PLANNING PHASE
+🎯 [DocsAgent] LLM selected tool: search_files
+📋 [DocsAgent] Tool arguments: {'pattern': 'routing', 'file_types': ['*.md']}
+
+🌐 [SupervisorAgent] Running web search agent...
+🎯 [WebAgent] ACTION PLANNING PHASE
+🎯 [WebAgent] LLM selected tool: web_search
+📋 [WebAgent] Tool arguments: {'query': 'FastAPI routing implementation'}
+
+🤖 Consolidating results with LLM...
+🎯 Life of FastAPI: Routing Architecture
+======================================================================
+🏗️ **Architectural Overview:** [Detailed technical narrative...]
+⏱️ Response time: 30.4s
+```
 
 ## 🎯 Quick Start
 
-Get started with CodeFusion in just a few commands:
+Get started with CodeFusion analysis:
 
 ```bash
-# Install CodeFusion
-pip install codefusion
+# 1. Setup environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -e .
 
-# Index a repository
-cf index /path/to/your/repo
+# 2. Configure API key
+export OPENAI_API_KEY="your-openai-api-key"
+# OR edit cf/configs/config.yaml
 
-# Ask questions about the code
-cf query "How does authentication work in this codebase?"
+# 3. Run analysis with verbose logging  
+python -m cf.run.main --verbose ask /path/to/repo "How does routing work?"
+python -m cf.run.main --verbose ask /tmp/fastapi "Explain FastAPI and Starlette relationship"
+python -m cf.run.main --verbose ask /path/to/repo "What specific responsibilities does X handle?"
 
-# Full exploration workflow
-cf explore /path/to/your/repo
+# 4. Check execution details
+# System shows:
+# - Agent coordination and planning phases
+# - LLM tool selection with parameters  
+# - Real-time progress and results
+# - Accurate response time measurement
 ```
 
 ## 📚 Documentation Structure
 
 This documentation is organized into several sections:
 
-- **[Installation](installation/quickstart.md)**: Get CodeFusion up and running
-- **[Usage](usage/cli.md)**: Learn how to use CodeFusion effectively
-- **[Configuration](config/overview.md)**: Customize CodeFusion for your needs
-- **[Development](dev/contributing.md)**: Contribute to CodeFusion development
-- **[Reference](reference/api.md)**: Detailed API and CLI reference
+- **[Installation](installation/setup.md)**: Get CodeFusion up and running
+- **[Usage](usage/cli.md)**: Learn how to use the ReAct framework
+- **[Configuration](usage/configuration.md)**: Configure LLM integration and performance
+- **[ReAct Framework](react-framework.md)**: Comprehensive framework documentation
+- **[API Reference](api/index.md)**: Complete API documentation
+- **[Development](dev/architecture.md)**: Architecture and contribution guide
 
-## 🛠️ Supported Languages
+## 🏗️ Life of X Architecture
 
-CodeFusion supports analysis of multiple programming languages:
+CodeFusion implements a sophisticated Life of X narrative generation system:
 
-- **Python** - Full AST analysis, import detection, class/function extraction
-- **JavaScript/TypeScript** - Module analysis, function detection, framework support
-- **Java** - Package structure analysis, class hierarchy detection
-- **C/C++** - Header analysis, function extraction
-- **Go** - Package analysis, function detection
-- **Rust** - Crate analysis, module structure
+```
+cf/
+├── core/                       # ReAct Foundation
+│   ├── react_agent.py         # Base ReAct agent with R→A→O loops
+│   ├── react_config.py        # Performance and LLM configuration
+│   └── react_tracing.py       # Execution monitoring and metrics
+├── agents/                     # Specialized ReAct Agents
+│   ├── react_supervisor_agent.py      # Multi-agent orchestration + Life of X generation
+│   ├── react_documentation_agent.py   # Documentation analysis
+│   └── react_code_architecture_agent.py # Combined code & architecture analysis
+├── llm/                        # LLM Integration + Life of X System
+│   ├── real_llm.py            # LiteLLM provider integration
+│   ├── prompt_templates.py    # Template-based prompt system
+│   ├── response_parser.py     # Unified response parsing
+│   └── simple_llm.py          # Fallback reasoning
+├── tools/                      # Tool Ecosystem + Narrative Utilities
+│   ├── advanced_tools.py      # 8 specialized exploration tools
+│   └── narrative_utils.py     # Life of X narrative generation utilities
+└── run/
+    └── simple_run.py           # Life of X CLI interface
+```
 
-## 🔧 Integration Options
+## 🆚 Life of X vs Traditional Approaches
 
-CodeFusion integrates with various tools and services:
+### ❌ Traditional Static Analysis
+- One-time parsing of entire codebase
+- Static analysis without context
+- Limited reasoning about findings
+- No adaptive exploration
+- Fast but shallow, misses context
+- **No architectural storytelling**
 
-- **Neo4j** - Graph database for complex relationship analysis
-- **Vector Databases** - FAISS for semantic similarity search
-- **LLM Providers** - OpenAI, Anthropic, and other compatible APIs
-- **Development Tools** - Git integration, testing frameworks, CI/CD pipelines
+### ✅ Life of X Approach
+- **Architectural storytelling** that follows features through entire systems
+- **Narrative-driven exploration** that generates educational stories
+- AI-powered reasoning and decision making
+- Multi-agent collaborative analysis
+- Adaptive exploration that learns from observations
+- Goal-oriented loops with progress tracking
+- Persistent caching across sessions
+- Comprehensive error recovery
+- **Template-based prompts** for consistent high-quality narratives
 
 ## 🤝 Contributing
 
-We welcome contributions to CodeFusion! Please see our [Contributing Guide](dev/contributing.md) for details on how to get started.
+We welcome contributions to the CodeFusion Life of X framework! Contributions should enhance the narrative generation capabilities:
+
+1. **Enhance Life of X Narratives**: Improve architectural storytelling quality
+2. **Maintain ReAct Principles**: Preserve the Reason → Act → Observe pattern
+3. **Add Narrative Templates**: Create templates for different story types
+4. **Add Specialized Agents**: Create domain-specific analysis agents
+5. **Extend Tool Ecosystem**: Add new tools for enhanced capabilities
+6. **Improve LLM Integration**: Support additional providers and models
+7. **Enhance Error Recovery**: Strengthen resilience and fault tolerance
+
+See [Contributing Guide](dev/contributing.md) for detailed information.
 
 ## 📄 License
 
 CodeFusion is released under the Apache License 2.0. See [LICENSE](https://github.com/CodeFusionAgent/codefusion/blob/main/LICENSE) for details.
 
-## 🆘 Support
+## 🆘 Support & Resources
 
-- 📖 [Documentation](https://codefusionagent.github.io/codefusion/)
+- 📖 [Complete Documentation](https://codefusionagent.github.io/codefusion/)
+- 🧠 [ReAct Framework Guide](react-framework.md)
+- 🔧 [API Reference](api/index.md)
 - 💬 [GitHub Issues](https://github.com/CodeFusionAgent/codefusion/issues)
 - 🐛 [Bug Reports](https://github.com/CodeFusionAgent/codefusion/issues/new?template=bug_report.md)
 - 💡 [Feature Requests](https://github.com/CodeFusionAgent/codefusion/issues/new?template=feature_request.md)
+
+---
+
+*Built on the ReAct pattern for systematic, intelligent code exploration through reasoning, acting, and observing.*
