@@ -258,3 +258,10 @@ class SemanticCache:
         # Sort by hits and recency
         results.sort(key=lambda x: (x['hits'], x['timestamp']), reverse=True)
         return results[:limit]
+    
+    def has_similar_analysis(self, repo_path: str, question: str) -> bool:
+        """Check if similar analysis exists in cache for this repo and question - STUB implementation"""
+        # TODO: Implement actual semantic similarity checking across all cached analyses
+        # This should check if a similar question has been asked for this repository
+        # For now, return False to allow full implementation flow
+        return False
