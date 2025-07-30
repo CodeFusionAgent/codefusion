@@ -106,8 +106,8 @@ class RepoTools:
         except Exception as e:
             return {'error': f'Failed to list files: {str(e)}'}
     
-    def read_file(self, file_path: str, max_lines: Optional[int] = None) -> Dict[str, Any]:
-        """Read contents of a specific file"""
+    def read_file(self, file_path: str, max_lines: Optional[int] = None, include_structure: bool = False) -> Dict[str, Any]:
+        """Read contents of a specific file, optionally including structural analysis"""
         full_path = self.repo_path / file_path
         
         if not full_path.exists():
@@ -127,13 +127,21 @@ class RepoTools:
                 else:
                     content = f.read()
             
-            return {
+            result = {
                 'file_path': file_path,
                 'content': content,
                 'size': full_path.stat().st_size,
                 'lines': len(content.splitlines()),
                 'encoding': 'utf-8'
             }
+            
+            # Add structural analysis if requested
+            if include_structure:
+                structure = self.analyze_file_structure(file_path)
+                if 'error' not in structure:
+                    result['structure_analysis'] = structure
+            
+            return result
         except Exception as e:
             return {'error': f'Failed to read file: {str(e)}'}
     
@@ -260,8 +268,8 @@ class RepoTools:
             'fallback': True
         }
     
-    def get_file_info(self, file_path: str) -> Dict[str, Any]:
-        """Get metadata about a file"""
+    def get_file_info(self, file_path: str, include_metrics: bool = False) -> Dict[str, Any]:
+        """Get metadata about a file, optionally including code metrics"""
         full_path = self.repo_path / file_path
         
         if not full_path.exists():
@@ -269,7 +277,7 @@ class RepoTools:
         
         try:
             stat = full_path.stat()
-            return {
+            info = {
                 'file_path': file_path,
                 'size': stat.st_size,
                 'modified': stat.st_mtime,
@@ -278,6 +286,14 @@ class RepoTools:
                 'is_text': self._is_text_file(full_path),
                 'mime_type': mimetypes.guess_type(full_path)[0] or 'unknown'
             }
+            
+            # Add code metrics if requested and file is text
+            if include_metrics and info['is_text']:
+                metrics = self.calculate_file_metrics(file_path)
+                if 'error' not in metrics:
+                    info['code_metrics'] = metrics
+            
+            return info
         except Exception as e:
             return {'error': f'Failed to get file info: {str(e)}'}
     
@@ -300,6 +316,199 @@ class RepoTools:
         except Exception:
             return False
     
+    def calculate_file_metrics(self, file_path: str) -> Dict[str, Any]:
+        """Calculate code metrics for a file by reading it first"""
+        # Use read_file to get content
+        file_data = self.read_file(file_path)
+        if 'error' in file_data:
+            return file_data
+        
+        content = file_data['content']
+        lines = content.splitlines()
+        extension = Path(file_path).suffix.lower()
+        
+        metrics = {
+            'total_lines': len(lines),
+            'non_empty_lines': len([line for line in lines if line.strip()]),
+            'language': self._detect_language(extension)
+        }
+        
+        # Language-specific complexity analysis
+        if extension == '.py':
+            metrics['complexity_indicators'] = self._analyze_python_complexity(content)
+        elif extension in ['.js', '.ts']:
+            metrics['complexity_indicators'] = self._analyze_js_complexity(content)
+        else:
+            metrics['complexity_indicators'] = {'estimated_complexity': 'unknown'}
+        
+        return metrics
+    
+    def analyze_file_structure(self, file_path: str) -> Dict[str, Any]:
+        """Analyze file structure by reading it first"""
+        # Use read_file to get content
+        file_data = self.read_file(file_path)
+        if 'error' in file_data:
+            return file_data
+        
+        content = file_data['content']
+        lines = content.splitlines()
+        extension = Path(file_path).suffix.lower()
+        
+        structure = {
+            'extension': extension,
+            'components': [],
+            'imports': []
+        }
+        
+        if extension == '.py':
+            structure.update(self.parse_python_structure(content, lines))
+        elif extension in ['.js', '.ts']:
+            structure.update(self.parse_js_structure(content, lines))
+        elif extension == '.md':
+            structure.update(self.parse_markdown_structure(lines))
+        
+        return structure
+    
+    def parse_python_structure(self, content: str, lines: List[str]) -> Dict[str, Any]:
+        """Parse Python file structure from content"""
+        import re
+        
+        components = []
+        imports = []
+        
+        for i, line in enumerate(lines):
+            # Find imports
+            if re.match(r'^\s*(?:from\s+.+\s+)?import\s+', line):
+                imports.append(line.strip())
+            
+            # Find classes
+            class_match = re.match(r'^\s*class\s+(\w+)', line)
+            if class_match:
+                components.append({
+                    'type': 'class',
+                    'name': class_match.group(1),
+                    'line': i + 1
+                })
+            
+            # Find functions
+            func_match = re.match(r'^\s*def\s+(\w+)', line)
+            if func_match:
+                components.append({
+                    'type': 'function',
+                    'name': func_match.group(1),
+                    'line': i + 1
+                })
+        
+        return {
+            'components': components[:10],  # Limit to first 10
+            'imports': imports[:5]  # Limit to first 5
+        }
+    
+    def parse_js_structure(self, content: str, lines: List[str]) -> Dict[str, Any]:
+        """Parse JavaScript/TypeScript file structure from content"""
+        import re
+        
+        components = []
+        imports = []
+        
+        for i, line in enumerate(lines):
+            # Find imports/exports
+            if re.match(r'^\s*(?:import|export)', line):
+                imports.append(line.strip())
+            
+            # Find functions
+            if re.search(r'function\s+(\w+)', line):
+                match = re.search(r'function\s+(\w+)', line)
+                components.append({
+                    'type': 'function',
+                    'name': match.group(1),
+                    'line': i + 1
+                })
+            
+            # Find classes
+            if re.search(r'class\s+(\w+)', line):
+                match = re.search(r'class\s+(\w+)', line)
+                components.append({
+                    'type': 'class',
+                    'name': match.group(1),
+                    'line': i + 1
+                })
+        
+        return {
+            'components': components[:10],
+            'imports': imports[:5]
+        }
+    
+    def parse_markdown_structure(self, lines: List[str]) -> Dict[str, Any]:
+        """Parse Markdown file structure from lines"""
+        components = []
+        
+        for i, line in enumerate(lines):
+            if line.startswith('#'):
+                level = len(line) - len(line.lstrip('#'))
+                header_text = line.lstrip('#').strip()
+                components.append({
+                    'type': f'header_h{level}',
+                    'name': header_text,
+                    'line': i + 1
+                })
+        
+        return {
+            'components': components[:10],
+            'imports': []
+        }
+    
+    def _detect_language(self, extension: str) -> str:
+        """Detect programming language from file extension"""
+        lang_map = {
+            '.py': 'Python',
+            '.js': 'JavaScript', 
+            '.ts': 'TypeScript',
+            '.java': 'Java',
+            '.cpp': 'C++',
+            '.c': 'C',
+            '.h': 'C/C++ Header',
+            '.go': 'Go',
+            '.rs': 'Rust',
+            '.rb': 'Ruby',
+            '.php': 'PHP',
+            '.md': 'Markdown',
+            '.yml': 'YAML',
+            '.yaml': 'YAML',
+            '.json': 'JSON'
+        }
+        return lang_map.get(extension.lower(), 'Unknown')
+    
+    def _analyze_python_complexity(self, content: str) -> Dict[str, Any]:
+        """Analyze Python code complexity"""
+        import re
+        
+        functions = len(re.findall(r'^\s*def\s+\w+\s*\(', content, re.MULTILINE))
+        classes = len(re.findall(r'^\s*class\s+\w+\s*[:\(]', content, re.MULTILINE))
+        imports = len(re.findall(r'^\s*(?:from\s+.+\s+)?import\s+', content, re.MULTILINE))
+        
+        return {
+            'functions': functions,
+            'classes': classes,
+            'imports': imports,
+            'estimated_complexity': 'low' if functions + classes < 5 else 'medium' if functions + classes < 15 else 'high'
+        }
+    
+    def _analyze_js_complexity(self, content: str) -> Dict[str, Any]:
+        """Analyze JavaScript/TypeScript code complexity"""
+        import re
+        
+        functions = len(re.findall(r'function\s+\w+\s*\(|const\s+\w+\s*=\s*\([^)]*\)\s*=>', content, re.MULTILINE))
+        classes = len(re.findall(r'class\s+\w+\s*{', content, re.MULTILINE))
+        imports = len(re.findall(r'^\s*(?:import|export)', content, re.MULTILINE))
+        
+        return {
+            'functions': functions,
+            'classes': classes,
+            'imports': imports,
+            'estimated_complexity': 'low' if functions + classes < 5 else 'medium' if functions + classes < 15 else 'high'
+        }
+
     def _should_exclude_file(self, file_path: Path) -> bool:
         """Check if file should be excluded from processing"""
         if file_path.suffix in self.excluded_extensions:

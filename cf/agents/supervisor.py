@@ -6,8 +6,10 @@ Resets state for each new question.
 """
 
 import time
+import json
 from typing import Dict, List, Any
 from cf.agents.base import BaseAgent
+from cf.cache.semantic import SemanticCache
 
 
 class SupervisorAgent(BaseAgent):
@@ -36,6 +38,21 @@ class SupervisorAgent(BaseAgent):
         self.actions_taken = []
         self.results = {}
         self.insights = []
+        
+        # Multi-pass coordination state
+        self.analysis_type = None  # Will be determined by LLM
+        self.pass_number = 1
+        self.current_pass_attempt = 1
+        self.max_pass_attempts = 3  # Retry mechanism
+        self.pass_results = {}  # Store results from each pass
+        self.repo_cache_status = None  # 'new' or 'existing'
+        self.context_sharing_decision = None  # LLM decides per pass
+        
+        # Multi-pass configuration
+        self.pass_config = {
+            'standard': {'max_passes': 3},
+            'summary': {'max_passes': 2}
+        }
     
     def analyze(self, question: str) -> Dict[str, Any]:
         """
@@ -63,18 +80,36 @@ class SupervisorAgent(BaseAgent):
         return result
     
     def _analyze_step(self, question: str) -> str:
-        """Execute one analysis step - consult next available agent"""
+        """Execute one analysis step with multi-pass coordination"""
         
-        # Log initial processing
+        # Initialize analysis on first iteration
         if self.iteration == 1:
             self.logger.verbose(f"Processing: {question}", "📝")
-            self.logger.verbose("Analyzing question and building context...", "🧠")
-            self.logger.verbose("Coordinating multiple specialized agents...", "🤖")
+            
+            # Determine analysis type and cache status using LLM
+            analysis_setup = self._setup_analysis_strategy(question)
+            if not analysis_setup.get('success'):
+                return "analysis_setup_failed"
+            
+            self.logger.verbose(f"Analysis type: {self.analysis_type}, Pass {self.pass_number}/{self.pass_config[self.analysis_type]['max_passes']}", "🎯")
+            
+            # Log cache strategy results
+            cache_strategy = analysis_setup.get('cache_strategy', {})
+            if cache_strategy.get('has_cache'):
+                self.logger.verbose("✅ Found similar analysis in cache", "💾")
+            elif cache_strategy.get('has_summary_cache'):
+                self.logger.verbose("✅ Found repository summary in cache", "💾")
+            else:
+                self.logger.verbose("❌ No relevant cache found - proceeding with fresh analysis", "💾")
         
-        # Consult agents in order
+        # Check if current pass is complete
+        if len(self.agents_completed) >= len(self.agents_to_consult):
+            return self._handle_pass_completion(question)
+        
+        # Consult next agent in current pass
         for agent_type in self.agents_to_consult:
             if agent_type not in self.agents_completed:
-                return self._consult_agent(agent_type, question)
+                return self._consult_agent_with_context(agent_type, question)
         
         return "all_agents_consulted"
     
@@ -216,6 +251,11 @@ class SupervisorAgent(BaseAgent):
             'total_insights': len(self.all_insights)
         }
         
+        # Log multi-pass completion summary
+        total_passes = len([k for k in self.pass_results.keys() if k.startswith('pass_')])
+        if total_passes > 1:
+            self.logger.verbose(f"🏁 Multi-pass analysis complete: {total_passes} passes, {len(self.all_insights)} total insights", "✅")
+        
         # Log insights integration if verbose
         if len(self.all_insights) > 0:
             self.logger.verbose_result(True, f"Integrated {len(self.all_insights)} insights into narrative")
@@ -296,7 +336,6 @@ The Architecture & Flow section should be particularly rich - it's the heart of 
             llm_response = self.call_llm(prompt, system_prompt)
             
             if llm_response.get('success'):
-                import json
                 content = llm_response.get('content', '')
                 
                 # Try to parse JSON response
@@ -366,3 +405,334 @@ The Architecture & Flow section should be particularly rich - it's the heart of 
         prompt += f"\n\nPlease create a comprehensive, well-structured response that synthesizes these findings into a clear answer to the user's question."
         
         return prompt
+    
+    def _setup_analysis_strategy(self, question: str) -> Dict[str, Any]:
+        """Use LLM to determine analysis type, then check cache strategy"""
+        try:
+            # Step 1: Determine analysis type based purely on question content
+            analysis_type_result = self._determine_analysis_type(question)
+            if not analysis_type_result.get('success'):
+                return analysis_type_result
+            
+            # Step 2: Check cache and determine strategy
+            cache_strategy = self._determine_cache_strategy(question)
+            
+            self.logger.verbose(f"Strategy: {analysis_type_result.get('reasoning', 'No reasoning provided')}", "🧠")
+            if cache_strategy.get('has_cache'):
+                self.logger.verbose("Similar analysis found in cache", "💾")
+            
+            return {'success': True, 'strategy': analysis_type_result, 'cache_strategy': cache_strategy}
+            
+        except Exception as e:
+            self.logger.error(f"Analysis strategy setup failed: {str(e)}")
+            self.analysis_type = 'standard'
+            return {'success': False, 'error': str(e)}
+    
+    def _determine_analysis_type(self, question: str) -> Dict[str, Any]:
+        """Pure LLM decision on analysis type based on question content"""
+        prompt = f"""Analyze this question and determine the analysis type:
+
+Question: "{question}"
+
+Determine if this is:
+- "standard": Specific technical questions, debugging, how-to questions, feature explanations
+- "summary": Repository overviews, architecture analysis, project understanding, code organization
+
+Provide JSON response with:
+- analysis_type: "standard" or "summary"  
+- reasoning: Brief explanation of why this type was chosen
+"""
+        
+        system_prompt = """You are an analysis coordinator. Classify questions as:
+- "standard": Specific technical questions about implementation, usage, debugging
+- "summary": Questions about overall project structure, architecture, organization, overview
+
+Return JSON format only."""
+        
+        try:
+            llm_response = self.call_llm(prompt, system_prompt)
+            
+            if llm_response.get('success'):
+                try:
+                    result = json.loads(llm_response.get('content', '{}'))
+                    self.analysis_type = result.get('analysis_type', 'standard')
+                    return {'success': True, 'analysis_type': self.analysis_type, 'reasoning': result.get('reasoning', '')}
+                except json.JSONDecodeError:
+                    self.analysis_type = 'standard'
+                    return {'success': True, 'analysis_type': 'standard', 'reasoning': 'JSON parse failed, using fallback'}
+            
+            self.analysis_type = 'standard'
+            return {'success': True, 'analysis_type': 'standard', 'reasoning': 'LLM call failed, using fallback'}
+            
+        except Exception as e:
+            self.analysis_type = 'standard'
+            return {'success': False, 'error': str(e)}
+    
+    def _determine_cache_strategy(self, question: str) -> Dict[str, Any]:
+        """Determine strategy based on cache existence for any question type"""
+        try:
+            # Check if similar analysis exists in cache
+            has_cache = self._check_similar_analysis_cache(question)
+            
+            strategy = {
+                'has_cache': has_cache,
+                'action': 'use_cache' if has_cache else 'new_analysis'
+            }
+            
+            # For standard questions, check if repository summary/overview exists in cache
+            if self.analysis_type == 'standard' and not has_cache:
+                has_summary_cache = self._check_similar_analysis_cache("repository overview architecture summary structure")
+                strategy['has_summary_cache'] = has_summary_cache
+                if not has_summary_cache:
+                    self.logger.verbose("Standard question may need repository context - no summary in cache", "📋")
+            
+            return strategy
+            
+        except Exception as e:
+            return {'has_cache': False, 'action': 'new_analysis', 'error': str(e)}
+    
+    def _check_similar_analysis_cache(self, question: str) -> bool:
+        """Check if similar analysis exists in cache"""
+        try:
+            # Create a cache instance for supervisor agent
+            cache = SemanticCache('supervisor', {'enabled': True, 'cache_dir': 'cf_cache'})
+            
+            return cache.has_similar_analysis(self.repo_path, question)
+            
+        except Exception:
+            return False  # Fallback to no cache
+    
+    
+    def _handle_pass_completion(self, question: str) -> str:
+        """Handle completion of current pass and decide next action"""
+        try:
+            # Store current pass results
+            self.pass_results[f'pass_{self.pass_number}'] = {
+                'agents_completed': self.agents_completed.copy(),
+                'specialist_results': self.specialist_results.copy(),
+                'insights': self.all_insights.copy(),
+                'attempt': self.current_pass_attempt
+            }
+            
+            # Use LLM to analyze pass results and decide next action
+            pass_analysis = self._analyze_pass_results(question)
+            
+            action = pass_analysis.get('action', 'complete')
+            self.logger.verbose(f"📊 Pass {self.pass_number} analysis decision: {action} - {pass_analysis.get('reasoning', 'No reason provided')}", "🤔")
+            
+            if action == 'retry' and self.current_pass_attempt < self.max_pass_attempts:
+                return self._retry_current_pass(question, pass_analysis.get('retry_reason', 'Results insufficient'))
+            
+            elif action == 'next_pass' and self.pass_number < self.pass_config[self.analysis_type]['max_passes']:
+                return self._start_next_pass(question, pass_analysis)
+            
+            else:
+                # All passes complete or max attempts reached
+                return "all_passes_complete"
+                
+        except Exception as e:
+            self.logger.error(f"Pass completion handling failed: {str(e)}")
+            return "all_passes_complete"  # Fallback to completion
+    
+    def _analyze_pass_results(self, question: str) -> Dict[str, Any]:
+        """Use LLM to analyze current pass results and determine next action"""
+        try:
+            # Prepare current pass summary
+            current_insights = len(self.all_insights)
+            successful_agents = len([agent for agent in self.agents_completed 
+                                   if self.specialist_results.get(agent, {}).get('success', False)])
+            
+            prompt = f"""Analyze the results of Pass {self.pass_number} (Attempt {self.current_pass_attempt}) for this question:
+
+Question: "{question}"
+Analysis type: {self.analysis_type}
+Current pass: {self.pass_number}/{self.pass_config[self.analysis_type]['max_passes']}
+
+Pass Results:
+- Agents consulted: {len(self.agents_completed)}/{len(self.agents_to_consult)}
+- Successful agents: {successful_agents}
+- Total insights gathered: {current_insights}
+- Agent success details: {[(agent, self.specialist_results.get(agent, {}).get('success', False)) for agent in self.agents_completed]}
+
+Top insights from this pass:
+{[insight.get('content', '')[:100] + '...' for insight in self.all_insights[:3]]}
+
+Determine the next action:
+1. "retry" - If results are insufficient and retry is warranted
+2. "next_pass" - If results are good enough to proceed to next pass
+3. "complete" - If analysis is sufficient to generate final answer
+
+Provide JSON response with:
+- action: "retry", "next_pass", or "complete"
+- reasoning: Why this action was chosen
+- retry_reason: If retry, what specifically needs improvement
+- context_sharing: If next_pass, whether to share current results with next pass agents (true/false)
+- focus_areas: If next_pass, what areas should be emphasized (array of strings)
+"""
+            
+            system_prompt = f"""You are analyzing the quality of a multi-pass analysis system. 
+For {self.analysis_type} analysis, evaluate if current pass results are sufficient or need improvement.
+Consider insight quality, agent success rates, and question complexity.
+Return JSON format only."""
+            
+            llm_response = self.call_llm(prompt, system_prompt)
+            
+            if llm_response.get('success'):
+                try:
+                    analysis = json.loads(llm_response.get('content', '{}'))
+                    return analysis
+                except json.JSONDecodeError:
+                    # JSON parse failed, fall through to fallback logic
+                    self.logger.error("JSON parse failed, using fallback logic")
+            else:
+                # LLM call failed, fall through to fallback logic
+                self.logger.error("LLM call failed, using fallback logic")
+            
+            # Fallback logic (runs when LLM fails or JSON parsing fails)
+            # For summary questions, always proceed to Pass 2 if we're on Pass 1
+            if self.analysis_type == 'summary' and self.pass_number == 1:
+                return {'action': 'next_pass', 'reasoning': 'Summary Pass 1 complete, proceeding to Pass 2 (fallback)', 'context_sharing': True}
+            elif current_insights < 2 and self.current_pass_attempt < self.max_pass_attempts:
+                return {'action': 'retry', 'reasoning': 'Insufficient insights, retrying (fallback)', 'retry_reason': 'Low insight count'}
+            elif self.pass_number < self.pass_config[self.analysis_type]['max_passes']:
+                return {'action': 'next_pass', 'reasoning': 'Proceeding to next pass (fallback)', 'context_sharing': True}
+            else:
+                return {'action': 'complete', 'reasoning': 'Max passes reached (fallback)'}
+                
+        except Exception as e:
+            self.logger.error(f"Pass analysis failed: {str(e)}")
+            # Even on exception, use fallback logic instead of immediately completing
+            # For summary questions, always proceed to Pass 2 if we're on Pass 1
+            if self.analysis_type == 'summary' and self.pass_number == 1:
+                return {'action': 'next_pass', 'reasoning': f'Summary Pass 1 complete despite exception, proceeding to Pass 2: {str(e)}', 'context_sharing': True}
+            elif current_insights < 2 and self.current_pass_attempt < self.max_pass_attempts:
+                return {'action': 'retry', 'reasoning': f'Exception occurred, retrying: {str(e)}', 'retry_reason': 'Analysis exception'}
+            elif self.pass_number < self.pass_config[self.analysis_type]['max_passes']:
+                return {'action': 'next_pass', 'reasoning': f'Exception occurred, proceeding: {str(e)}', 'context_sharing': True}
+            else:
+                return {'action': 'complete', 'reasoning': f'Exception occurred, completing: {str(e)}'}
+    
+    def _retry_current_pass(self, question: str, retry_reason: str) -> str:
+        """Retry current pass with improved strategy"""
+        self.current_pass_attempt += 1
+        self.logger.verbose(f"Retrying Pass {self.pass_number} (Attempt {self.current_pass_attempt}): {retry_reason}", "🔄")
+        
+        # Reset agents for retry
+        self.agents_completed = []
+        self.specialist_results = {}
+        # Keep insights from previous attempts but don't reset
+        
+        return "pass_retry_initiated"
+    
+    def _start_next_pass(self, question: str, pass_analysis: Dict[str, Any]) -> str:
+        """Start the next pass with context sharing decision"""
+        self.pass_number += 1
+        self.current_pass_attempt = 1
+        
+        # LLM-determined context sharing decision
+        self.context_sharing_decision = pass_analysis.get('context_sharing', False)
+        focus_areas = pass_analysis.get('focus_areas', [])
+        
+        self.logger.verbose(f"🚀 Starting Pass {self.pass_number}/{self.pass_config[self.analysis_type]['max_passes']}", "➡️")
+        self.logger.verbose(f"🔗 Context sharing: {'✅ Enabled' if self.context_sharing_decision else '❌ Disabled'}", "➡️")
+        if focus_areas:
+            self.logger.verbose(f"🎯 Focus areas: {', '.join(focus_areas)}", "➡️")
+        
+        # Reset agents for next pass
+        self.agents_completed = []
+        # Keep specialist_results if context sharing, otherwise reset
+        if not self.context_sharing_decision:
+            self.specialist_results = {}
+        
+        return "next_pass_initiated"
+    
+    def _consult_agent_with_context(self, agent_type: str, question: str) -> str:
+        """Consult agent with pass-specific and context-aware prompting"""
+        
+        # Build pass-specific question based on analysis type and pass number
+        if self.analysis_type == 'summary':
+            enhanced_question = self._build_summary_pass_specific_question(agent_type, question)
+            self.logger.verbose(f"📝 {agent_type.upper()} Agent - Pass {self.pass_number} summary focus", "🎯")
+        elif self.context_sharing_decision and self.pass_number > 1:
+            enhanced_question = self._build_context_aware_prompt(agent_type, question)
+            self.logger.verbose(f"📝 {agent_type.upper()} Agent - Context sharing enabled", "🔗")
+        else:
+            enhanced_question = question
+            self.logger.verbose(f"📝 {agent_type.upper()} Agent - Standard question", "❓")
+        
+        # Use existing agent consultation logic
+        return self._consult_agent(agent_type, enhanced_question)
+    
+    def _build_context_aware_prompt(self, agent_type: str, original_question: str) -> str:
+        """Build context-aware prompt for agents based on previous pass results"""
+        try:
+            # Get previous pass insights
+            previous_insights = []
+            for pass_key, pass_data in self.pass_results.items():
+                if pass_key != f'pass_{self.pass_number}':  # Exclude current pass
+                    previous_insights.extend(pass_data.get('insights', []))
+            
+            if not previous_insights:
+                return original_question
+            
+            # Build context summary
+            context_summary = []
+            for insight in previous_insights[:5]:  # Limit to top 5 insights
+                content = insight.get('content', '')[:100]  # Truncate long content
+                context_summary.append(f"- {content}")
+            
+            enhanced_prompt = f"""Based on previous analysis insights:
+{chr(10).join(context_summary)}
+
+Now focusing on {agent_type} analysis, please address: {original_question}
+
+Consider how your findings relate to or build upon the previous insights."""
+            
+            return enhanced_prompt
+            
+        except Exception as e:
+            self.logger.error(f"Context-aware prompt building failed: {str(e)}")
+            return original_question
+    
+    def _build_summary_pass_specific_question(self, agent_type: str, original_question: str) -> str:
+        """Build simplified pass-specific questions for summary analysis"""
+        try:
+            if self.pass_number == 1:
+                enhanced_question = f"PASS 1 - High-level overview: {original_question}. Focus on overall structure and organization."
+                self.logger.verbose(f"🔍 Pass 1 Focus: High-level overview and structure", "📋")
+                return enhanced_question
+            elif self.pass_number == 2:
+                pass1_context = self._get_brief_pass1_context()
+                enhanced_question = f"PASS 2 - Detailed analysis: {original_question}. Previous context: {pass1_context}. Now provide deep technical insights."
+                self.logger.verbose(f"🔬 Pass 2 Focus: Detailed analysis with context from Pass 1", "📋")
+                self.logger.verbose(f"📝 Pass 1 Context: {pass1_context[:100]}{'...' if len(pass1_context) > 100 else ''}", "🔗")
+                return enhanced_question
+            else:
+                return original_question
+                
+        except Exception as e:
+            self.logger.error(f"Summary pass question building failed: {str(e)}")
+            return original_question
+    
+    def _get_brief_pass1_context(self) -> str:
+        """Get a brief summary of Pass 1 results for Pass 2 context"""
+        try:
+            if 'pass_1' not in self.pass_results:
+                return "No previous context"
+            
+            pass1_data = self.pass_results['pass_1']
+            insights = pass1_data.get('insights', [])
+            
+            if not insights:
+                return "No previous insights"
+            
+            # Get top 3 insights, truncated
+            context_parts = []
+            for insight in insights[:3]:
+                content = insight.get('content', '')[:80] + '...' if len(insight.get('content', '')) > 80 else insight.get('content', '')
+                context_parts.append(content)
+            
+            return '; '.join(context_parts)
+            
+        except Exception:
+            return "Context unavailable"
