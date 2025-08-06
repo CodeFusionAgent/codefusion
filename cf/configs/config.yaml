@@ -1,0 +1,45 @@
+# CodeFusion Configuration
+
+# LLM Settings
+llm:
+  model: "gpt-4o"
+  api_key: ""
+  max_tokens: 2000
+  temperature: 0.7
+
+# Agent Settings  
+agents:
+  max_iterations: 10
+  timeout: 300  # seconds
+
+# Cache Settings
+cache:
+  enabled: true
+  ttl: 3600  # seconds
+
+# Tracing Settings
+trace:
+  enabled: true
+  output_dir: "cf_trace"
+
+# Logging Settings
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  verbose: false  # Enable detailed agent activity logging
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Repository Settings
+repo:
+  max_files: 1000
+  max_file_size: 1048576  # 1MB
+  excluded_dirs:
+    - ".git"
+    - "__pycache__"
+    - "node_modules"
+    - ".venv"
+    - "venv"
+  excluded_extensions:
+    - ".pyc"
+    - ".pyo"
+    - ".so"
+    - ".dll"

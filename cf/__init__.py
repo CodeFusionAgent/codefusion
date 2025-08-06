@@ -1,31 +1,28 @@
-"""CodeFusion: A code understanding tool for rapid codebase exploration."""
+"""CodeFusion: Clean, LLM-driven code analysis framework."""
 
-from .config import CfConfig
-from .aci.repo import CodeRepo, LocalCodeRepo, RemoteCodeRepo, CodeAction, FileInfo
-from .aci.environment_manager import EnvironmentManager
-from .kb.knowledge_base import CodeKB, CodeEntity, CodeRelationship, create_knowledge_base
-from .indexer.code_indexer import CodeIndexer
-from .llm.llm_model import LlmModel, LlmTracer, CodeAnalysisLlm, create_llm_model
+from cf.configs.config_mgr import ConfigManager
+from cf.agents.supervisor import SupervisorAgent
+from cf.agents.base import BaseAgent
+from cf.agents.code import CodeAgent
+from cf.agents.docs import DocsAgent
+from cf.agents.web import WebAgent
+from cf.llm.client import LLMClient
+from cf.tools.registry import ToolRegistry
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 __author__ = "CodeFusion Team"
-__description__ = "A code understanding tool for senior developers to quickly ramp up on large codebases"
+__description__ = (
+    "Clean LLM-driven framework for intelligent code analysis. "
+    "Multi-agent system with function calling loops for comprehensive codebase understanding."
+)
 
 __all__ = [
-    "CfConfig",
-    "CodeRepo",
-    "LocalCodeRepo", 
-    "RemoteCodeRepo",
-    "CodeAction",
-    "FileInfo",
-    "EnvironmentManager",
-    "CodeKB",
-    "CodeEntity",
-    "CodeRelationship",
-    "create_knowledge_base",
-    "CodeIndexer",
-    "LlmModel",
-    "LlmTracer",
-    "CodeAnalysisLlm",
-    "create_llm_model"
+    "ConfigManager",
+    "SupervisorAgent",
+    "BaseAgent",
+    "CodeAgent",
+    "DocsAgent", 
+    "WebAgent",
+    "LLMClient",
+    "ToolRegistry",
 ]

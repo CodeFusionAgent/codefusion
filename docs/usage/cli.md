@@ -1,408 +1,215 @@
 # CLI Commands
 
-CodeFusion provides a comprehensive command-line interface for repository exploration and code analysis.
+CodeFusion provides an **AI-powered command-line interface** for intelligent codebase analysis using multi-agent coordination and verbose logging.
 
-## Overview
-
-The main CLI entry point is the `cf` command:
+## Current Command Interface
 
 ```bash
-cf --help
+# Main command interface with verbose logging
+python -m cf.run.main --verbose ask /path/to/repo "How does routing work?"
+
+# Example with detailed output showing agent activity
+python -m cf.run.main --verbose ask /tmp/fastapi "Explain FastAPI and Starlette relationship"
 ```
 
-## Global Options
+## System Features
 
-These options are available for all commands:
+### 🤖 **Multi-Agent Coordination**
+- **SupervisorAgent**: Orchestrates all agents and synthesizes responses
+- **CodeAgent**: Analyzes source code using LLM function calling
+- **DocsAgent**: Processes documentation and README files
+- **WebAgent**: Integrates web search for external knowledge
 
-```bash
-cf [OPTIONS] COMMAND [ARGS]...
+### 📝 **Verbose Logging System**
+- **Action Planning Phases**: Shows agent reasoning process
+- **Tool Selection Logging**: Displays LLM tool choices with parameters
+- **Progress Tracking**: Real-time visibility into system activity
+- **Response Time Measurement**: Accurate execution timing
 
-Global Options:
-  --config, -c PATH    Configuration file path [default: config/default/config.yaml]
-  --verbose, -v        Enable verbose output
-  --help               Show help message
-```
+### 🔧 **LLM Function Calling**
+- **Dynamic Tool Selection**: LLM chooses optimal tools based on context
+- **Conversation History**: Multi-turn dialogue with context preservation
+- **Available Tools**: `scan_directory`, `read_file`, `search_files`, `analyze_code`, `web_search`
 
-## Commands
+## Current Commands
 
-### `index` - Index a Repository
+### `ask` - Main Analysis Command ⭐ **PRIMARY COMMAND**
 
-Index a repository to build the knowledge base.
-
-```bash
-cf index [OPTIONS] REPO_PATH
-```
-
-**Arguments:**
-- `REPO_PATH`: Path to the repository to index
-
-**Options:**
-- `--strategy {react,plan_act,sense_act}`: Exploration strategy [default: react]
-
-**Examples:**
-```bash
-# Basic indexing
-cf index /path/to/repository
-
-# Use specific strategy
-cf index --strategy plan_act /path/to/repository
-
-# With custom config
-cf --config my-config.yaml index /path/to/repository
-```
-
-### `query` - Query the Knowledge Base
-
-Ask natural language questions about the indexed codebase.
+Ask a question about a codebase and receive detailed technical analysis with verbose logging.
 
 ```bash
-cf query [OPTIONS] QUESTION
+python -m cf.run.main [OPTIONS] ask REPO_PATH QUESTION
 ```
 
 **Arguments:**
-- `QUESTION`: Question to ask about the code
+- `REPO_PATH`: Path to the repository to analyze
+- `QUESTION`: Natural language question about the codebase
 
 **Options:**
-- `--repo-path PATH`: Repository path (if not using saved KB)
-- `--strategy {react,plan_act,sense_act}`: Exploration strategy [default: react]
+- `--verbose, -v`: Enable detailed verbose logging (RECOMMENDED)
+- `--config, -c PATH`: Configuration file path
 
 **Examples:**
 ```bash
-# Basic query
-cf query "How does authentication work?"
+# Basic analysis with verbose logging
+python -m cf.run.main --verbose ask /tmp/fastapi "How does routing work?"
 
-# Query with specific repository
-cf query --repo-path /path/to/repo "What are the main API endpoints?"
+# Analyze framework relationships
+python -m cf.run.main --verbose ask /path/to/repo "Explain the relationship between FastAPI and Starlette"
 
-# Use different reasoning strategy
-cf query --strategy plan_act "How is the database configured?"
+# Understand system architecture
+python -m cf.run.main --verbose ask /path/to/repo "What specific responsibilities does Starlette handle?"
 ```
 
-### `explore` - Full Exploration Workflow
+## Complete Working Example
 
-Run complete exploration including indexing and automatic insights.
-
+### Input Command
 ```bash
-cf explore [OPTIONS] REPO_PATH
+python -m cf.run.main --verbose ask /tmp/fastapi "Explain the relationship between FastAPI and Starlette. What specific responsibilities does Starlette handle?"
 ```
 
-**Arguments:**
-- `REPO_PATH`: Path to repository to explore
-
-**Options:**
-- `--strategy {react,plan_act,sense_act}`: Exploration strategy [default: react]
-
-**Examples:**
+### Detailed Output
 ```bash
-# Full exploration
-cf explore /path/to/repository
+🚀 CodeFusion - Ask
+📁 /tmp/fastapi | 🤖 code, docs, web
+==================================================
+📝 [SupervisorAgent] Processing: Explain the relationship between FastAPI and Starlette...
 
-# With specific strategy
-cf explore --strategy sense_act /path/to/repository
+🧠 [SupervisorAgent] Analyzing question and building context...
+🤖 [SupervisorAgent] Coordinating multiple specialized agents...
+🔍 [SupervisorAgent] Running code analysis agent...
+🎯 [CodeAgent] ACTION PLANNING PHASE
+💭 [CodeAgent] Based on reasoning: Since there are no code files found yet, the first step is to identify and explore...
+🔧 [CodeAgent] Using LLM function calling for intelligent tool selection
+📡 [CodeAgent] Calling LLM with function calling enabled...
+🎯 [CodeAgent] LLM selected tool: search_files
+📋 [CodeAgent] Tool arguments: {'pattern': 'FastAPI', 'file_types': ['*.py'], 'max_results': 5}
+📡 [CodeAgent] Calling LLM with function calling enabled...
+🎯 [CodeAgent] LLM selected tool: search_documentation
+📋 [CodeAgent] Tool arguments: {'topic': 'FastAPI', 'framework': 'FastAPI'}
+✅ [SupervisorAgent] Code analysis completed
+📚 [SupervisorAgent] Running documentation agent...
+🎯 [DocsAgent] ACTION PLANNING PHASE
+💭 [DocsAgent] Based on reasoning: Analyzing documentation files to understand the system architecture...
+🔧 [DocsAgent] Using LLM function calling for intelligent tool selection
+📡 [DocsAgent] Calling LLM with function calling enabled...
+🎯 [DocsAgent] LLM selected tool: search_files
+📋 [DocsAgent] Tool arguments: {'pattern': 'FastAPI and Starlette', 'file_types': ['md', 'txt'], 'max_results': 3}
+✅ [SupervisorAgent] Documentation analysis completed
+🌐 [SupervisorAgent] Running web search agent...
+🎯 [WebAgent] ACTION PLANNING PHASE
+💭 [WebAgent] Based on reasoning: Searching the web for external documentation and related information...
+🔧 [WebAgent] Using LLM function calling for intelligent tool selection
+📡 [WebAgent] Calling LLM with function calling enabled...
+🎯 [WebAgent] LLM selected tool: web_search
+📋 [WebAgent] Tool arguments: {'query': 'relationship between FastAPI and Starlette responsibilities', 'max_results': 5}
+✅ [SupervisorAgent] Web search completed
+🤖 Consolidating results with LLM...
+============================================================
+✅ [SupervisorAgent] Integrated 6 insights into narrative
+
+🎯 Life of FastAPI: The Role of Starlette
+======================================================================
+
+🏗️ **Architectural Overview:** When a developer decides to use FastAPI for building a web application, 
+the journey begins with FastAPI itself, which is a modern, fast (high-performance), web framework for 
+building APIs with Python 3.6+ based on standard Python type hints. The underlying technology that 
+FastAPI relies on is Starlette, a lightweight ASGI (Asynchronous Server Gateway Interface) framework. 
+Starlette handles several core responsibilities that are critical for the operation of FastAPI. The entry 
+point for handling HTTP requests in FastAPI typically involves the `FastAPI` class, which is defined in 
+a FastAPI-specific file but leverages Starlette's routing and ASGI capabilities. FastAPI uses Starlette's 
+capabilities to manage HTTP requests, responses, WebSocket support, and background tasks. For example, 
+when an HTTP request is made to a FastAPI endpoint, Starlette's built-in routing system directs the 
+request to the appropriate endpoint defined in the FastAPI application. This routing mechanism is 
+responsible for efficiently managing and directing requests. The actual request handling logic is 
+facilitated by FastAPI, which builds on Starlette's robust ASGI infrastructure. Once a request is 
+handled, Starlette further assists in managing responses through its middleware and exception handling 
+features, completing the lifecycle of a request in this framework.
+
+📊 **Analysis Confidence:** 75.0%
+🤖 **Powered by:** gpt-4o
+🎯 **Agents used:** 3
+💡 This unified narrative traces the complete journey of how your
+   question flows through interconnected system components.
+⏱️  Response time: 30.4s
 ```
 
-### `stats` - Show Knowledge Base Statistics
+## Configuration
 
-Display statistics about the knowledge base.
+### Configuration File
 
-```bash
-cf stats [OPTIONS]
-```
+Edit `cf/configs/config.yaml`:
 
-**Options:**
-- `--repo-path PATH`: Repository path
+```yaml
+# LLM settings
+llm:
+  model: "gpt-4o"
+  api_key: "your-openai-api-key"  # Or use OPENAI_API_KEY env var
+  max_tokens: 1000
+  temperature: 0.7
+  provider: "openai"
 
-**Examples:**
-```bash
-# Show stats for current KB
-cf stats
-
-# Show stats for specific repository
-cf stats --repo-path /path/to/repository
-```
-
-### `demo` - Run Demo
-
-Run a demonstration of CodeFusion capabilities.
-
-```bash
-cf demo REPO_PATH
-```
-
-**Arguments:**
-- `REPO_PATH`: Path to repository for demo
-
-**Examples:**
-```bash
-cf demo /path/to/sample/repository
-```
-
-## Configuration Integration
-
-### Using Configuration Files
-
-```bash
-# Use custom configuration
-cf --config /path/to/config.yaml index /path/to/repo
-
-# Configuration hierarchy:
-# 1. Command line options (highest priority)
-# 2. Configuration file
-# 3. Environment variables
-# 4. Default values (lowest priority)
+# Agent settings  
+agents:
+  supervisor:
+    enabled: true
+    max_agents: 4
+    timeout: 300
+  
+  documentation:
+    enabled: true
+    file_types: [".md", ".rst", ".txt"]
+    
+  codebase:
+    enabled: true
+    languages: ["python", "javascript", "typescript", "java"]
 ```
 
 ### Environment Variables
 
-Set environment variables to override configuration:
-
 ```bash
-export OPENAI_API_KEY="your-api-key"
-export NEO4J_PASSWORD="your-password"
-cf index /path/to/repo
+# API key (recommended method)
+export OPENAI_API_KEY="your-openai-api-key"
+
+# Alternative model configuration
+export CF_LLM_MODEL="gpt-4o"
+export CF_LLM_MAX_TOKENS=1000
 ```
 
-## Advanced Usage
+## System Requirements
 
-### Exploration Strategies
-
-#### ReAct Strategy (Default)
-
-Reasoning + Acting approach for iterative exploration:
-
-```bash
-cf query --strategy react "Explain the architecture"
-```
-
-**Best for:**
-- General code understanding
-- Interactive exploration
-- Balanced speed and thoroughness
-
-#### Plan-then-Act Strategy
-
-Create a plan before execution:
-
-```bash
-cf query --strategy plan_act "How do I set up this project?"
-```
-
-**Best for:**
-- Systematic analysis
-- Setup and installation questions
-- Step-by-step procedures
-
-#### Sense-then-Act Strategy
-
-Observe before taking action:
-
-```bash
-cf query --strategy sense_act "What testing frameworks are used?"
-```
-
-**Best for:**
-- Complex codebases
-- Discovering patterns
-- Unknown technology stacks
-
-### Knowledge Base Types
-
-#### Vector Database (Default)
-
-For semantic similarity search:
-
-```yaml
-# config.yaml
-kb_type: "vector"
-embedding_model: "all-MiniLM-L6-v2"
-```
-
-```bash
-cf --config config.yaml index /path/to/repo
-```
-
-#### Neo4j Graph Database
-
-For relationship analysis:
-
-```yaml
-# config.yaml
-kb_type: "neo4j"
-neo4j_uri: "bolt://localhost:7687"
-neo4j_user: "neo4j"
-neo4j_password: "password"
-```
-
-```bash
-cf --config config.yaml index /path/to/repo
-```
-
-### Batch Processing
-
-#### Process Multiple Repositories
-
-```bash
-# Create a script for batch processing
-#!/bin/bash
-for repo in /path/to/repos/*; do
-    if [ -d "$repo" ]; then
-        echo "Processing $repo"
-        cf index "$repo"
-    fi
-done
-```
-
-#### Using Configuration Templates
-
-```bash
-# Create repo-specific configs
-cp config/default/config.yaml config/repo1.yaml
-# Edit repo1.yaml for specific needs
-cf --config config/repo1.yaml index /path/to/repo1
-```
-
-## Output and Logging
-
-### Verbose Mode
-
-Get detailed output during processing:
-
-```bash
-cf --verbose index /path/to/repo
-```
-
-### Artifact Directories
-
-CodeFusion creates timestamped artifact directories:
-
-```
-artifacts_myproject_20240315_143022/
-├── kb/
-│   ├── entities.json
-│   ├── relationships.json
-│   └── embeddings.pkl
-└── myproject_config.yaml
-```
-
-### Log Files
-
-Check logs for troubleshooting:
-
-```bash
-# View recent activity
-tail -f ~/.codefusion/logs/codefusion.log
-
-# Search for errors
-grep ERROR ~/.codefusion/logs/codefusion.log
-```
-
-## Integration with IDEs
-
-### VS Code Integration
-
-Create a VS Code task:
-
-```json
-// .vscode/tasks.json
-{
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "CodeFusion Index",
-            "type": "shell",
-            "command": "cf",
-            "args": ["index", "${workspaceFolder}"],
-            "group": "build",
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            }
-        }
-    ]
-}
-```
-
-### Shell Aliases
-
-Create convenient aliases:
-
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-alias cfi='cf index'
-alias cfq='cf query'
-alias cfe='cf explore'
-alias cfs='cf stats'
-
-# Usage
-cfi /path/to/repo
-cfq "How does login work?"
-```
+- Python 3.10+
+- Virtual environment (`.venv` recommended)
+- Valid OpenAI API key or other LLM provider
+- `litellm` package for LLM integration
 
 ## Troubleshooting
 
 ### Common Issues
 
-**Command not found:**
+**API Key Problems:**
 ```bash
-# Check installation
-which cf
-pip list | grep codefusion
+# Check if API key is set
+echo $OPENAI_API_KEY
+
+# Test API key validity
+python -c "import openai; print('API key works')"
+```
+
+**Import Errors:**
+```bash
+# Verify installation
+python -c "import cf; print('CodeFusion installed')"
 
 # Reinstall if needed
-pip install --upgrade codefusion
+pip install -e .
 ```
 
-**Permission errors:**
+**LiteLLM Issues:**
 ```bash
-# Check file permissions
-ls -la /path/to/repo
+# Install/reinstall LiteLLM
+pip install --upgrade litellm
 
-# Run with appropriate permissions
-sudo cf index /path/to/repo  # Not recommended
+# Enable debug mode
+python -c "import litellm; litellm._turn_on_debug()"
 ```
-
-**Configuration errors:**
-```bash
-# Validate configuration
-cf --config config.yaml stats
-
-# Check configuration syntax
-python3.11 -c "import yaml; yaml.safe_load(open('config.yaml'))"
-```
-
-**Memory issues:**
-```bash
-# Monitor memory usage
-cf --verbose index /path/to/large/repo
-
-# Adjust configuration for large repos
-# Increase max_file_size or add exclusions
-```
-
-### Debug Mode
-
-Enable detailed debugging:
-
-```bash
-export CF_DEBUG=1
-cf index /path/to/repo
-```
-
-### Performance Profiling
-
-Profile command execution:
-
-```bash
-time cf index /path/to/repo
-
-# With memory profiling
-/usr/bin/time -v cf index /path/to/repo
-```
-
-## Next Steps
-
-- Learn about [Configuration](configuration.md)
-- See [Usage Examples](examples.md)
-- Check the [API Reference](../reference/cli.md)

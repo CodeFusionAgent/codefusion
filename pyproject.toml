@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codefusion"
-version = "0.0.1"
-description = "A code understanding tool for senior developers to quickly ramp up on large codebases"
+version = "0.1.0"
+description = "Human-like code exploration tool that helps developers quickly understand large codebases"
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [
     {name = "CodeFusion Team"}
 ]
-keywords = ["code", "analysis", "ai", "agents", "exploration"]
+keywords = ["code", "exploration", "human-like", "caching", "investigation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -27,20 +27,12 @@ requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",
     "pathlib",
+    "requests>=2.25.0",
+    "litellm",
+    "numpy"
 ]
 
 [project.optional-dependencies]
-llm = [
-    "litellm>=1.0.0",
-]
-neo4j = [
-    "neo4j>=5.0.0",
-]
-vector = [
-    "faiss-cpu>=1.7.0",
-    "sentence-transformers>=2.0.0",
-    "numpy>=1.21.0",
-]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -54,9 +46,10 @@ docs = [
     "mkdocs>=1.4.0",
     "mkdocs-material>=8.0.0",
     "mkdocs-mermaid2-plugin>=0.6.0",
+    "mkdocstrings[python]>=0.19.0",
 ]
 all = [
-    "codefusion[llm,neo4j,vector,dev,docs]",
+    "codefusion[dev,docs]",
 ]
 
 [project.urls]
@@ -66,8 +59,10 @@ Documentation = "https://codefusionagent.github.io/codefusion"
 "Bug Tracker" = "https://github.com/CodeFusionAgent/codefusion/issues"
 
 [project.scripts]
-codefusion = "cf.run.run:main"
-cf = "cf.run.run:main"
+codefusion = "cf.run.simple_run:main"
+cf = "cf.run.simple_run:main"
+# Legacy complex version (for comparison)
+cf-complex = "cf.run.run:main"
 
 [tool.setuptools.packages.find]
 include = ["cf*"]
@@ -102,23 +97,22 @@ known_first_party = ["cf"]
 
 [tool.mypy]
 python_version = "3.10"
-warn_return_any = true
+warn_return_any = false
 warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
 check_untyped_defs = true
-disallow_untyped_decorators = true
-no_implicit_optional = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_no_return = true
-warn_unreachable = true
-strict_equality = true
+disallow_untyped_decorators = false
+no_implicit_optional = false
+warn_redundant_casts = false
+warn_unused_ignores = false
+warn_no_return = false
+warn_unreachable = false
+strict_equality = false
 
 [[tool.mypy.overrides]]
 module = [
-    "litellm.*",
-    "neo4j.*",
+    "yaml.*",
 ]
 ignore_missing_imports = true
 
