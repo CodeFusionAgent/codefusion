@@ -7,6 +7,8 @@ Resets state for each new question.
 
 import time
 import json
+import hashlib
+from pathlib import Path
 from typing import Dict, List, Any
 from cf.agents.base import BaseAgent
 from cf.cache.semantic import SemanticCache
@@ -53,6 +55,25 @@ class SupervisorAgent(BaseAgent):
             'standard': {'max_passes': 3},
             'summary': {'max_passes': 2}
         }
+        
+        # Initialize cache with debug knob
+        self.cache_enabled = self.config.get('cache', {}).get('enabled', True)
+        self.cache = None
+        if self.cache_enabled:
+            try:
+                cache_config = {
+                    'enabled': True,
+                    'cache_dir': self.config.get('cache', {}).get('cache_dir', 'cf_cache'),
+                    'ttl': self.config.get('cache', {}).get('ttl', 3600),  # 1 hour default
+                    'similarity_threshold': self.config.get('cache', {}).get('similarity_threshold', 0.8)
+                }
+                self.cache = SemanticCache('supervisor', cache_config)
+                self.logger.verbose(f"💾 Cache enabled: {cache_config['cache_dir']}", "⚙️")
+            except Exception as e:
+                self.logger.error(f"Cache initialization failed: {e}")
+                self.cache_enabled = False
+        else:
+            self.logger.verbose("💾 Cache disabled for debugging", "⚙️")
     
     def analyze(self, question: str) -> Dict[str, Any]:
         """
@@ -259,6 +280,9 @@ class SupervisorAgent(BaseAgent):
         # Log insights integration if verbose
         if len(self.all_insights) > 0:
             self.logger.verbose_result(True, f"Integrated {len(self.all_insights)} insights into narrative")
+        
+        # Cache the result for future use
+        self._cache_analysis_result(question, result)
         
         return result
     
@@ -492,15 +516,34 @@ Return JSON format only."""
             return {'has_cache': False, 'action': 'new_analysis', 'error': str(e)}
     
     def _check_similar_analysis_cache(self, question: str) -> bool:
-        """Check if similar analysis exists in cache"""
+        """Check if similar analysis exists in cache using existing methods"""
+        if not self.cache_enabled or not self.cache:
+            return False
+            
         try:
-            # Create a cache instance for supervisor agent
-            cache = SemanticCache('supervisor', {'enabled': True, 'cache_dir': 'cf_cache'})
+            # Generate a simple cache key for this repo + question
+            repo_name = Path(self.repo_path).name
+            question_hash = hashlib.md5(question.lower().encode()).hexdigest()[:8]
+            cache_key = f"{repo_name}_{question_hash}"
             
-            return cache.has_similar_analysis(self.repo_path, question)
+            # Set LLM client for semantic similarity if available
+            if hasattr(self, 'llm_client') and self.llm_client:
+                self.cache.set_llm_client(self.llm_client)
             
-        except Exception:
-            return False  # Fallback to no cache
+            # Try to get cached result using existing get() method
+            cached_result = self.cache.get(cache_key, question)
+            
+            has_cache = cached_result is not None
+            if has_cache:
+                self.logger.verbose(f"💾 Cache hit for: {question[:50]}...", "✅")
+            else:
+                self.logger.verbose(f"💾 Cache miss for: {question[:50]}...", "❌")
+            
+            return has_cache
+            
+        except Exception as e:
+            self.logger.error(f"Cache check failed: {e}")
+            return False
     
     
     def _handle_pass_completion(self, question: str) -> str:
@@ -660,6 +703,10 @@ Return JSON format only."""
             enhanced_question = question
             self.logger.verbose(f"📝 {agent_type.upper()} Agent - Standard question", "❓")
         
+        # Log the enhanced question being sent to agent
+        if len(enhanced_question) != len(question):
+            self.logger.verbose(f"📝 Enhanced question for {agent_type}: {enhanced_question[:100]}...", "🔧")
+        
         # Use existing agent consultation logic
         return self._consult_agent(agent_type, enhanced_question)
     
@@ -736,3 +783,31 @@ Consider how your findings relate to or build upon the previous insights."""
             
         except Exception:
             return "Context unavailable"
+    
+    def _cache_analysis_result(self, question: str, result: Dict[str, Any]):
+        """Cache analysis result for future use"""
+        if not self.cache_enabled or not self.cache:
+            return
+            
+        try:
+            # Generate the same cache key used for checking
+            repo_name = Path(self.repo_path).name
+            question_hash = hashlib.md5(question.lower().encode()).hexdigest()[:8]
+            cache_key = f"{repo_name}_{question_hash}"
+            
+            # Prepare metadata
+            metadata = {
+                'repo_path': self.repo_path,
+                'analysis_type': self.analysis_type,
+                'total_insights': len(self.all_insights),
+                'agents_consulted': result.get('agents_consulted', []),
+                'pass_count': len([k for k in self.pass_results.keys() if k.startswith('pass_')])
+            }
+            
+            # Cache using existing set() method
+            self.cache.set(cache_key, result, question, metadata)
+            
+            self.logger.verbose(f"💾 Cached analysis result: {cache_key}", "💿")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to cache result: {e}")

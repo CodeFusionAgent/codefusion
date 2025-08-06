@@ -1,10 +1,11 @@
 """
 Repository Tools for CodeFusion
 
-Clean, efficient file operations with grep-based searching.
+Clean, efficient file operations with grep-based searching and comprehensive metrics tracking.
 """
 
 import os
+import time
 import subprocess
 import mimetypes
 from pathlib import Path
@@ -24,13 +25,19 @@ class RepoTools:
         """Recursively scan directory to discover files and structure"""
         scan_path = self.repo_path / directory if directory else self.repo_path
         
+        print(f"🔍 [SCAN] Starting scan of: {scan_path}")
+        print(f"🔍 [SCAN] Max depth: {max_depth}")
+        
         if not scan_path.exists():
+            print(f"❌ [SCAN] Directory not found: {scan_path}")
             return {'error': f'Directory not found: {scan_path}'}
         
         # Combine default excludes with user-provided ones
         excludes = self.excluded_dirs.copy()
         if exclude_dirs:
             excludes.update(exclude_dirs)
+            
+        print(f"🔍 [SCAN] Excluded dirs: {excludes}")
         
         result = {
             'directory': str(scan_path),
@@ -42,37 +49,66 @@ class RepoTools:
         
         def _scan_recursive(path: Path, current_depth: int):
             if current_depth > max_depth:
+                print(f"⏭️ [SCAN] Skipping depth {current_depth} (max: {max_depth}): {path}")
                 return
                 
+            print(f"📁 [SCAN] Scanning depth {current_depth}: {path}")
+            
             try:
-                for item in path.iterdir():
+                items = list(path.iterdir())
+                print(f"📂 [SCAN] Found {len(items)} items in {path}")
+                
+                for item in items:
                     if item.name.startswith('.') and item.name not in {'.gitignore', '.env'}:
+                        print(f"⏭️ [SCAN] Skipping hidden: {item.name}")
                         continue
                         
                     if item.is_dir():
                         if item.name in excludes:
+                            print(f"🚫 [SCAN] Excluded dir: {item.name}")
                             continue
+                        print(f"📁 [SCAN] Found directory: {item.name}")
                         result['subdirectories'].append(str(item.relative_to(self.repo_path)))
                         _scan_recursive(item, current_depth + 1)
                     elif item.is_file():
                         if item.suffix in self.excluded_extensions:
+                            print(f"🚫 [SCAN] Excluded extension: {item.name} ({item.suffix})")
                             continue
                         if item.stat().st_size > self.max_file_size:
+                            print(f"🚫 [SCAN] File too large: {item.name} ({item.stat().st_size} bytes)")
                             continue
                             
+                        is_text = self._is_text_file(item)
+                        relative_path = str(item.relative_to(self.repo_path))
+                        file_size = item.stat().st_size
+                        
+                        print(f"📄 [SCAN] Found file: {item.name}")
+                        print(f"   📊 Size: {file_size} bytes")
+                        print(f"   📝 Extension: {item.suffix}")
+                        print(f"   📖 Is text: {is_text}")
+                        print(f"   🗂️  Relative path: {relative_path}")
+                        
                         file_info = {
-                            'path': str(item.relative_to(self.repo_path)),
-                            'size': item.stat().st_size,
+                            'path': relative_path,
+                            'size': file_size,
                             'extension': item.suffix,
-                            'is_text': self._is_text_file(item)
+                            'is_text': is_text
                         }
                         result['files'].append(file_info)
                         result['total_files'] += 1
-                        result['total_size'] += file_info['size']
-            except PermissionError:
-                pass
+                        result['total_size'] += file_size
+            except PermissionError as e:
+                print(f"🚫 [SCAN] Permission denied: {path} - {e}")
+            except Exception as e:
+                print(f"❌ [SCAN] Error scanning {path}: {e}")
         
         _scan_recursive(scan_path, 0)
+        
+        print(f"✅ [SCAN] Scan complete!")
+        print(f"✅ [SCAN] Total files found: {result['total_files']}")
+        print(f"✅ [SCAN] Total directories found: {len(result['subdirectories'])}")
+        print(f"✅ [SCAN] Total size: {result['total_size']} bytes")
+        
         return result
     
     def list_files(self, pattern: str = "*", directory: str = "", recursive: bool = True) -> Dict[str, Any]:
@@ -272,29 +308,49 @@ class RepoTools:
         """Get metadata about a file, optionally including code metrics"""
         full_path = self.repo_path / file_path
         
+        print(f"📋 [FILE_INFO] Getting info for: {file_path}")
+        print(f"📋 [FILE_INFO] Include metrics: {include_metrics}")
+        
         if not full_path.exists():
+            print(f"❌ [FILE_INFO] File not found: {file_path}")
             return {'error': f'File not found: {file_path}'}
         
         try:
             stat = full_path.stat()
+            is_text = self._is_text_file(full_path)
+            mime_type = mimetypes.guess_type(full_path)[0] or 'unknown'
+            
             info = {
                 'file_path': file_path,
                 'size': stat.st_size,
                 'modified': stat.st_mtime,
                 'created': stat.st_ctime,
                 'extension': full_path.suffix,
-                'is_text': self._is_text_file(full_path),
-                'mime_type': mimetypes.guess_type(full_path)[0] or 'unknown'
+                'is_text': is_text,
+                'mime_type': mime_type
             }
+            
+            print(f"📋 [FILE_INFO] Metadata extracted:")
+            print(f"   📊 Size: {stat.st_size} bytes")
+            print(f"   📝 Extension: {full_path.suffix}")
+            print(f"   📖 Is text: {is_text}")
+            print(f"   🏷️  MIME type: {mime_type}")
             
             # Add code metrics if requested and file is text
             if include_metrics and info['is_text']:
+                print(f"📊 [FILE_INFO] Calculating code metrics...")
                 metrics = self.calculate_file_metrics(file_path)
                 if 'error' not in metrics:
                     info['code_metrics'] = metrics
+                    print(f"📊 [FILE_INFO] Metrics added: {metrics.get('language', 'unknown')} - {metrics.get('total_lines', 0)} lines")
+                else:
+                    print(f"❌ [FILE_INFO] Metrics calculation failed: {metrics.get('error')}")
+            elif include_metrics and not info['is_text']:
+                print(f"⏭️ [FILE_INFO] Skipping metrics for non-text file")
             
             return info
         except Exception as e:
+            print(f"❌ [FILE_INFO] Failed to get file info: {str(e)}")
             return {'error': f'Failed to get file info: {str(e)}'}
     
     def _is_text_file(self, file_path: Path) -> bool:
@@ -318,28 +374,44 @@ class RepoTools:
     
     def calculate_file_metrics(self, file_path: str) -> Dict[str, Any]:
         """Calculate code metrics for a file by reading it first"""
+        print(f"📊 [METRICS] Calculating metrics for: {file_path}")
+        
         # Use read_file to get content
         file_data = self.read_file(file_path)
         if 'error' in file_data:
+            print(f"❌ [METRICS] Failed to read file: {file_data.get('error')}")
             return file_data
         
         content = file_data['content']
         lines = content.splitlines()
         extension = Path(file_path).suffix.lower()
+        language = self._detect_language(extension)
+        
+        non_empty_lines = [line for line in lines if line.strip()]
         
         metrics = {
             'total_lines': len(lines),
-            'non_empty_lines': len([line for line in lines if line.strip()]),
-            'language': self._detect_language(extension)
+            'non_empty_lines': len(non_empty_lines),
+            'language': language
         }
+        
+        print(f"📊 [METRICS] Basic metrics:")
+        print(f"   📝 Total lines: {len(lines)}")
+        print(f"   📝 Non-empty lines: {len(non_empty_lines)}")
+        print(f"   🏷️  Language: {language}")
         
         # Language-specific complexity analysis
         if extension == '.py':
+            print(f"🐍 [METRICS] Analyzing Python complexity...")
             metrics['complexity_indicators'] = self._analyze_python_complexity(content)
         elif extension in ['.js', '.ts']:
+            print(f"🟨 [METRICS] Analyzing JavaScript/TypeScript complexity...")
             metrics['complexity_indicators'] = self._analyze_js_complexity(content)
         else:
+            print(f"❓ [METRICS] Unknown language, skipping complexity analysis")
             metrics['complexity_indicators'] = {'estimated_complexity': 'unknown'}
+        
+        print(f"📊 [METRICS] Complexity: {metrics['complexity_indicators']}")
         
         return metrics
     
@@ -518,3 +590,114 @@ class RepoTools:
         if any(excluded in file_path.parts for excluded in self.excluded_dirs):
             return True
         return False
+
+    # ===== METRICS TRACKING FUNCTIONALITY =====
+    
+    def create_file_metrics_tracker(self) -> Dict[str, Any]:
+        """Create a new metrics tracker for file operations"""
+        return {
+            'file_metrics': [],
+            'session_start_time': time.time()
+        }
+    
+    def start_file_analysis_metrics(self, file_path: str) -> Dict[str, Any]:
+        """Start tracking metrics for a file analysis"""
+        return {
+            'file_path': file_path,
+            'start_time': time.time(),
+            'read_start_time': None,
+            'llm_start_time': None,
+            'read_duration_ms': 0,
+            'llm_duration_ms': 0,
+            'total_duration_ms': 0,
+            'file_size_bytes': 0,
+            'file_lines': 0,
+            'prompt_tokens': 0,
+            'completion_tokens': 0,
+            'total_tokens': 0,
+            'success': False
+        }
+    
+    def track_file_read_metrics(self, metrics: Dict[str, Any], file_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Track file read operation timing and metadata"""
+        if metrics.get('read_start_time'):
+            metrics['read_duration_ms'] = round((time.time() - metrics['read_start_time']) * 1000, 2)
+        
+        metrics['file_size_bytes'] = file_result.get('size', 0)
+        metrics['file_lines'] = file_result.get('lines', 0)
+        return metrics
+    
+    def track_llm_metrics(self, metrics: Dict[str, Any], llm_metrics: Dict[str, Any]) -> Dict[str, Any]:
+        """Track LLM operation timing and token usage"""
+        if metrics.get('llm_start_time'):
+            metrics['llm_duration_ms'] = round((time.time() - metrics['llm_start_time']) * 1000, 2)
+        
+        metrics['prompt_tokens'] = llm_metrics.get('prompt_tokens', 0)
+        metrics['completion_tokens'] = llm_metrics.get('completion_tokens', 0)
+        metrics['total_tokens'] = llm_metrics.get('total_tokens', 0)
+        return metrics
+    
+    def finalize_file_metrics(self, metrics: Dict[str, Any], success: bool = True) -> Dict[str, Any]:
+        """Finalize file metrics and calculate total duration"""
+        metrics['total_duration_ms'] = round((time.time() - metrics['start_time']) * 1000, 2)
+        metrics['success'] = success
+        return metrics
+    
+    def print_file_metrics(self, metrics: Dict[str, Any]):
+        """Print detailed per-file metrics"""
+        file_path = metrics['file_path']
+        print(f"\n📊 [CODE_AGENT] Per-file metrics: {file_path}")  
+        print(f"   🛠️  Tool call (read_file): {metrics['read_duration_ms']:.1f}ms")
+        print(f"   📖 File read time: {metrics['read_duration_ms']:.1f}ms") 
+        print(f"   🤖 LLM summary generation: {metrics['llm_duration_ms']:.1f}ms")
+        print(f"   ⏱️  Total file processing: {metrics['total_duration_ms']:.1f}ms")
+        print(f"   🎯 Token usage: {metrics['prompt_tokens']} prompt → {metrics['completion_tokens']} completion = {metrics['total_tokens']} total")
+        print(f"   📄 File size: {metrics['file_size_bytes']} bytes, {metrics['file_lines']} lines")
+        print(f"   {'─' * 80}")
+    
+    def print_summary_metrics(self, file_metrics: List[Dict[str, Any]], component_name: str = "CODE_AGENT"):
+        """Print comprehensive summary metrics"""
+        if not file_metrics:
+            return
+        
+        total_files = len(file_metrics)
+        successful_files = len([m for m in file_metrics if m['success']])
+        total_read_time = sum(m['read_duration_ms'] for m in file_metrics)
+        total_llm_time = sum(m['llm_duration_ms'] for m in file_metrics)
+        total_tokens = sum(m['total_tokens'] for m in file_metrics)
+        total_prompt_tokens = sum(m['prompt_tokens'] for m in file_metrics)
+        total_completion_tokens = sum(m['completion_tokens'] for m in file_metrics)
+        
+        print(f"\n📊 [{component_name}] File Analysis Metrics Summary:")
+        print(f"   📁 Files processed: {successful_files}/{total_files}")
+        print(f"   ⏱️  Total read time: {total_read_time:.1f}ms")
+        print(f"   🤖 Total LLM time: {total_llm_time:.1f}ms")
+        print(f"   🎯 Total tokens: {total_tokens} ({total_prompt_tokens} → {total_completion_tokens})")
+        print(f"   📈 Avg tokens/file: {total_tokens/successful_files:.0f}" if successful_files > 0 else "")
+        print(f"   🚀 Avg LLM time/file: {total_llm_time/successful_files:.1f}ms" if successful_files > 0 else "")
+    
+    def get_metrics_summary(self, file_metrics: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Get metrics summary as dictionary for programmatic use"""
+        if not file_metrics:
+            return {}
+        
+        total_files = len(file_metrics)
+        successful_files = len([m for m in file_metrics if m['success']])
+        total_read_time = sum(m['read_duration_ms'] for m in file_metrics)
+        total_llm_time = sum(m['llm_duration_ms'] for m in file_metrics)
+        total_tokens = sum(m['total_tokens'] for m in file_metrics)
+        total_prompt_tokens = sum(m['prompt_tokens'] for m in file_metrics)
+        total_completion_tokens = sum(m['completion_tokens'] for m in file_metrics)
+        
+        return {
+            'total_files': total_files,
+            'successful_files': successful_files,
+            'success_rate': successful_files / total_files if total_files > 0 else 0,
+            'total_read_time_ms': total_read_time,
+            'total_llm_time_ms': total_llm_time,
+            'total_tokens': total_tokens,
+            'prompt_tokens': total_prompt_tokens,
+            'completion_tokens': total_completion_tokens,
+            'avg_tokens_per_file': total_tokens / successful_files if successful_files > 0 else 0,
+            'avg_llm_time_per_file_ms': total_llm_time / successful_files if successful_files > 0 else 0
+        }
