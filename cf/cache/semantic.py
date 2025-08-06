@@ -260,8 +260,117 @@ class SemanticCache:
         return results[:limit]
     
     def has_similar_analysis(self, repo_path: str, question: str) -> bool:
-        """Check if similar analysis exists in cache for this repo and question - STUB implementation"""
-        # TODO: Implement actual semantic similarity checking across all cached analyses
-        # This should check if a similar question has been asked for this repository
-        # For now, return False to allow full implementation flow
-        return False
+        """Check if similar analysis exists in cache for this repo and question"""
+        if not self.enabled:
+            return False
+            
+        try:
+            # Create a cache key that includes repo path
+            cache_key = self._generate_cache_key(repo_path, question)
+            
+            # Try exact match first
+            if cache_key in self.cache_data:
+                entry = self.cache_data[cache_key]
+                if not self._is_expired(entry):
+                    return True
+            
+            # Try semantic similarity search if LLM client is available
+            if self.llm_client:
+                similar_entry = self._find_similar_for_repo(repo_path, question)
+                return similar_entry is not None
+            
+            return False
+            
+        except Exception as e:
+            print(f"Cache check error: {e}")  # Simple error logging
+            return False
+    
+    def get_cached_analysis(self, repo_path: str, question: str) -> Optional[Dict[str, Any]]:
+        """Get cached analysis result if it exists"""
+        if not self.enabled:
+            return None
+            
+        try:
+            cache_key = self._generate_cache_key(repo_path, question)
+            
+            # Try exact match first
+            cached_result = self.get(cache_key, question)
+            if cached_result:
+                return cached_result
+            
+            # Try semantic similarity
+            if self.llm_client:
+                similar_entry = self._find_similar_for_repo(repo_path, question)
+                if similar_entry:
+                    return similar_entry['result']
+            
+            return None
+            
+        except Exception as e:
+            print(f"Cache retrieval error: {e}")
+            return None
+    
+    def cache_analysis(self, repo_path: str, question: str, result: Dict[str, Any], metadata: Dict[str, Any] = None):
+        """Cache analysis result for future use"""
+        if not self.enabled:
+            return
+            
+        try:
+            cache_key = self._generate_cache_key(repo_path, question)
+            
+            # Add repo-specific metadata
+            cache_metadata = {
+                'repo_path': repo_path,
+                'analysis_type': metadata.get('analysis_type', 'unknown'),
+                'total_insights': metadata.get('total_insights', 0),
+                'agents_used': metadata.get('agents_consulted', []),
+                **(metadata or {})
+            }
+            
+            self.set(cache_key, result, question, cache_metadata)
+            
+        except Exception as e:
+            print(f"Cache storage error: {e}")
+    
+    def _generate_cache_key(self, repo_path: str, question: str) -> str:
+        """Generate consistent cache key for repo + question"""
+        import hashlib
+        
+        # Use repo name (last part of path) + question hash for key
+        repo_name = Path(repo_path).name
+        question_hash = hashlib.md5(question.lower().encode()).hexdigest()[:8]
+        
+        return f"{repo_name}_{question_hash}"
+    
+    def _find_similar_for_repo(self, repo_path: str, query: str) -> Optional[Dict[str, Any]]:
+        """Find semantically similar cached entry for specific repository"""
+        if not self.llm_client:
+            return None
+        
+        # Get query embedding
+        query_embedding_result = self.llm_client.embed_text(query)
+        if not query_embedding_result.get('success'):
+            return None
+        
+        query_embedding = np.array(query_embedding_result['embedding'])
+        best_similarity = 0
+        best_entry = None
+        
+        for key, entry in self.cache_data.items():
+            # Only check entries for the same repository
+            entry_repo = entry.get('metadata', {}).get('repo_path', '')
+            if entry_repo != repo_path:
+                continue
+                
+            if 'embedding' not in entry or self._is_expired(entry):
+                continue
+            
+            # Calculate cosine similarity
+            cached_embedding = np.array(entry['embedding'])
+            similarity = self._cosine_similarity(query_embedding, cached_embedding)
+            
+            if similarity > best_similarity and similarity >= self.similarity_threshold:
+                best_similarity = similarity
+                best_entry = entry
+        
+        return best_entry
