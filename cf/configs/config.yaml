@@ -5,7 +5,7 @@ llm:
   model: "gpt-4o"
   api_key: ""
   max_tokens: 2000
-  temperature: 0.7
+  #temperature: 0.7
 
 # Agent Settings  
 agents:
@@ -14,8 +14,10 @@ agents:
 
 # Cache Settings
 cache:
-  enabled: true
-  ttl: 3600  # seconds
+  enabled: false                 # Set to false to disable caching for debugging
+  cache_dir: "cf_cache"          # Directory to store cache files
+  ttl: 3600                      # Time to live in seconds (1 hour)
+  similarity_threshold: 0.8      # Semantic similarity threshold (0.0-1.0)
 
 # Tracing Settings
 trace:
@@ -32,12 +34,130 @@ logging:
 repo:
   max_files: 1000
   max_file_size: 1048576  # 1MB
+  max_scan_depth: 5  # Maximum directory depth for repository scanning
+  max_analysis_files: 50  # Maximum files to analyze for performance control
+  # Source code extensions (analyzed by CodeAgent)
+  source_code_extensions:
+    - ".py"
+    - ".js" 
+    - ".ts"
+    - ".jsx"
+    - ".tsx"
+    - ".java"
+    - ".cpp"
+    - ".c"
+    - ".h"
+    - ".hpp"
+    - ".go"
+    - ".rs"
+    - ".rb"
+    - ".php"
+    - ".swift"
+    - ".kt"
+    - ".scala"
+    - ".cs"
+    - ".vb"
+    - ".r"
+    - ".m"
+    - ".mm"
+    - ".cc"
+    - ".cxx"
+    - ".hh"
+    - ".hxx"
+    - ".f90"
+    - ".f95"
+    - ".pl"
+    - ".pm"
+    - ".sh"
+    - ".bash"
+    - ".zsh"
+    - ".fish"
+  
+  # Configuration/schema files (analyzed by CodeAgent)
+  config_extensions:
+    - ".json"
+    - ".yaml"
+    - ".yml"
+    - ".toml"
+    - ".ini"
+    - ".cfg"
+    - ".conf"
+    - ".xml"
+    - ".html"
+    - ".css"
+    - ".sql"
+  
+  # Documentation extensions (handled by DocsAgent)
+  documentation_extensions:
+    - ".md"
+    - ".rst"
+    - ".txt"
+    - ".adoc"
+    - ".org"
+  
+  # All text extensions (for general file operations)
+  text_extensions:
+    - ".py"
+    - ".js" 
+    - ".ts"
+    - ".jsx"
+    - ".tsx"
+    - ".java"
+    - ".cpp"
+    - ".c"
+    - ".h"
+    - ".hpp"
+    - ".go"
+    - ".rs"
+    - ".rb"
+    - ".php"
+    - ".swift"
+    - ".kt"
+    - ".scala"
+    - ".cs"
+    - ".vb"
+    - ".r"
+    - ".m"
+    - ".mm"
+    - ".cc"
+    - ".cxx"
+    - ".hh"
+    - ".hxx"
+    - ".f90"
+    - ".f95"
+    - ".pl"
+    - ".pm"
+    - ".sh"
+    - ".bash"
+    - ".zsh"
+    - ".fish"
+    - ".json"
+    - ".yaml"
+    - ".yml"
+    - ".toml"
+    - ".ini"
+    - ".cfg"
+    - ".conf"
+    - ".xml"
+    - ".html"
+    - ".css"
+    - ".sql"
+    - ".md"
+    - ".rst"
+    - ".txt"
+    - ".adoc"
+    - ".org"
   excluded_dirs:
     - ".git"
     - "__pycache__"
     - "node_modules"
     - ".venv"
     - "venv"
+    - "build"
+    - "dist"
+    - "test"
+    - "tests"
+    - "spec"
   excluded_extensions:
     - ".pyc"
     - ".pyo"
