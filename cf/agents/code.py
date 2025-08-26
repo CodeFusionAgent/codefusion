@@ -1376,7 +1376,7 @@ CRITICAL:
                                 source=f"feature_analysis_{file_path}"
                             )
                 else:
-                    print(f"❌ [CODE_AGENT] Failed to summarize {file_path}")
+                    print(f"❌ [CODE_AGENT] In _analyze_files_with_metrics. Failed to summarize {file_path}")
                     
             except Exception as e:
                 print(f"❌ [CODE_AGENT] Error analyzing {file_path}: {e}")

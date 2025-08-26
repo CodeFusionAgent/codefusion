@@ -7,6 +7,7 @@ Clean interface using LiteLLM with tracing support.
 import json
 import time
 from typing import Dict, List, Any, Optional
+import traceback
 
 try:
     import litellm
@@ -29,7 +30,7 @@ class LLMClient:
         self.api_key = llm_config.get('api_key')
         self.max_tokens = llm_config.get('max_tokens', 2000)
         self.temperature = llm_config.get('temperature', 0.7)
-        self.timeout = llm_config.get('timeout', 30)
+        self.timeout = llm_config.get('timeout', 300)
         
         # Initialize tracer if available
         self.tracer = None
@@ -69,15 +70,20 @@ class LLMClient:
             
             # Count input tokens
             input_tokens = self.count_tokens(prompt + (system_prompt or ""))
-            
+            print("kwargs: ", kwargs)
             # Call LiteLLM
+            litellm.set_debug = True
+            #litellm._turn_on_debug()
             response = completion(
                 model=self.model,
                 messages=messages,
-                max_tokens=kwargs.get('max_tokens', self.max_tokens),
-                temperature=kwargs.get('temperature', self.temperature),
+                #max_tokens=kwargs.get('max_tokens', self.max_tokens),
+                #temperature=kwargs.get('temperature', self.temperature),
                 timeout=self.timeout,
-                **kwargs
+                **kwargs,
+                drop_params=True,
+                num_retries=3,
+                fallbacks=["gpt-5-mini"],
             )
             
             duration = time.time() - start_time
@@ -113,6 +119,7 @@ class LLMClient:
             return result
             
         except Exception as e:
+            traceback.print_exc()
             duration = time.time() - start_time
             
             error_result = {
@@ -158,9 +165,11 @@ class LLMClient:
                 messages=messages,
                 tools=tools,
                 tool_choice="auto",
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                timeout=self.timeout
+                #max_tokens=self.max_tokens,
+                #temperature=self.temperature,
+                timeout=self.timeout,
+                fallbacks=["gpt-5-mini"],
+                num_retries=3,
             )
             
             duration = time.time() - start_time

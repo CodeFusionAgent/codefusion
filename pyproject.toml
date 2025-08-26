@@ -29,7 +29,8 @@ dependencies = [
     "pathlib",
     "requests>=2.25.0",
     "litellm",
-    "numpy"
+    "numpy",
+    "langfuse"
 ]
 
 [project.optional-dependencies]
