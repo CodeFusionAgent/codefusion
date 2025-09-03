@@ -86,16 +86,20 @@ def ask_openai_evaluation(question, reference_answer, response):
     return response.choices[0].message.content.strip()
 
 # Function to compare responses based on all criteria
-def compare_responses(question, reference_answer, claude_answer, codefusion_answer, claude_sonnet_answer, codewalk_answer=None):
+def compare_responses(question, reference_answer, claude_code_answer, codefusion_claude_sonnet_answer, codefusion_gpt_5_answer, codewalk_answer=None):
     # Get OpenAI evaluation for all responses
     #print("Evaluating Claude Code's response...")
-    claude_evaluation = ask_openai_evaluation(question, reference_answer, claude_answer)
-    
-    #print("Evaluating Your response...")
-    codefusion_evaluation = ask_openai_evaluation(question, reference_answer, codefusion_answer)
-    
+    claude_code_evaluation = ask_openai_evaluation(question, reference_answer, claude_code_answer)
+
     #print("Evaluating CodeFusion (Sonnet)'s response...")
-    claude_sonnet_evaluation = ask_openai_evaluation(question, reference_answer, claude_sonnet_answer)
+    codefusion_claude_sonnet_evaluation = ask_openai_evaluation(question, reference_answer, codefusion_claude_sonnet_answer)
+
+    codefusion_gpt_5_evaluation = None
+    #print("Evaluating CodeFusion (GPT-5)'s response...")
+    if codefusion_gpt_5_answer:
+        codefusion_gpt_5_evaluation = ask_openai_evaluation(question, reference_answer, codefusion_gpt_5_answer)
+    
+
     
     # Evaluate CodeWalk if provided
     codewalk_evaluation = None
@@ -106,17 +110,18 @@ def compare_responses(question, reference_answer, claude_answer, codefusion_answ
     # Print the results
     print(f"Question: {question}")
     print(f"Reference Answer: {reference_answer}")
-    print(f"Claude Code's Answer: {claude_answer}")
-    print(f"Claude Code's Evaluation: {claude_evaluation}")
-    print(f"CodeFusion (GPT-5) Answer: {codefusion_answer}")
-    print(f"CodeFusion (GPT-5) Evaluation: {codefusion_evaluation}")
-    print(f"CodeFusion (Sonnet)'s Answer: {claude_sonnet_answer}")
-    print(f"CodeFusion (Sonnet)'s Evaluation: {claude_sonnet_evaluation}")
+    print(f"Claude Code's Answer: {claude_code_answer}")
+    print(f"Claude Code's Evaluation: {claude_code_evaluation}")
+    print(f"CodeFusion (Sonnet)'s Answer: {codefusion_claude_sonnet_answer}")
+    print(f"CodeFusion (Sonnet)'s Evaluation: {codefusion_claude_sonnet_evaluation}")
+    if codefusion_gpt_5_answer:
+        print(f"CodeFusion (GPT-5) Answer: {codefusion_gpt_5_answer}")
+        print(f"CodeFusion (GPT-5) Evaluation: {codefusion_gpt_5_evaluation}")
     if codewalk_answer and codewalk_evaluation:
         print(f"CodeWalk's Answer: {codewalk_answer}")
         print(f"CodeWalk's Evaluation: {codewalk_evaluation}")
 
-    return claude_evaluation, codefusion_evaluation, claude_sonnet_evaluation, codewalk_evaluation
+    return claude_code_evaluation, codefusion_claude_sonnet_evaluation, codefusion_gpt_5_evaluation, codewalk_evaluation
 
 def parse_evaluation_json(eval_text):
     """Parse JSON evaluation response, handling potential formatting issues."""
@@ -185,53 +190,56 @@ def run_langfuse_eval(item, input, output, eval_data, repo_name, model_name):
                 )
 
 
-def generate_html_report(evaluation_results, output_path="evaluation_results.html"):
+def generate_html_report(evaluation_results, output_path="evaluation_results_django.html"):
     """Generate comprehensive HTML report from evaluation results."""
     
     # Calculate summary statistics
-    claude_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
-    codefusion_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
-    claude_sonnet_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
+    claude_code_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
+    codefusion_claude_sonnet_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
+    codefusion_gpt_5_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
     codewalk_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
 
-    dataset = langfuse.get_dataset("fastapi_qa")
+    dataset = langfuse.get_dataset("django_qa")
     
     for result in evaluation_results:
         # Parse evaluations
-        claude_eval = parse_evaluation_json(result["claude_evaluation"])
-        codefusion_eval = parse_evaluation_json(result["codefusion_evaluation"])
-        claude_sonnet_eval = parse_evaluation_json(result["claude_sonnet_evaluation"])
+        claude_code_eval = parse_evaluation_json(result["claude_code_evaluation"])
+        codefusion_claude_sonnet_eval = parse_evaluation_json(result["codefusion_claude_sonnet_evaluation"])
+        codefusion_gpt_5_eval = parse_evaluation_json(result.get("codefusion_gpt_5_evaluation", "{}")) if result.get("codefusion_gpt_5_evaluation") else None
         codewalk_eval = parse_evaluation_json(result.get("codewalk_evaluation", "{}")) if result.get("codewalk_evaluation") else None
         for ds_item in dataset.items:
             input = ds_item.input
             if input != result["question"]:
                 continue
             
-            output = result["claude_answer"]
-            run_langfuse_eval(ds_item, result["question"], result["claude_answer"], claude_eval, "fastapi", "claude")
-            output = result["codefusion_answer"]
-            run_langfuse_eval(ds_item, result["question"], result["codefusion_answer"], codefusion_eval, "fastapi", "codefusion")
-            output = result["claude_sonnet_answer"]
-            run_langfuse_eval(ds_item, result["question"], result["claude_sonnet_answer"], claude_sonnet_eval, "fastapi", "claude_sonnet")
-            output = result["codewalk_answer"]
-            run_langfuse_eval(ds_item, result["question"], result["codewalk_answer"], codewalk_eval, "fastapi", "codewalk")
+            output = result["claude_code_answer"]
+            run_langfuse_eval(ds_item, result["question"], result["claude_code_answer"], claude_code_eval, "django", "claude_code")
+            output = result["codefusion_claude_sonnet_answer"]
+            run_langfuse_eval(ds_item, result["question"], result["codefusion_claude_sonnet_answer"], codefusion_claude_sonnet_eval, "django", "codefusion_claude_sonnet")
+            if result.get("codefusion_gpt_5_answer"):
+                output = result["codefusion_gpt_5_answer"]
+                run_langfuse_eval(ds_item, result["question"], result["codefusion_gpt_5_answer"], codefusion_gpt_5_eval, "django", "codefusion_gpt_5")
+            if result.get("codewalk_answer"):
+                output = result["codewalk_answer"]
+                run_langfuse_eval(ds_item, result["question"], result["codewalk_answer"], codewalk_eval, "django", "codewalk")
         # Collect Claude Code scores
-        claude_scores["arch"].append(claude_eval["architecture_reasoning"]["score"])
-        claude_scores["consistency"].append(claude_eval["reasoning_consistency"]["score"])
-        claude_scores["understanding"].append(claude_eval["code_understanding_tier"]["score"])
-        claude_scores["grounding"].append(claude_eval["grounding"]["score"])
+        claude_code_scores["arch"].append(claude_code_eval["architecture_reasoning"]["score"])
+        claude_code_scores["consistency"].append(claude_code_eval["reasoning_consistency"]["score"])
+        claude_code_scores["understanding"].append(claude_code_eval["code_understanding_tier"]["score"])
+        claude_code_scores["grounding"].append(claude_code_eval["grounding"]["score"])
         
         # Collect CodeFusion scores
-        codefusion_scores["arch"].append(codefusion_eval["architecture_reasoning"]["score"])
-        codefusion_scores["consistency"].append(codefusion_eval["reasoning_consistency"]["score"])
-        codefusion_scores["understanding"].append(codefusion_eval["code_understanding_tier"]["score"])
-        codefusion_scores["grounding"].append(codefusion_eval["grounding"]["score"])
+        codefusion_claude_sonnet_scores["arch"].append(codefusion_claude_sonnet_eval["architecture_reasoning"]["score"])
+        codefusion_claude_sonnet_scores["consistency"].append(codefusion_claude_sonnet_eval["reasoning_consistency"]["score"])
+        codefusion_claude_sonnet_scores["understanding"].append(codefusion_claude_sonnet_eval["code_understanding_tier"]["score"])
+        codefusion_claude_sonnet_scores["grounding"].append(codefusion_claude_sonnet_eval["grounding"]["score"])
         
-        # Collect CodeFusion (Sonnet) scores
-        claude_sonnet_scores["arch"].append(claude_sonnet_eval["architecture_reasoning"]["score"])
-        claude_sonnet_scores["consistency"].append(claude_sonnet_eval["reasoning_consistency"]["score"])
-        claude_sonnet_scores["understanding"].append(claude_sonnet_eval["code_understanding_tier"]["score"])
-        claude_sonnet_scores["grounding"].append(claude_sonnet_eval["grounding"]["score"])
+        # Collect CodeFusion (GPT-5) scores
+        if codefusion_gpt_5_eval:
+            codefusion_gpt_5_scores["arch"].append(codefusion_gpt_5_eval["architecture_reasoning"]["score"])
+            codefusion_gpt_5_scores["consistency"].append(codefusion_gpt_5_eval["reasoning_consistency"]["score"])
+            codefusion_gpt_5_scores["understanding"].append(codefusion_gpt_5_eval["code_understanding_tier"]["score"])
+            codefusion_gpt_5_scores["grounding"].append(codefusion_gpt_5_eval["grounding"]["score"])
         
         # Collect CodeWalk scores if available
         if codewalk_eval:
@@ -241,26 +249,27 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
             codewalk_scores["grounding"].append(codewalk_eval["grounding"]["score"])
     
     # Calculate averages
-    claude_avg = {
-        "arch": sum(claude_scores["arch"]) / len(claude_scores["arch"]),
-        "consistency": sum(claude_scores["consistency"]) / len(claude_scores["consistency"]),
-        "understanding": sum(claude_scores["understanding"]) / len(claude_scores["understanding"]),
-        "grounding": sum(claude_scores["grounding"]) / len(claude_scores["grounding"])
+    claude_code_avg = {
+        "arch": sum(claude_code_scores["arch"]) / len(claude_code_scores["arch"]),
+        "consistency": sum(claude_code_scores["consistency"]) / len(claude_code_scores["consistency"]),
+        "understanding": sum(claude_code_scores["understanding"]) / len(claude_code_scores["understanding"]),
+        "grounding": sum(claude_code_scores["grounding"]) / len(claude_code_scores["grounding"])
     }
     
-    codefusion_avg = {
-        "arch": sum(codefusion_scores["arch"]) / len(codefusion_scores["arch"]),
-        "consistency": sum(codefusion_scores["consistency"]) / len(codefusion_scores["consistency"]),
-        "understanding": sum(codefusion_scores["understanding"]) / len(codefusion_scores["understanding"]),
-        "grounding": sum(codefusion_scores["grounding"]) / len(codefusion_scores["grounding"])
+    codefusion_claude_sonnet_avg = {
+        "arch": sum(codefusion_claude_sonnet_scores["arch"]) / len(codefusion_claude_sonnet_scores["arch"]),
+        "consistency": sum(codefusion_claude_sonnet_scores["consistency"]) / len(codefusion_claude_sonnet_scores["consistency"]),
+        "understanding": sum(codefusion_claude_sonnet_scores["understanding"]) / len(codefusion_claude_sonnet_scores["understanding"]),
+        "grounding": sum(codefusion_claude_sonnet_scores["grounding"]) / len(codefusion_claude_sonnet_scores["grounding"])
     }
-    
-    claude_sonnet_avg = {
-        "arch": sum(claude_sonnet_scores["arch"]) / len(claude_sonnet_scores["arch"]),
-        "consistency": sum(claude_sonnet_scores["consistency"]) / len(claude_sonnet_scores["consistency"]),
-        "understanding": sum(claude_sonnet_scores["understanding"]) / len(claude_sonnet_scores["understanding"]),
-        "grounding": sum(claude_sonnet_scores["grounding"]) / len(claude_sonnet_scores["grounding"])
-    }
+    codefusion_gpt_5_avg = None
+    if codefusion_gpt_5_scores["arch"]:
+        codefusion_gpt_5_avg = {
+            "arch": sum(codefusion_gpt_5_scores["arch"]) / len(codefusion_gpt_5_scores["arch"]),
+            "consistency": sum(codefusion_gpt_5_scores["consistency"]) / len(codefusion_gpt_5_scores["consistency"]),
+            "understanding": sum(codefusion_gpt_5_scores["understanding"]) / len(codefusion_gpt_5_scores["understanding"]),
+            "grounding": sum(codefusion_gpt_5_scores["grounding"]) / len(codefusion_gpt_5_scores["grounding"])
+        }
     
     # Calculate CodeWalk averages if data is available
     codewalk_avg = None
@@ -277,7 +286,7 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FastAPI Q&A Evaluation Report</title>
+    <title>Django Q&A Evaluation Report</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -362,9 +371,10 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
         }}
         
         .reference-answer {{ border-left-color: #28a745; }}
-        .claude-answer {{ border-left-color: #17a2b8; }}
-        .codefusion-answer {{ border-left-color: #ffc107; }}
-        .claude-sonnet-answer {{ border-left-color: #6f42c1; }}
+        .claude-code-answer {{ border-left-color: #17a2b8; }}
+        .codefusion-claude-sonnet-answer {{ border-left-color: #ffc107; }}
+        .codefusion-gpt-5-answer {{ border-left-color: #6f42c1; }}
+        .codewalk-answer {{ border-left-color: #6f42c1; }}
         
         .answer-title {{
             font-weight: bold;
@@ -489,16 +499,16 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
             overflow: hidden;
         }}
         
-        .claude-column {{
+        .claude-code-column {{
             border-top: 4px solid #17a2b8;
         }}
         
-        .codefusion-column {{
-            border-top: 4px solid #ffc107;
-        }}
-        
-        .claude-sonnet-column {{
+        .codefusion-claude-sonnet-column {{
             border-top: 4px solid #6f42c1;
+        }}
+
+        .codefusion-gpt-5-column {{
+            border-top: 4px solid #ffc107;
         }}
         
         .codewalk-column {{
@@ -512,16 +522,16 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
             text-align: center;
         }}
         
-        .claude-column .model-header {{
+        .claude-code-column .model-header {{
             background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
         }}
         
-        .codefusion-column .model-header {{
+        .codefusion-claude-sonnet-column .model-header {{
             background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
             color: #333;
         }}
         
-        .claude-sonnet-column .model-header {{
+        .codefusion-gpt-5-column .model-header {{
             background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);
         }}
         
@@ -629,7 +639,7 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
 </head>
 <body>
     <div class="container">
-        <h1>📊 FastAPI Q&A Evaluation Report</h1>
+        <h1>📊 Django Q&A Evaluation Report</h1>
         <p style="text-align: center; color: #6c757d; margin-bottom: 40px;">
             Generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} | 
             {len(evaluation_results)} questions evaluated
@@ -641,20 +651,10 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
                 <tr>
                     <th style="width: 20%;">Question</th>
                     <th colspan="4" style="text-align: center; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">🤖 Claude Code</th>
-                    <th colspan="4" style="text-align: center; background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%); color: #333;">🔧 CodeFusion (GPT-5)</th>
                     <th colspan="4" style="text-align: center; background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);">✨ CodeFusion (Sonnet)</th>
-                    <th colspan="4" style="text-align: center; background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);">🚶 CodeWalk</th>
                 </tr>
                 <tr>
                     <th></th>
-                    <th>Arch</th>
-                    <th>Reasoning</th>
-                    <th>Code Tier</th>
-                    <th>Grounding</th>
-                    <th>Arch</th>
-                    <th>Reasoning</th>
-                    <th>Code Tier</th>
-                    <th>Grounding</th>
                     <th>Arch</th>
                     <th>Reasoning</th>
                     <th>Code Tier</th>
@@ -670,9 +670,9 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
     
     # Add score comparison rows
     for i, result in enumerate(evaluation_results, 1):
-        claude_eval = parse_evaluation_json(result["claude_evaluation"])
-        codefusion_eval = parse_evaluation_json(result["codefusion_evaluation"])
-        claude_sonnet_eval = parse_evaluation_json(result["claude_sonnet_evaluation"])
+        claude_code_eval = parse_evaluation_json(result["claude_code_evaluation"])
+        codefusion_claude_sonnet_eval = parse_evaluation_json(result["codefusion_claude_sonnet_evaluation"])
+        codefusion_gpt_5_eval = parse_evaluation_json(result.get("codefusion_gpt_5_evaluation", "{}")) if result.get("codefusion_gpt_5_evaluation") else None
         codewalk_eval = parse_evaluation_json(result.get("codewalk_evaluation", "{}")) if result.get("codewalk_evaluation") else None
         
         question_preview = result['question'][:50] + ('...' if len(result['question']) > 50 else '')
@@ -680,35 +680,17 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
         # Escape quotes for HTML tooltip attribute
         full_question_escaped = result['question'].replace('"', '&quot;').replace("'", "&#39;")
         
-        # Generate CodeWalk cells or placeholders
-        if codewalk_eval:
-            codewalk_cells = f"""
-                    <td><span class="score {get_score_class(codewalk_eval['architecture_reasoning']['score'])}">{codewalk_eval['architecture_reasoning']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(codewalk_eval['reasoning_consistency']['score'])}">{codewalk_eval['reasoning_consistency']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(codewalk_eval['code_understanding_tier']['score'])}">{codewalk_eval['code_understanding_tier']['score']}/5</span><span class="tier-badge">{codewalk_eval['code_understanding_tier'].get('tier', 'unknown')}</span></td>
-                    <td><span class="score {get_score_class(codewalk_eval['grounding']['score'])}">{codewalk_eval['grounding']['score']}/5</span></td>"""
-        else:
-            codewalk_cells = """
-                    <td><span style="color: #6c757d;">N/A</span></td>
-                    <td><span style="color: #6c757d;">N/A</span></td>
-                    <td><span style="color: #6c757d;">N/A</span></td>
-                    <td><span style="color: #6c757d;">N/A</span></td>"""
-        
         html_content += f"""
                 <tr onclick="toggleDetails({i})" style="cursor: pointer;" title="Click to view detailed answers and feedback">
                     <td style="font-weight: 500;" class="question-tooltip" data-tooltip="{full_question_escaped}"><strong>Q{i}:</strong> {question_preview}</td>
-                    <td><span class="score {get_score_class(claude_eval['architecture_reasoning']['score'])}">{claude_eval['architecture_reasoning']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(claude_eval['reasoning_consistency']['score'])}">{claude_eval['reasoning_consistency']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(claude_eval['code_understanding_tier']['score'])}">{claude_eval['code_understanding_tier']['score']}/5</span><span class="tier-badge">{claude_eval['code_understanding_tier'].get('tier', 'unknown')}</span></td>
-                    <td><span class="score {get_score_class(claude_eval['grounding']['score'])}">{claude_eval['grounding']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_eval['architecture_reasoning']['score'])}">{codefusion_eval['architecture_reasoning']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_eval['reasoning_consistency']['score'])}">{codefusion_eval['reasoning_consistency']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_eval['code_understanding_tier']['score'])}">{codefusion_eval['code_understanding_tier']['score']}/5</span><span class="tier-badge">{codefusion_eval['code_understanding_tier'].get('tier', 'unknown')}</span></td>
-                    <td><span class="score {get_score_class(codefusion_eval['grounding']['score'])}">{codefusion_eval['grounding']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(claude_sonnet_eval['architecture_reasoning']['score'])}">{claude_sonnet_eval['architecture_reasoning']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(claude_sonnet_eval['reasoning_consistency']['score'])}">{claude_sonnet_eval['reasoning_consistency']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(claude_sonnet_eval['code_understanding_tier']['score'])}">{claude_sonnet_eval['code_understanding_tier']['score']}/5</span><span class="tier-badge">{claude_sonnet_eval['code_understanding_tier'].get('tier', 'unknown')}</span></td>
-                    <td><span class="score {get_score_class(claude_sonnet_eval['grounding']['score'])}">{claude_sonnet_eval['grounding']['score']}/5</span></td>{codewalk_cells}
+                    <td><span class="score {get_score_class(claude_code_eval['architecture_reasoning']['score'])}">{claude_code_eval['architecture_reasoning']['score']}/5</span></td>
+                    <td><span class="score {get_score_class(claude_code_eval['reasoning_consistency']['score'])}">{claude_code_eval['reasoning_consistency']['score']}/5</span></td>
+                    <td><span class="score {get_score_class(claude_code_eval['code_understanding_tier']['score'])}">{claude_code_eval['code_understanding_tier']['score']}/5</span><span class="tier-badge">{claude_code_eval['code_understanding_tier'].get('tier', 'unknown')}</span></td>
+                    <td><span class="score {get_score_class(claude_code_eval['grounding']['score'])}">{claude_code_eval['grounding']['score']}/5</span></td>
+                    <td><span class="score {get_score_class(codefusion_claude_sonnet_eval['architecture_reasoning']['score'])}">{codefusion_claude_sonnet_eval['architecture_reasoning']['score']}/5</span></td>
+                    <td><span class="score {get_score_class(codefusion_claude_sonnet_eval['reasoning_consistency']['score'])}">{codefusion_claude_sonnet_eval['reasoning_consistency']['score']}/5</span></td>
+                    <td><span class="score {get_score_class(codefusion_claude_sonnet_eval['code_understanding_tier']['score'])}">{codefusion_claude_sonnet_eval['code_understanding_tier']['score']}/5</span><span class="tier-badge">{codefusion_claude_sonnet_eval['code_understanding_tier'].get('tier', 'unknown')}</span></td>
+                    <td><span class="score {get_score_class(codefusion_claude_sonnet_eval['grounding']['score'])}">{codefusion_claude_sonnet_eval['grounding']['score']}/5</span></td>
                 </tr>
         """
     
@@ -722,9 +704,9 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
     
     # Add detailed expandable sections
     for i, result in enumerate(evaluation_results, 1):
-        claude_eval = parse_evaluation_json(result["claude_evaluation"])
-        codefusion_eval = parse_evaluation_json(result["codefusion_evaluation"])
-        claude_sonnet_eval = parse_evaluation_json(result["claude_sonnet_evaluation"])
+        claude_code_eval = parse_evaluation_json(result["claude_code_evaluation"])
+        codefusion_claude_sonnet_eval = parse_evaluation_json(result["codefusion_claude_sonnet_evaluation"])
+        codefusion_gpt_5_eval = parse_evaluation_json(result.get("codefusion_gpt_5_evaluation", "{}")) if result.get("codefusion_gpt_5_evaluation") else None
         codewalk_eval = parse_evaluation_json(result.get("codewalk_evaluation", "{}")) if result.get("codewalk_evaluation") else None
         
         question_preview = result['question'][:80] + ('...' if len(result['question']) > 80 else '')
@@ -749,103 +731,51 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
                 <div class="models-comparison">
                     <div class="model-column claude-column">
                         <div class="model-header">🤖 Claude Code</div>
-                        <div class="answer-text">{result['claude_answer']}</div>
+                        <div class="answer-text">{result['claude_code_answer']}</div>
                         <div class="feedback-section">
                             <div class="feedback-item">
-                                <strong>Architecture ({claude_eval['architecture_reasoning']['score']}/5):</strong>
-                                <div class="feedback-text">{claude_eval['architecture_reasoning']['feedback']}</div>
+                                <strong>Architecture ({claude_code_eval['architecture_reasoning']['score']}/5):</strong>
+                                <div class="feedback-text">{claude_code_eval['architecture_reasoning']['feedback']}</div>
                             </div>
                             <div class="feedback-item">
-                                <strong>Reasoning Consistency ({claude_eval['reasoning_consistency']['score']}/5):</strong>
-                                <div class="feedback-text">{claude_eval['reasoning_consistency']['feedback']}</div>
+                                <strong>Reasoning Consistency ({claude_code_eval['reasoning_consistency']['score']}/5):</strong>
+                                <div class="feedback-text">{claude_code_eval['reasoning_consistency']['feedback']}</div>
                             </div>
                             <div class="feedback-item">
-                                <strong>Code Tier ({claude_eval['code_understanding_tier']['score']}/5 - {claude_eval['code_understanding_tier'].get('tier', 'unknown')}):</strong>
-                                <div class="feedback-text">{claude_eval['code_understanding_tier']['feedback']}</div>
+                                <strong>Code Tier ({claude_code_eval['code_understanding_tier']['score']}/5 - {claude_code_eval['code_understanding_tier'].get('tier', 'unknown')}):</strong>
+                                <div class="feedback-text">{claude_code_eval['code_understanding_tier']['feedback']}</div>
                             </div>
                             <div class="feedback-item">
-                                <strong>Grounding ({claude_eval['grounding']['score']}/5):</strong>
-                                <div class="feedback-text">{claude_eval['grounding']['feedback']}</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="model-column codefusion-column">
-                        <div class="model-header">🔧 CodeFusion (GPT-5)</div>
-                        <div class="answer-text">{result['codefusion_answer']}</div>
-                        <div class="feedback-section">
-                            <div class="feedback-item">
-                                <strong>Architecture ({codefusion_eval['architecture_reasoning']['score']}/5):</strong>
-                                <div class="feedback-text">{codefusion_eval['architecture_reasoning']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Reasoning Consistency ({codefusion_eval['reasoning_consistency']['score']}/5):</strong>
-                                <div class="feedback-text">{codefusion_eval['reasoning_consistency']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Code Tier ({codefusion_eval['code_understanding_tier']['score']}/5 - {codefusion_eval['code_understanding_tier'].get('tier', 'unknown')}):</strong>
-                                <div class="feedback-text">{codefusion_eval['code_understanding_tier']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Grounding ({codefusion_eval['grounding']['score']}/5):</strong>
-                                <div class="feedback-text">{codefusion_eval['grounding']['feedback']}</div>
+                                <strong>Grounding ({claude_code_eval['grounding']['score']}/5):</strong>
+                                <div class="feedback-text">{claude_code_eval['grounding']['feedback']}</div>
                             </div>
                         </div>
                     </div>
                     
                     <div class="model-column claude-sonnet-column">
                         <div class="model-header">✨ CodeFusion (Sonnet)</div>
-                        <div class="answer-text">{result['claude_sonnet_answer']}</div>
+                        <div class="answer-text">{result['codefusion_claude_sonnet_answer']}</div>
                         <div class="feedback-section">
                             <div class="feedback-item">
-                                <strong>Architecture ({claude_sonnet_eval['architecture_reasoning']['score']}/5):</strong>
-                                <div class="feedback-text">{claude_sonnet_eval['architecture_reasoning']['feedback']}</div>
+                                <strong>Architecture ({codefusion_claude_sonnet_eval['architecture_reasoning']['score']}/5):</strong>
+                                <div class="feedback-text">{codefusion_claude_sonnet_eval['architecture_reasoning']['feedback']}</div>
                             </div>
                             <div class="feedback-item">
-                                <strong>Reasoning Consistency ({claude_sonnet_eval['reasoning_consistency']['score']}/5):</strong>
-                                <div class="feedback-text">{claude_sonnet_eval['reasoning_consistency']['feedback']}</div>
+                                <strong>Reasoning Consistency ({codefusion_claude_sonnet_eval['reasoning_consistency']['score']}/5):</strong>
+                                <div class="feedback-text">{codefusion_claude_sonnet_eval['reasoning_consistency']['feedback']}</div>
                             </div>
                             <div class="feedback-item">
-                                <strong>Code Tier ({claude_sonnet_eval['code_understanding_tier']['score']}/5 - {claude_sonnet_eval['code_understanding_tier'].get('tier', 'unknown')}):</strong>
-                                <div class="feedback-text">{claude_sonnet_eval['code_understanding_tier']['feedback']}</div>
+                                <strong>Code Tier ({codefusion_claude_sonnet_eval['code_understanding_tier']['score']}/5 - {codefusion_claude_sonnet_eval['code_understanding_tier'].get('tier', 'unknown')}):</strong>
+                                <div class="feedback-text">{codefusion_claude_sonnet_eval['code_understanding_tier']['feedback']}</div>
                             </div>
                             <div class="feedback-item">
-                                <strong>Grounding ({claude_sonnet_eval['grounding']['score']}/5):</strong>
-                                <div class="feedback-text">{claude_sonnet_eval['grounding']['feedback']}</div>
+                                <strong>Grounding ({codefusion_claude_sonnet_eval['grounding']['score']}/5):</strong>
+                                <div class="feedback-text">{codefusion_claude_sonnet_eval['grounding']['feedback']}</div>
                             </div>
                         </div>
                     </div>
-                    
-                    <div class="model-column codewalk-column">
-                        <div class="model-header">🚶 CodeWalk</div>
-                        <div class="answer-text">{result.get('codewalk_answer', 'No CodeWalk response available')}</div>
-                        <div class="feedback-section">"""
-        
-        if codewalk_eval:
-            html_content += f"""
-                            <div class="feedback-item">
-                                <strong>Architecture ({codewalk_eval['architecture_reasoning']['score']}/5):</strong>
-                                <div class="feedback-text">{codewalk_eval['architecture_reasoning']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Reasoning Consistency ({codewalk_eval['reasoning_consistency']['score']}/5):</strong>
-                                <div class="feedback-text">{codewalk_eval['reasoning_consistency']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Code Tier ({codewalk_eval['code_understanding_tier']['score']}/5 - {codewalk_eval['code_understanding_tier'].get('tier', 'unknown')}):</strong>
-                                <div class="feedback-text">{codewalk_eval['code_understanding_tier']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Grounding ({codewalk_eval['grounding']['score']}/5):</strong>
-                                <div class="feedback-text">{codewalk_eval['grounding']['feedback']}</div>
-                            </div>"""
-        else:
-            html_content += """
-                            <div class="feedback-item">
-                                <strong>No CodeWalk evaluation available</strong>
-                                <div class="feedback-text">CodeWalk response or evaluation data not provided for this question.</div>
-                            </div>"""
-        
+                """
+            
         html_content += """
                         </div>
                     </div>
@@ -855,9 +785,8 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
         """
     
     # Calculate overall averages for winner determination
-    claude_overall = (claude_avg['arch'] + claude_avg['consistency'] + claude_avg['understanding'] + claude_avg['grounding']) / 4
-    codefusion_overall = (codefusion_avg['arch'] + codefusion_avg['consistency'] + codefusion_avg['understanding'] + codefusion_avg['grounding']) / 4
-    claude_sonnet_overall = (claude_sonnet_avg['arch'] + claude_sonnet_avg['consistency'] + claude_sonnet_avg['understanding'] + claude_sonnet_avg['grounding']) / 4
+    claude_code_overall = (claude_code_avg['arch'] + claude_code_avg['consistency'] + claude_code_avg['understanding'] + claude_code_avg['grounding']) / 4
+    codefusion_claude_sonnet_overall = (codefusion_claude_sonnet_avg['arch'] + codefusion_claude_sonnet_avg['consistency'] + codefusion_claude_sonnet_avg['understanding'] + codefusion_claude_sonnet_avg['grounding']) / 4
     
     # Calculate CodeWalk overall if available
     codewalk_overall = None
@@ -865,7 +794,7 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
         codewalk_overall = (codewalk_avg['arch'] + codewalk_avg['consistency'] + codewalk_avg['understanding'] + codewalk_avg['grounding']) / 4
     
     # Determine winner
-    scores = [("Claude Code", claude_overall), ("CodeFusion (GPT-5)", codefusion_overall), ("CodeFusion (Sonnet)", claude_sonnet_overall)]
+    scores = [("Claude Code", claude_code_overall), ("CodeFusion (Sonnet)", codefusion_claude_sonnet_overall)]
     if codewalk_overall is not None:
         scores.append(("CodeWalk", codewalk_overall))
     
@@ -873,10 +802,10 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
     
     # Determine best category across all models
     category_averages = {
-        "Architecture": (claude_avg['arch'] + codefusion_avg['arch'] + claude_sonnet_avg['arch'] + (codewalk_avg['arch'] if codewalk_avg else 0)) / (4 if codewalk_avg else 3),
-        "Reasoning": (claude_avg['consistency'] + codefusion_avg['consistency'] + claude_sonnet_avg['consistency'] + (codewalk_avg['consistency'] if codewalk_avg else 0)) / (4 if codewalk_avg else 3),
-        "Code Tier": (claude_avg['understanding'] + codefusion_avg['understanding'] + claude_sonnet_avg['understanding'] + (codewalk_avg['understanding'] if codewalk_avg else 0)) / (4 if codewalk_avg else 3),
-        "Grounding": (claude_avg['grounding'] + codefusion_avg['grounding'] + claude_sonnet_avg['grounding'] + (codewalk_avg['grounding'] if codewalk_avg else 0)) / (4 if codewalk_avg else 3)
+        "Architecture": (claude_code_avg['arch'] + codefusion_claude_sonnet_avg['arch'] + (codewalk_avg['arch'] if codewalk_avg else 0)) / (2 if codewalk_avg else 2),
+        "Reasoning": (claude_code_avg['consistency'] + codefusion_claude_sonnet_avg['consistency'] + (codewalk_avg['consistency'] if codewalk_avg else 0)) / (2 if codewalk_avg else 2),
+        "Code Tier": (claude_code_avg['understanding'] + codefusion_claude_sonnet_avg['understanding'] + (codewalk_avg['understanding'] if codewalk_avg else 0)) / (2 if codewalk_avg else 2),
+        "Grounding": (claude_code_avg['grounding'] + codefusion_claude_sonnet_avg['grounding'] + (codewalk_avg['grounding'] if codewalk_avg else 0)) / (2 if codewalk_avg else 2)
     }
     best_category = max(category_averages, key=category_averages.get)
     
@@ -898,27 +827,19 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
             <tbody>
                 <tr>
                     <td><strong>Claude Code</strong></td>
-                    <td><span class="score {get_score_class(claude_avg['arch'])}">{claude_avg['arch']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_avg['consistency'])}">{claude_avg['consistency']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_avg['understanding'])}">{claude_avg['understanding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_avg['grounding'])}">{claude_avg['grounding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_overall)}">{claude_overall:.1f}/5</span></td>
-                </tr>
-                <tr>
-                    <td><strong>CodeFusion (GPT-5)</strong></td>
-                    <td><span class="score {get_score_class(codefusion_avg['arch'])}">{codefusion_avg['arch']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_avg['consistency'])}">{codefusion_avg['consistency']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_avg['understanding'])}">{codefusion_avg['understanding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_avg['grounding'])}">{codefusion_avg['grounding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_overall)}">{codefusion_overall:.1f}/5</span></td>
+                    <td><span class="score {get_score_class(claude_code_avg['arch'])}">{claude_code_avg['arch']:.1f}/5</span></td>
+                    <td><span class="score {get_score_class(claude_code_avg['consistency'])}">{claude_code_avg['consistency']:.1f}/5</span></td>
+                    <td><span class="score {get_score_class(claude_code_avg['understanding'])}">{claude_code_avg['understanding']:.1f}/5</span></td>
+                    <td><span class="score {get_score_class(claude_code_avg['grounding'])}">{claude_code_avg['grounding']:.1f}/5</span></td>
+                    <td><span class="score {get_score_class(claude_code_overall)}">{claude_code_overall:.1f}/5</span></td>
                 </tr>
                 <tr>
                     <td><strong>CodeFusion (Sonnet)</strong></td>
-                    <td><span class="score {get_score_class(claude_sonnet_avg['arch'])}">{claude_sonnet_avg['arch']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_sonnet_avg['consistency'])}">{claude_sonnet_avg['consistency']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_sonnet_avg['understanding'])}">{claude_sonnet_avg['understanding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_sonnet_avg['grounding'])}">{claude_sonnet_avg['grounding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_sonnet_overall)}">{claude_sonnet_overall:.1f}/5</span></td>
+                    <td><span class="score {get_score_class(codefusion_claude_sonnet_avg['arch'])}">{codefusion_claude_sonnet_avg['arch']:.1f}/5</span></td>
+                    <td><span class="score {get_score_class(codefusion_claude_sonnet_avg['consistency'])}">{codefusion_claude_sonnet_avg['consistency']:.1f}/5</span></td>
+                    <td><span class="score {get_score_class(codefusion_claude_sonnet_avg['understanding'])}">{codefusion_claude_sonnet_avg['understanding']:.1f}/5</span></td>
+                    <td><span class="score {get_score_class(codefusion_claude_sonnet_avg['grounding'])}">{codefusion_claude_sonnet_avg['grounding']:.1f}/5</span></td>
+                    <td><span class="score {get_score_class(codefusion_claude_sonnet_overall)}">{codefusion_claude_sonnet_overall:.1f}/5</span></td>
                 </tr>"""
     
     # Add CodeWalk row if data is available
@@ -1003,7 +924,7 @@ def generate_html_report(evaluation_results, output_path="evaluation_results.htm
     return output_path
 
 def main():
-    eval_data_path = 'cf/evals/fastapi_qa.yaml'
+    eval_data_path = 'cf/evals/django_qa.yaml'
     with open(eval_data_path, 'r') as f:
          eval_data = yaml.safe_load(f)
     
@@ -1013,22 +934,22 @@ def main():
     for qdata in eval_data["questions"]:
         question = qdata["question"]
         reference_answer = qdata["reference_answer"]
-        claude_answer = qdata["claude_answer"]
-        codefusion_answer = qdata["codefusion_answer_oai"]
-        claude_sonnet_answer = qdata["claude_sonnet_answer"]
+        claude_code_answer = qdata["claude_code_answer"]
+        codefusion_claude_sonnet_answer = qdata["codefusion_claude-sonnet-4-20250514_answer"]
+        codefusion_gpt_5_answer = qdata["codefusion_gpt-5_answer"]
         codewalk_answer = qdata.get("codewalk_answer")  # CodeWalk might not be present
-        claude_evaluation, codefusion_evaluation, claude_sonnet_evaluation, codewalk_evaluation = compare_responses(question, reference_answer, claude_answer, codefusion_answer, claude_sonnet_answer, codewalk_answer)
+        claude_code_evaluation, codefusion_claude_sonnet_evaluation, codefusion_gpt_5_evaluation, codewalk_evaluation = compare_responses(question, reference_answer, claude_code_answer, codefusion_claude_sonnet_answer, codefusion_gpt_5_answer, codewalk_answer)
         
         # Store results for HTML generation
         result_data = {
             "question": question,
             "reference_answer": reference_answer,
-            "claude_answer": claude_answer,
-            "codefusion_answer": codefusion_answer,
-            "claude_sonnet_answer": claude_sonnet_answer,
-            "claude_evaluation": claude_evaluation,
-            "codefusion_evaluation": codefusion_evaluation,
-            "claude_sonnet_evaluation": claude_sonnet_evaluation
+            "claude_code_answer": claude_code_answer,
+            "codefusion_claude_sonnet_answer": codefusion_claude_sonnet_answer,
+            "codefusion_gpt_5_answer": codefusion_gpt_5_answer,
+            "claude_code_evaluation": claude_code_evaluation,
+            "codefusion_claude_sonnet_evaluation": codefusion_claude_sonnet_evaluation,
+            "codefusion_gpt_5_evaluation": codefusion_gpt_5_evaluation
         }
         
         # Add CodeWalk data if available

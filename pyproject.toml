@@ -30,7 +30,10 @@ dependencies = [
     "requests>=2.25.0",
     "litellm",
     "numpy",
-    "langfuse"
+    "langfuse",
+    "litellm[proxy]",
+    "tenacity",
+    "groq"
 ]
 
 [project.optional-dependencies]
