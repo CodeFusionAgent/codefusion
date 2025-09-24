@@ -2,7 +2,7 @@
 """
 CodeFusion Evaluation Script
 
-Compares CodeFusion responses against reference answers using OpenAI as judge.
+Compares CodeFusion responses against reference answers using different models as judge.
 """
 
 import openai
@@ -14,14 +14,19 @@ from datetime import datetime
 
 from cf.configs.config_mgr import ConfigManager
 from langfuse import get_client
+from openai import AzureOpenAI
+from groq import Groq
+
 
 langfuse = get_client()
 
 
 generationStartTime = datetime.now()
 
+MODELS = []
+
 # Function to evaluate using OpenAI (Judge)
-def ask_openai_evaluation(question, reference_answer, response):
+def ask_openai_evaluation(question, reference_answer, response, model_name):
     # Set the evaluation prompt based on the tier and the response
     evaluation_prompt = f"""
     You are a senior software engineer with 10 years of experience in software development.
@@ -65,12 +70,21 @@ def ask_openai_evaluation(question, reference_answer, response):
     """
     config_mgr = ConfigManager("cf/configs/config.yaml")
     config = config_mgr.get_config()
-    # Send the prompt to OpenAI for evaluation
-    openai.api_key=config.get("llm", {}).get("api_key")
-    client = openai.OpenAI()
+    model_config = config.get("judge", {}).get(model_name)
+
+    if model_name in {"gpt-5", "gpt-4.1"}:
+        client = AzureOpenAI(
+            azure_endpoint=model_config.get("endpoint"),
+            api_key=model_config.get("subscription_key"),
+            api_version=model_config.get("api_version")
+        )
+    elif model_name in {"gemini-2.5-flash"}:
+        client = openai.Client(api_key=model_config.get("api_key"), base_url=model_config.get("base_url"))
+    elif model_name in {"meta-llama/llama-4-maverick-17b-128e-instruct"}:
+        client = Groq(api_key=model_config.get("api_key"))
     # Prepare parameters for the API call
     params = {
-        "model": "gpt-4.1",
+        "model": model_name,
         "messages": [
             {"role": "system", "content": "You are a senior software engineer with 10 years of experience in software development."},
             {"role": "user", "content": evaluation_prompt}
@@ -86,42 +100,32 @@ def ask_openai_evaluation(question, reference_answer, response):
     return response.choices[0].message.content.strip()
 
 # Function to compare responses based on all criteria
-def compare_responses(question, reference_answer, claude_code_answer, codefusion_claude_sonnet_answer, codefusion_gpt_5_answer, codewalk_answer=None):
-    # Get OpenAI evaluation for all responses
-    #print("Evaluating Claude Code's response...")
-    claude_code_evaluation = ask_openai_evaluation(question, reference_answer, claude_code_answer)
-
-    #print("Evaluating CodeFusion (Sonnet)'s response...")
-    codefusion_claude_sonnet_evaluation = ask_openai_evaluation(question, reference_answer, codefusion_claude_sonnet_answer)
-
-    codefusion_gpt_5_evaluation = None
-    #print("Evaluating CodeFusion (GPT-5)'s response...")
-    if codefusion_gpt_5_answer:
-        codefusion_gpt_5_evaluation = ask_openai_evaluation(question, reference_answer, codefusion_gpt_5_answer)
+def compare_responses(question, reference_answer, model_name, *model_responses):
+    """
+    Compare model responses against the reference answer and evaluate them.
     
-
+    Args:
+        question (str): The question that was asked
+        reference_answer (str): The reference/expected answer
+        *model_responses: Variable number of model responses to evaluate
+        
+    Returns:
+        list: List of evaluation results for each model response
+    """
+    evaluations = []
     
-    # Evaluate CodeWalk if provided
-    codewalk_evaluation = None
-    if codewalk_answer:
-        #print("Evaluating CodeWalk's response...")
-        codewalk_evaluation = ask_openai_evaluation(question, reference_answer, codewalk_answer)
-
-    # Print the results
-    print(f"Question: {question}")
-    print(f"Reference Answer: {reference_answer}")
-    print(f"Claude Code's Answer: {claude_code_answer}")
-    print(f"Claude Code's Evaluation: {claude_code_evaluation}")
-    print(f"CodeFusion (Sonnet)'s Answer: {codefusion_claude_sonnet_answer}")
-    print(f"CodeFusion (Sonnet)'s Evaluation: {codefusion_claude_sonnet_evaluation}")
-    if codefusion_gpt_5_answer:
-        print(f"CodeFusion (GPT-5) Answer: {codefusion_gpt_5_answer}")
-        print(f"CodeFusion (GPT-5) Evaluation: {codefusion_gpt_5_evaluation}")
-    if codewalk_answer and codewalk_evaluation:
-        print(f"CodeWalk's Answer: {codewalk_answer}")
-        print(f"CodeWalk's Evaluation: {codewalk_evaluation}")
-
-    return claude_code_evaluation, codefusion_claude_sonnet_evaluation, codefusion_gpt_5_evaluation, codewalk_evaluation
+    print("Using judge model: {}".format(model_name))
+    print(f"Evaluating responses for question: {question[:100]}...")
+    for i, (model_id, response) in enumerate(model_responses, 1):
+        print(f"Evaluating {model_id} response...")
+        evaluation = ask_openai_evaluation(question, reference_answer, response, model_name)
+        evaluations.append(evaluation)
+        
+        # Print the response and its evaluation
+        print(f"{model_id} Response: {response[:200]}...")
+        print(f"{model_id} Evaluation: {evaluation[:200]}...\n")
+    
+    return evaluations
 
 def parse_evaluation_json(eval_text):
     """Parse JSON evaluation response, handling potential formatting issues."""
@@ -190,95 +194,78 @@ def run_langfuse_eval(item, input, output, eval_data, repo_name, model_name):
                 )
 
 
-def generate_html_report(evaluation_results, output_path="evaluation_results_django.html"):
-    """Generate comprehensive HTML report from evaluation results."""
+def generate_html_report(evaluation_results, output_path, model_name):
+    """Generate comprehensive HTML report from evaluation results.
     
+    Args:
+        evaluation_results (list): List of evaluation results
+        output_path (str): Path to save the HTML report
+        model_ids (list): List of model IDs to include in the report
+    """
+    # Initialize data structures with dynamic model IDs
+    all_evaluations = {model["id"]: [] for model in MODELS}
+    all_scores = {
+        model["id"]: {"arch": [], "consistency": [], "understanding": [], "grounding": []}
+        for model in MODELS
+    }
+    avg_scores = {
+        model["id"]: {"arch": 0, "consistency": 0, "understanding": 0, "grounding": 0}
+        for model in MODELS
+    }
+    overall_scores = {model["id"]: 0 for model in MODELS}
     # Calculate summary statistics
-    claude_code_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
-    codefusion_claude_sonnet_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
-    codefusion_gpt_5_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
-    codewalk_scores = {"arch": [], "consistency": [], "understanding": [], "grounding": []}
+    
 
-    dataset = langfuse.get_dataset("django_qa")
+    dataset = langfuse.get_dataset("django_qa_1")
     
     for result in evaluation_results:
-        # Parse evaluations
-        claude_code_eval = parse_evaluation_json(result["claude_code_evaluation"])
-        codefusion_claude_sonnet_eval = parse_evaluation_json(result["codefusion_claude_sonnet_evaluation"])
-        codefusion_gpt_5_eval = parse_evaluation_json(result.get("codefusion_gpt_5_evaluation", "{}")) if result.get("codefusion_gpt_5_evaluation") else None
-        codewalk_eval = parse_evaluation_json(result.get("codewalk_evaluation", "{}")) if result.get("codewalk_evaluation") else None
+        # Parse evaluations for each model
+        for model in MODELS:
+            model_id = model["id"]
+            eval_key = f"{model_id}_evaluation"
+            if eval_key in result and result[eval_key]:
+                try:
+                    parsed_eval = parse_evaluation_json(result[eval_key])
+                    all_evaluations[model_id].append(parsed_eval)
+                except Exception as e:
+                    print(f"Error parsing evaluation for {model_id}: {e}")
+                    all_evaluations[model_id].append({
+                        "architecture_reasoning": {"score": 0, "feedback": "Parse error"},
+                        "reasoning_consistency": {"score": 0, "feedback": "Parse error"},
+                        "code_understanding_tier": {"score": 0, "tier": "unknown", "feedback": "Parse error"},
+                        "grounding": {"score": 0, "feedback": "Parse error"}
+                    })
+        
+        # Process Langfuse evaluations
         for ds_item in dataset.items:
-            input = ds_item.input
-            if input != result["question"]:
+            if ds_item.input != result["question"]:
                 continue
-            
-            output = result["claude_code_answer"]
-            run_langfuse_eval(ds_item, result["question"], result["claude_code_answer"], claude_code_eval, "django", "claude_code")
-            output = result["codefusion_claude_sonnet_answer"]
-            run_langfuse_eval(ds_item, result["question"], result["codefusion_claude_sonnet_answer"], codefusion_claude_sonnet_eval, "django", "codefusion_claude_sonnet")
-            if result.get("codefusion_gpt_5_answer"):
-                output = result["codefusion_gpt_5_answer"]
-                run_langfuse_eval(ds_item, result["question"], result["codefusion_gpt_5_answer"], codefusion_gpt_5_eval, "django", "codefusion_gpt_5")
-            if result.get("codewalk_answer"):
-                output = result["codewalk_answer"]
-                run_langfuse_eval(ds_item, result["question"], result["codewalk_answer"], codewalk_eval, "django", "codewalk")
-        # Collect Claude Code scores
-        claude_code_scores["arch"].append(claude_code_eval["architecture_reasoning"]["score"])
-        claude_code_scores["consistency"].append(claude_code_eval["reasoning_consistency"]["score"])
-        claude_code_scores["understanding"].append(claude_code_eval["code_understanding_tier"]["score"])
-        claude_code_scores["grounding"].append(claude_code_eval["grounding"]["score"])
+                
+            # Run Langfuse evaluation for each model
+            for model in MODELS:
+                model_id = model["id"]
+                output = result[f"{model_id}_answer"]
+                try:
+                    run_langfuse_eval(ds_item, result["question"], output, all_evaluations[model_id][-1], "django", model_id)
+                except Exception as e:
+                    print(f"Error in Langfuse evaluation for {model_id}: {type(e).__name__} - {str(e)}")
         
-        # Collect CodeFusion scores
-        codefusion_claude_sonnet_scores["arch"].append(codefusion_claude_sonnet_eval["architecture_reasoning"]["score"])
-        codefusion_claude_sonnet_scores["consistency"].append(codefusion_claude_sonnet_eval["reasoning_consistency"]["score"])
-        codefusion_claude_sonnet_scores["understanding"].append(codefusion_claude_sonnet_eval["code_understanding_tier"]["score"])
-        codefusion_claude_sonnet_scores["grounding"].append(codefusion_claude_sonnet_eval["grounding"]["score"])
-        
-        # Collect CodeFusion (GPT-5) scores
-        if codefusion_gpt_5_eval:
-            codefusion_gpt_5_scores["arch"].append(codefusion_gpt_5_eval["architecture_reasoning"]["score"])
-            codefusion_gpt_5_scores["consistency"].append(codefusion_gpt_5_eval["reasoning_consistency"]["score"])
-            codefusion_gpt_5_scores["understanding"].append(codefusion_gpt_5_eval["code_understanding_tier"]["score"])
-            codefusion_gpt_5_scores["grounding"].append(codefusion_gpt_5_eval["grounding"]["score"])
-        
-        # Collect CodeWalk scores if available
-        if codewalk_eval:
-            codewalk_scores["arch"].append(codewalk_eval["architecture_reasoning"]["score"])
-            codewalk_scores["consistency"].append(codewalk_eval["reasoning_consistency"]["score"])
-            codewalk_scores["understanding"].append(codewalk_eval["code_understanding_tier"]["score"])
-            codewalk_scores["grounding"].append(codewalk_eval["grounding"]["score"])
+        # Collect scores for each model
+        for model in MODELS:
+            model_id = model["id"]
+            eval_data = all_evaluations[model_id][-1]
+            all_scores[model_id]["arch"].append(eval_data.get("architecture_reasoning", {}).get("score", 0))
+            all_scores[model_id]["consistency"].append(eval_data.get("reasoning_consistency", {}).get("score", 0))
+            all_scores[model_id]["understanding"].append(eval_data.get("code_understanding_tier", {}).get("score", 0))
+            all_scores[model_id]["grounding"].append(eval_data.get("grounding", {}).get("score", 0))
     
-    # Calculate averages
-    claude_code_avg = {
-        "arch": sum(claude_code_scores["arch"]) / len(claude_code_scores["arch"]),
-        "consistency": sum(claude_code_scores["consistency"]) / len(claude_code_scores["consistency"]),
-        "understanding": sum(claude_code_scores["understanding"]) / len(claude_code_scores["understanding"]),
-        "grounding": sum(claude_code_scores["grounding"]) / len(claude_code_scores["grounding"])
-    }
-    
-    codefusion_claude_sonnet_avg = {
-        "arch": sum(codefusion_claude_sonnet_scores["arch"]) / len(codefusion_claude_sonnet_scores["arch"]),
-        "consistency": sum(codefusion_claude_sonnet_scores["consistency"]) / len(codefusion_claude_sonnet_scores["consistency"]),
-        "understanding": sum(codefusion_claude_sonnet_scores["understanding"]) / len(codefusion_claude_sonnet_scores["understanding"]),
-        "grounding": sum(codefusion_claude_sonnet_scores["grounding"]) / len(codefusion_claude_sonnet_scores["grounding"])
-    }
-    codefusion_gpt_5_avg = None
-    if codefusion_gpt_5_scores["arch"]:
-        codefusion_gpt_5_avg = {
-            "arch": sum(codefusion_gpt_5_scores["arch"]) / len(codefusion_gpt_5_scores["arch"]),
-            "consistency": sum(codefusion_gpt_5_scores["consistency"]) / len(codefusion_gpt_5_scores["consistency"]),
-            "understanding": sum(codefusion_gpt_5_scores["understanding"]) / len(codefusion_gpt_5_scores["understanding"]),
-            "grounding": sum(codefusion_gpt_5_scores["grounding"]) / len(codefusion_gpt_5_scores["grounding"])
-        }
-    
-    # Calculate CodeWalk averages if data is available
-    codewalk_avg = None
-    if codewalk_scores["arch"]:  # Check if we have CodeWalk data
-        codewalk_avg = {
-            "arch": sum(codewalk_scores["arch"]) / len(codewalk_scores["arch"]),
-            "consistency": sum(codewalk_scores["consistency"]) / len(codewalk_scores["consistency"]),
-            "understanding": sum(codewalk_scores["understanding"]) / len(codewalk_scores["understanding"]),
-            "grounding": sum(codewalk_scores["grounding"]) / len(codewalk_scores["grounding"])
+    for model in MODELS:
+        model_id = model["id"]
+        avg_scores[model_id] = {
+            "arch": sum(all_scores[model_id]["arch"]) / len(all_scores[model_id]["arch"]),
+            "consistency": sum(all_scores[model_id]["consistency"]) / len(all_scores[model_id]["consistency"]),
+            "understanding": sum(all_scores[model_id]["understanding"]) / len(all_scores[model_id]["understanding"]),
+            "grounding": sum(all_scores[model_id]["grounding"]) / len(all_scores[model_id]["grounding"]),
         }
     
     html_content = f"""<!DOCTYPE html>
@@ -286,7 +273,7 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Django Q&A Evaluation Report</title>
+    <title>Django Q&A Evaluation Report (Judge Model: {model_name})</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -371,11 +358,8 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
         }}
         
         .reference-answer {{ border-left-color: #28a745; }}
-        .claude-code-answer {{ border-left-color: #17a2b8; }}
-        .codefusion-claude-sonnet-answer {{ border-left-color: #ffc107; }}
-        .codefusion-gpt-5-answer {{ border-left-color: #6f42c1; }}
-        .codewalk-answer {{ border-left-color: #6f42c1; }}
         
+        {''.join([f'.{model["id"]}_answer {{ border-left-color: {model.get("answer_color", "#cccccc")}; }}' for model in MODELS])}
         .answer-title {{
             font-weight: bold;
             margin-bottom: 10px;
@@ -499,22 +483,8 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
             overflow: hidden;
         }}
         
-        .claude-code-column {{
-            border-top: 4px solid #17a2b8;
-        }}
-        
-        .codefusion-claude-sonnet-column {{
-            border-top: 4px solid #6f42c1;
-        }}
-
-        .codefusion-gpt-5-column {{
-            border-top: 4px solid #ffc107;
-        }}
-        
-        .codewalk-column {{
-            border-top: 4px solid #28a745;
-        }}
-        
+        {''.join([f'.{model["id"]}_column {{ border-top: 4px solid {model.get("column_color", "#cccccc")}; }}' for model in MODELS])}
+                
         .model-header {{
             padding: 12px 15px;
             font-weight: bold;
@@ -522,22 +492,7 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
             text-align: center;
         }}
         
-        .claude-code-column .model-header {{
-            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
-        }}
-        
-        .codefusion-claude-sonnet-column .model-header {{
-            background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
-            color: #333;
-        }}
-        
-        .codefusion-gpt-5-column .model-header {{
-            background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);
-        }}
-        
-        .codewalk-column .model-header {{
-            background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
-        }}
+        {''.join([f'.{model["id"]}_column .model-header {{ background: {model.get("gradient", "#cccccc")}; {"color: #333;" if model.get('light_text', False) else ""}}}' for model in MODELS])}
         
         .feedback-section {{
             padding: 15px;
@@ -639,7 +594,7 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
 </head>
 <body>
     <div class="container">
-        <h1>📊 Django Q&A Evaluation Report</h1>
+        <h1>📊 Django Q&A Evaluation Report (Judge Model: {model_name})</h1>
         <p style="text-align: center; color: #6c757d; margin-bottom: 40px;">
             Generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} | 
             {len(evaluation_results)} questions evaluated
@@ -650,11 +605,20 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
             <thead>
                 <tr>
                     <th style="width: 20%;">Question</th>
-                    <th colspan="4" style="text-align: center; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">🤖 Claude Code</th>
-                    <th colspan="4" style="text-align: center; background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);">✨ CodeFusion (Sonnet)</th>
+                    {''.join([
+                        f'<th colspan="4" style="text-align: center; background: {model.get("title_gradient", "#cccccc")}; {"color: #333;" if model.get("light_text", False) else ""}">{model["title_icon"]} {model["name"]}</th>'
+                        for model in MODELS])}
                 </tr>
                 <tr>
                     <th></th>
+                    <th>Arch</th>
+                    <th>Reasoning</th>
+                    <th>Code Tier</th>
+                    <th>Grounding</th>
+                    <th>Arch</th>
+                    <th>Reasoning</th>
+                    <th>Code Tier</th>
+                    <th>Grounding</th>
                     <th>Arch</th>
                     <th>Reasoning</th>
                     <th>Code Tier</th>
@@ -670,27 +634,25 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
     
     # Add score comparison rows
     for i, result in enumerate(evaluation_results, 1):
-        claude_code_eval = parse_evaluation_json(result["claude_code_evaluation"])
-        codefusion_claude_sonnet_eval = parse_evaluation_json(result["codefusion_claude_sonnet_evaluation"])
-        codefusion_gpt_5_eval = parse_evaluation_json(result.get("codefusion_gpt_5_evaluation", "{}")) if result.get("codefusion_gpt_5_evaluation") else None
-        codewalk_eval = parse_evaluation_json(result.get("codewalk_evaluation", "{}")) if result.get("codewalk_evaluation") else None
         
         question_preview = result['question'][:50] + ('...' if len(result['question']) > 50 else '')
         
         # Escape quotes for HTML tooltip attribute
         full_question_escaped = result['question'].replace('"', '&quot;').replace("'", "&#39;")
         
+        score_cells = "".join([
+            f"""
+            <td><span class="score {get_score_class(all_evaluations[model_id][i-1]['architecture_reasoning']['score'])}">{all_evaluations[model_id][i-1]['architecture_reasoning']['score']}/5</span></td>
+            <td><span class="score {get_score_class(all_evaluations[model_id][i-1]['reasoning_consistency']['score'])}">{all_evaluations[model_id][i-1]['reasoning_consistency']['score']}/5</span></td>
+            <td><span class="score {get_score_class(all_evaluations[model_id][i-1]['code_understanding_tier']['score'])}">{all_evaluations[model_id][i-1]['code_understanding_tier']['score']}/5</span><span class="tier-badge">{all_evaluations[model_id][i-1]['code_understanding_tier'].get('tier', 'unknown')}</span></td>
+            <td><span class="score {get_score_class(all_evaluations[model_id][i-1]['grounding']['score'])}">{all_evaluations[model_id][i-1]['grounding']['score']}/5</span></td>
+            """ 
+            for model_id in [model['id'] for model in MODELS]
+        ])
         html_content += f"""
                 <tr onclick="toggleDetails({i})" style="cursor: pointer;" title="Click to view detailed answers and feedback">
                     <td style="font-weight: 500;" class="question-tooltip" data-tooltip="{full_question_escaped}"><strong>Q{i}:</strong> {question_preview}</td>
-                    <td><span class="score {get_score_class(claude_code_eval['architecture_reasoning']['score'])}">{claude_code_eval['architecture_reasoning']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(claude_code_eval['reasoning_consistency']['score'])}">{claude_code_eval['reasoning_consistency']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(claude_code_eval['code_understanding_tier']['score'])}">{claude_code_eval['code_understanding_tier']['score']}/5</span><span class="tier-badge">{claude_code_eval['code_understanding_tier'].get('tier', 'unknown')}</span></td>
-                    <td><span class="score {get_score_class(claude_code_eval['grounding']['score'])}">{claude_code_eval['grounding']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_claude_sonnet_eval['architecture_reasoning']['score'])}">{codefusion_claude_sonnet_eval['architecture_reasoning']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_claude_sonnet_eval['reasoning_consistency']['score'])}">{codefusion_claude_sonnet_eval['reasoning_consistency']['score']}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_claude_sonnet_eval['code_understanding_tier']['score'])}">{codefusion_claude_sonnet_eval['code_understanding_tier']['score']}/5</span><span class="tier-badge">{codefusion_claude_sonnet_eval['code_understanding_tier'].get('tier', 'unknown')}</span></td>
-                    <td><span class="score {get_score_class(codefusion_claude_sonnet_eval['grounding']['score'])}">{codefusion_claude_sonnet_eval['grounding']['score']}/5</span></td>
+                    {score_cells}
                 </tr>
         """
     
@@ -701,15 +663,42 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
         <h2>📋 Detailed Question Analysis</h2>
         <p style="color: #6c757d; margin-bottom: 30px;"><em>Click on any question below to expand detailed answers and feedback</em></p>
 """
-    
+
     # Add detailed expandable sections
     for i, result in enumerate(evaluation_results, 1):
-        claude_code_eval = parse_evaluation_json(result["claude_code_evaluation"])
-        codefusion_claude_sonnet_eval = parse_evaluation_json(result["codefusion_claude_sonnet_evaluation"])
-        codefusion_gpt_5_eval = parse_evaluation_json(result.get("codefusion_gpt_5_evaluation", "{}")) if result.get("codefusion_gpt_5_evaluation") else None
-        codewalk_eval = parse_evaluation_json(result.get("codewalk_evaluation", "{}")) if result.get("codewalk_evaluation") else None
         
         question_preview = result['question'][:80] + ('...' if len(result['question']) > 80 else '')
+
+        model_columns = "".join([
+            f"""
+            <div class="model-column {model['id']}_column">
+                <div class="model-header">{model.get('title_icon', '')} {model['name']}</div>
+                <div class="answer-text">{result.get(f"{model['id']}_answer", "No answer provided")}</div>
+                <div class="feedback-section">
+                    {f'''
+                    <div class="feedback-item">
+                        <strong>Architecture ({all_evaluations[model['id']][i-1]['architecture_reasoning']['score']}/5):</strong>
+                        <div class="feedback-text">{all_evaluations[model['id']][i-1]['architecture_reasoning']['feedback']}</div>
+                    </div>
+                    <div class="feedback-item">
+                        <strong>Reasoning Consistency ({all_evaluations[model['id']][i-1]['reasoning_consistency']['score']}/5):</strong>
+                        <div class="feedback-text">{all_evaluations[model['id']][i-1]['reasoning_consistency']['feedback']}</div>
+                    </div>
+                    <div class="feedback-item">
+                        <strong>Code Tier ({all_evaluations[model['id']][i-1]['code_understanding_tier']['score']}/5 - {all_evaluations[model['id']][i-1]['code_understanding_tier'].get('tier', 'unknown')}):</strong>
+                        <div class="feedback-text">{all_evaluations[model['id']][i-1]['code_understanding_tier']['feedback']}</div>
+                    </div>
+                    <div class="feedback-item">
+                        <strong>Grounding ({all_evaluations[model['id']][i-1]['grounding']['score']}/5):</strong>
+                        <div class="feedback-text">{all_evaluations[model['id']][i-1]['grounding']['feedback']}</div>
+                    </div>
+                    ''' if model['id'] in all_evaluations and i-1 < len(all_evaluations[model['id']]) else 
+                    '<div class="feedback-item">No evaluation data available</div>'}
+                </div>
+            </div>
+            """ 
+        for model in MODELS
+    ])     
         
         html_content += f"""
         <div class="question-section" id="details-{i}">
@@ -729,86 +718,44 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
                 </div>
                 
                 <div class="models-comparison">
-                    <div class="model-column claude-column">
-                        <div class="model-header">🤖 Claude Code</div>
-                        <div class="answer-text">{result['claude_code_answer']}</div>
-                        <div class="feedback-section">
-                            <div class="feedback-item">
-                                <strong>Architecture ({claude_code_eval['architecture_reasoning']['score']}/5):</strong>
-                                <div class="feedback-text">{claude_code_eval['architecture_reasoning']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Reasoning Consistency ({claude_code_eval['reasoning_consistency']['score']}/5):</strong>
-                                <div class="feedback-text">{claude_code_eval['reasoning_consistency']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Code Tier ({claude_code_eval['code_understanding_tier']['score']}/5 - {claude_code_eval['code_understanding_tier'].get('tier', 'unknown')}):</strong>
-                                <div class="feedback-text">{claude_code_eval['code_understanding_tier']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Grounding ({claude_code_eval['grounding']['score']}/5):</strong>
-                                <div class="feedback-text">{claude_code_eval['grounding']['feedback']}</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="model-column claude-sonnet-column">
-                        <div class="model-header">✨ CodeFusion (Sonnet)</div>
-                        <div class="answer-text">{result['codefusion_claude_sonnet_answer']}</div>
-                        <div class="feedback-section">
-                            <div class="feedback-item">
-                                <strong>Architecture ({codefusion_claude_sonnet_eval['architecture_reasoning']['score']}/5):</strong>
-                                <div class="feedback-text">{codefusion_claude_sonnet_eval['architecture_reasoning']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Reasoning Consistency ({codefusion_claude_sonnet_eval['reasoning_consistency']['score']}/5):</strong>
-                                <div class="feedback-text">{codefusion_claude_sonnet_eval['reasoning_consistency']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Code Tier ({codefusion_claude_sonnet_eval['code_understanding_tier']['score']}/5 - {codefusion_claude_sonnet_eval['code_understanding_tier'].get('tier', 'unknown')}):</strong>
-                                <div class="feedback-text">{codefusion_claude_sonnet_eval['code_understanding_tier']['feedback']}</div>
-                            </div>
-                            <div class="feedback-item">
-                                <strong>Grounding ({codefusion_claude_sonnet_eval['grounding']['score']}/5):</strong>
-                                <div class="feedback-text">{codefusion_claude_sonnet_eval['grounding']['feedback']}</div>
-                            </div>
-                        </div>
-                    </div>
-                """
-            
-        html_content += """
-                        </div>
-                    </div>
+                    {model_columns}
                 </div>
             </div>
         </div>
         """
     
     # Calculate overall averages for winner determination
-    claude_code_overall = (claude_code_avg['arch'] + claude_code_avg['consistency'] + claude_code_avg['understanding'] + claude_code_avg['grounding']) / 4
-    codefusion_claude_sonnet_overall = (codefusion_claude_sonnet_avg['arch'] + codefusion_claude_sonnet_avg['consistency'] + codefusion_claude_sonnet_avg['understanding'] + codefusion_claude_sonnet_avg['grounding']) / 4
-    
-    # Calculate CodeWalk overall if available
-    codewalk_overall = None
-    if codewalk_avg:
-        codewalk_overall = (codewalk_avg['arch'] + codewalk_avg['consistency'] + codewalk_avg['understanding'] + codewalk_avg['grounding']) / 4
+    for model in MODELS:
+        model_id = model['id']
+        overall_scores[model_id] = (avg_scores[model_id]['arch'] + avg_scores[model_id]['consistency'] + avg_scores[model_id]['understanding'] + avg_scores[model_id]['grounding']) / 4
     
     # Determine winner
-    scores = [("Claude Code", claude_code_overall), ("CodeFusion (Sonnet)", codefusion_claude_sonnet_overall)]
-    if codewalk_overall is not None:
-        scores.append(("CodeWalk", codewalk_overall))
+    scores = [(model['name'], overall_scores[model['id']]) for model in MODELS]
     
     winner, winner_score = max(scores, key=lambda x: x[1])
     
     # Determine best category across all models
     category_averages = {
-        "Architecture": (claude_code_avg['arch'] + codefusion_claude_sonnet_avg['arch'] + (codewalk_avg['arch'] if codewalk_avg else 0)) / (2 if codewalk_avg else 2),
-        "Reasoning": (claude_code_avg['consistency'] + codefusion_claude_sonnet_avg['consistency'] + (codewalk_avg['consistency'] if codewalk_avg else 0)) / (2 if codewalk_avg else 2),
-        "Code Tier": (claude_code_avg['understanding'] + codefusion_claude_sonnet_avg['understanding'] + (codewalk_avg['understanding'] if codewalk_avg else 0)) / (2 if codewalk_avg else 2),
-        "Grounding": (claude_code_avg['grounding'] + codefusion_claude_sonnet_avg['grounding'] + (codewalk_avg['grounding'] if codewalk_avg else 0)) / (2 if codewalk_avg else 2)
+        "Architecture": sum(avg_scores[model['id']]['arch'] for model in MODELS) / len(avg_scores),
+        "Reasoning": sum(avg_scores[model['id']]['consistency'] for model in MODELS) / len(avg_scores),
+        "Code Tier": sum(avg_scores[model['id']]['understanding'] for model in MODELS) / len(avg_scores),
+        "Grounding": sum(avg_scores[model['id']]['grounding'] for model in MODELS) / len(avg_scores)
     }
     best_category = max(category_averages, key=category_averages.get)
-    
+    summary_rows = "".join([
+        f"""
+        <tr>
+            <td><strong>{model['name']}</strong></td>
+            <td><span class="score {get_score_class(avg_scores[model['id']]['arch'])}">{avg_scores[model['id']]['arch']:.1f}/5</span></td>
+            <td><span class="score {get_score_class(avg_scores[model['id']]['consistency'])}">{avg_scores[model['id']]['consistency']:.1f}/5</span></td>
+            <td><span class="score {get_score_class(avg_scores[model['id']]['understanding'])}">{avg_scores[model['id']]['understanding']:.1f}/5</span></td>
+            <td><span class="score {get_score_class(avg_scores[model['id']]['grounding'])}">{avg_scores[model['id']]['grounding']:.1f}/5</span></td>
+            <td><span class="score {get_score_class(overall_scores[model['id']])}">{overall_scores[model['id']]:.1f}/5</span></td>
+        </tr>
+        """
+        for model in MODELS
+    ])
+
     # Add summary statistics
     html_content += f"""
         <h2>📈 Summary Statistics</h2>
@@ -825,36 +772,7 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
                 </tr>
             </thead>
             <tbody>
-                <tr>
-                    <td><strong>Claude Code</strong></td>
-                    <td><span class="score {get_score_class(claude_code_avg['arch'])}">{claude_code_avg['arch']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_code_avg['consistency'])}">{claude_code_avg['consistency']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_code_avg['understanding'])}">{claude_code_avg['understanding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_code_avg['grounding'])}">{claude_code_avg['grounding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(claude_code_overall)}">{claude_code_overall:.1f}/5</span></td>
-                </tr>
-                <tr>
-                    <td><strong>CodeFusion (Sonnet)</strong></td>
-                    <td><span class="score {get_score_class(codefusion_claude_sonnet_avg['arch'])}">{codefusion_claude_sonnet_avg['arch']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_claude_sonnet_avg['consistency'])}">{codefusion_claude_sonnet_avg['consistency']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_claude_sonnet_avg['understanding'])}">{codefusion_claude_sonnet_avg['understanding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_claude_sonnet_avg['grounding'])}">{codefusion_claude_sonnet_avg['grounding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codefusion_claude_sonnet_overall)}">{codefusion_claude_sonnet_overall:.1f}/5</span></td>
-                </tr>"""
-    
-    # Add CodeWalk row if data is available
-    if codewalk_avg and codewalk_overall is not None:
-        html_content += f"""
-                <tr>
-                    <td><strong>CodeWalk</strong></td>
-                    <td><span class="score {get_score_class(codewalk_avg['arch'])}">{codewalk_avg['arch']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codewalk_avg['consistency'])}">{codewalk_avg['consistency']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codewalk_avg['understanding'])}">{codewalk_avg['understanding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codewalk_avg['grounding'])}">{codewalk_avg['grounding']:.1f}/5</span></td>
-                    <td><span class="score {get_score_class(codewalk_overall)}">{codewalk_overall:.1f}/5</span></td>
-                </tr>"""
-    
-    html_content += f"""
+                {summary_rows}
             </tbody>
         </table>
         
@@ -911,7 +829,7 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
         </script>
         
         <div style="text-align: center; margin-top: 40px; color: #7f8c8d; font-size: 14px;">
-            <p>📊 FastAPI Q&A Evaluation Report - Three-Model Comparison</p>
+            <p>📊 Django Q&A Evaluation Report - {len(MODELS)}-Model Comparison</p>
         </div>
     </div>
 </body>
@@ -923,45 +841,54 @@ def generate_html_report(evaluation_results, output_path="evaluation_results_dja
     print(f"✅ HTML report generated: {output_path}")
     return output_path
 
-def main():
-    eval_data_path = 'cf/evals/django_qa.yaml'
-    with open(eval_data_path, 'r') as f:
-         eval_data = yaml.safe_load(f)
-    
+def evaluate_responses(eval_data, output_path, model_name):
     # Collect all evaluation results
     evaluation_results = []
+    global MODELS
+    
+    # Get model IDs from the eval_data
+    MODELS = eval_data.get('models', [])
     
     for qdata in eval_data["questions"]:
         question = qdata["question"]
         reference_answer = qdata["reference_answer"]
-        claude_code_answer = qdata["claude_code_answer"]
-        codefusion_claude_sonnet_answer = qdata["codefusion_claude-sonnet-4-20250514_answer"]
-        codefusion_gpt_5_answer = qdata["codefusion_gpt-5_answer"]
-        codewalk_answer = qdata.get("codewalk_answer")  # CodeWalk might not be present
-        claude_code_evaluation, codefusion_claude_sonnet_evaluation, codefusion_gpt_5_evaluation, codewalk_evaluation = compare_responses(question, reference_answer, claude_code_answer, codefusion_claude_sonnet_answer, codefusion_gpt_5_answer, codewalk_answer)
+        
+        # Collect model responses
+        model_responses = []
+        for model in MODELS:
+            response = qdata.get(f"{model['id']}_answer", "N/A")
+            model_responses.append((model['id'], response))
+        
+        # Evaluate all model responses
+        evaluations = compare_responses(question, reference_answer, model_name, *model_responses)
         
         # Store results for HTML generation
         result_data = {
             "question": question,
             "reference_answer": reference_answer,
-            "claude_code_answer": claude_code_answer,
-            "codefusion_claude_sonnet_answer": codefusion_claude_sonnet_answer,
-            "codefusion_gpt_5_answer": codefusion_gpt_5_answer,
-            "claude_code_evaluation": claude_code_evaluation,
-            "codefusion_claude_sonnet_evaluation": codefusion_claude_sonnet_evaluation,
-            "codefusion_gpt_5_evaluation": codefusion_gpt_5_evaluation
         }
         
-        # Add CodeWalk data if available
-        if codewalk_answer:
-            result_data["codewalk_answer"] = codewalk_answer
-        if codewalk_evaluation:
-            result_data["codewalk_evaluation"] = codewalk_evaluation
-            
+        # Add model responses and evaluations to result data
+        for i, model in enumerate(MODELS):
+            result_data[f"{model['id']}_answer"] = model_responses[i][1]
+            result_data[f"{model['id']}_evaluation"] = evaluations[i]
         evaluation_results.append(result_data)
     
     # Generate HTML report
-    html_file = generate_html_report(evaluation_results)
+    html_file = generate_html_report(evaluation_results, output_path, model_name)
+    
+    return html_file
+
+def main():
+    eval_data_path = 'cf/evals/eval_qa_llama4_mav_codewalk.yaml'
+    with open(eval_data_path, 'r') as f:
+         eval_data = yaml.safe_load(f)
+    model_name = "gpt-5"
+    if model_name == "meta-llama/llama-4-maverick-17b-128e-instruct":
+        output_path = "evaluation_results_django_{}_{}.html".format("llama-4-maverick-17b-128e-instruct", datetime.now().strftime("%Y%m%d_%H%M%S"))
+    else:
+        output_path = "evaluation_results_django_{}_{}.html".format(model_name, datetime.now().strftime("%Y%m%d_%H%M%S"))
+    html_file = evaluate_responses(eval_data, output_path, model_name)
     print(f"\n🎉 Evaluation complete! HTML report generated: {html_file}")
 
 if __name__ == "__main__":

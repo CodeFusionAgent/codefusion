@@ -10,6 +10,7 @@ import json
 import fnmatch
 from typing import Dict, List, Any
 from cf.agents.base import BaseAgent
+import traceback
 
 
 class CodeAgent(BaseAgent):
@@ -93,7 +94,7 @@ Be efficient - use tools strategically and stop when you have enough information
     
     def _run_function_calling_loop(self) -> str:
         """Run the actual function calling loop"""
-        
+        print("[CODE_AGENT] Running function calling loop...")
         max_function_calls = 12  # Hard limit for code analysis
         function_calls_made = 0
         
@@ -102,13 +103,15 @@ Be efficient - use tools strategically and stop when you have enough information
         
         self.logger.verbose_progress("Using LLM function calling for intelligent tool selection", "🔧")
         self.logger.debug(f"Retrieved {len(available_tools)} tool schemas from registry")
-        
+        print(f"[CODE_AGENT] Retrieved {len(available_tools)} tool schemas from registry")
         while function_calls_made < max_function_calls:
             try:
                 self.logger.debug(f"Function call iteration {function_calls_made + 1}/{max_function_calls}")
+                print(f"[CODE_AGENT] Function call iteration {function_calls_made + 1}/{max_function_calls}")
                 
                 # Get LLM response with function calling
                 self.logger.verbose_progress("Calling LLM with function calling enabled...", "📡")
+                print(f"[CODE_AGENT] Calling LLM with function calling enabled...")
                 response = self.llm.generate_with_functions(
                     self._build_conversation_prompt(),
                     available_tools,
@@ -159,8 +162,10 @@ Be efficient - use tools strategically and stop when you have enough information
                     
                     # Execute the tool
                     self.logger.debug(f"Executing tool {tool_name} with params: {tool_params}")
+                    print(f"[CODE_AGENT] Executing tool {tool_name} with params: {tool_params}")
                     tool_result = self.use_tool(tool_name, **tool_params)
                     self.logger.debug(f"Tool result success: {not tool_result.get('error')}")
+                    print(f"[CODE_AGENT] Tool result success: {not tool_result.get('error')}")
                     
                     # Store for tracking
                     self.tool_results.append({
@@ -194,6 +199,7 @@ Be efficient - use tools strategically and stop when you have enough information
                     return f"function_calling_complete_after_{function_calls_made}_calls"
                 
             except Exception as e:
+                print(f"[CODE_AGENT] Function calling loop error: {traceback.print_exc()}")
                 self.add_insight(
                     f"Function calling loop error: {str(e)}",
                     confidence=0.2,
@@ -425,6 +431,7 @@ Be efficient - use tools strategically and stop when you have enough information
     
     def _generate_results(self, question: str) -> Dict[str, Any]:
         """Generate results using the final LLM response"""
+        print(f"🔍 [CODE_AGENT] Generating results...")
         
         if not hasattr(self, 'final_llm_response') and not self.insights:
             return {
@@ -1417,7 +1424,7 @@ CRITICAL:
         
         # Build detailed context from previous passes
         context_parts = []
-        
+        print(f"🎯 [CODE_AGENT] Initializing conversation for feature flow analysis...: {question}")
         # Add detailed file analysis context
         if hasattr(self, 'file_summaries') and self.file_summaries:
             context_parts.append(f"=== ANALYZED FILES ({len(self.file_summaries)} files) ===")
@@ -1536,5 +1543,5 @@ USE ONLY THE SPECIFIC CODE ANALYSIS PROVIDED WITH TECHNICAL DEPTH."""
             "role": "user", 
             "content": f"Based on the code analysis, please explain: {question}"
         }
-        
+        print(f"🎯 [CODE_AGENT] Initializing conversation for feature flow analysis...: {question}\n {system_message}\n {user_message}")
         self.conversation_history = [system_message, user_message]
