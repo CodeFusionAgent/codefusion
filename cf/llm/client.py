@@ -8,6 +8,7 @@ import json
 import time
 from typing import Dict, List, Any, Optional
 import traceback
+from groq import Groq
 
 try:
     import litellm
@@ -26,11 +27,12 @@ class LLMClient:
         if not LITELLM_AVAILABLE:
             raise ImportError("LiteLLM not available. Install with: pip install litellm")
         
-        self.model = llm_config.get('model', 'gpt-4o')
+        self.model = llm_config.get('model')
         self.api_key = llm_config.get('api_key')
         self.max_tokens = llm_config.get('max_tokens', 2000)
         self.temperature = llm_config.get('temperature', 0.7)
-        self.timeout = llm_config.get('timeout', 300)
+        self.timeout = llm_config.get('timeout', 60)
+        self.api_base = llm_config.get('api_base')
         
         # Initialize tracer if available
         self.tracer = None
@@ -45,6 +47,9 @@ class LLMClient:
                 os.environ['ANTHROPIC_API_KEY'] = self.api_key
             elif self.model.startswith('gemini-'):
                 os.environ['GOOGLE_API_KEY'] = self.api_key
+            elif self.model.startswith('meta-llama'):
+                print("Setting GROQ API key")
+                os.environ['GROQ_API_KEY'] = self.api_key
         
         # Configure LiteLLM
         litellm.set_verbose = False  # Disable debugging for clean output
@@ -70,21 +75,28 @@ class LLMClient:
             
             # Count input tokens
             input_tokens = self.count_tokens(prompt + (system_prompt or ""))
-            print("kwargs: ", kwargs)
             # Call LiteLLM
             litellm.set_debug = True
             #litellm._turn_on_debug()
-            response = completion(
-                model=self.model,
-                messages=messages,
-                #max_tokens=kwargs.get('max_tokens', self.max_tokens),
-                #temperature=kwargs.get('temperature', self.temperature),
-                timeout=self.timeout,
-                **kwargs,
-                drop_params=True,
-                num_retries=3,
-                fallbacks=["gpt-5-mini"],
-            )
+            if self.model.startswith('meta-llama'):
+                client = Groq(api_key=self.api_key)
+                response = client.chat.completions.create(
+                    model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                    messages=messages,
+                    timeout=self.timeout)
+            else:
+                response = completion(
+                    model=self.model,
+                    messages=messages,
+                    #max_tokens=kwargs.get('max_tokens', self.max_tokens),
+                    #temperature=kwargs.get('temperature', self.temperature),
+                    timeout=self.timeout,
+                    api_base=self.api_base,
+                    **kwargs,
+                    drop_params=True,
+                    num_retries=3,
+                    #fallbacks=["gpt-5-mini"],
+                )
             
             duration = time.time() - start_time
             
@@ -148,6 +160,7 @@ class LLMClient:
         """Generate response with function calling support"""
         start_time = time.time()
         
+        print("Generating with functions...")
         try:
             messages = []
             if system_prompt:
@@ -160,7 +173,19 @@ class LLMClient:
             
             input_tokens = self.count_tokens(prompt + (system_prompt or ""))
             
-            response = completion(
+            if self.model.startswith('meta-llama'):
+                client = Groq(api_key=self.api_key)
+                response = client.chat.completions.create(
+                    model="meta-llama/llama-4-maverick-17b-128e-instruct",
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    #max_tokens=self.max_tokens,
+                    #temperature=self.temperature,
+                    timeout=self.timeout,
+                )
+            else:
+                response = completion(
                 model=self.model,
                 messages=messages,
                 tools=tools,
@@ -168,6 +193,7 @@ class LLMClient:
                 #max_tokens=self.max_tokens,
                 #temperature=self.temperature,
                 timeout=self.timeout,
+                api_base=self.api_base,
                 fallbacks=["gpt-5-mini"],
                 num_retries=3,
             )
