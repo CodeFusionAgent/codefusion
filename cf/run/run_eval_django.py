@@ -78,7 +78,7 @@ def ask_openai_evaluation(question, reference_answer, response, model_name):
             api_key=model_config.get("subscription_key"),
             api_version=model_config.get("api_version")
         )
-    elif model_name in {"gemini-2.5-flash"}:
+    elif model_name in {"gemini-2.5-flash", "claude-sonnet-4-5"}:
         client = openai.Client(api_key=model_config.get("api_key"), base_url=model_config.get("base_url"))
     elif model_name in {"meta-llama/llama-4-maverick-17b-128e-instruct"}:
         client = Groq(api_key=model_config.get("api_key"))
@@ -216,7 +216,7 @@ def generate_html_report(evaluation_results, output_path, model_name):
     # Calculate summary statistics
     
 
-    dataset = langfuse.get_dataset("django_qa_1")
+    #dataset = langfuse.get_dataset("Codepath_qa_1")
     
     for result in evaluation_results:
         # Parse evaluations for each model
@@ -237,27 +237,28 @@ def generate_html_report(evaluation_results, output_path, model_name):
                     })
         
         # Process Langfuse evaluations
-        for ds_item in dataset.items:
-            if ds_item.input != result["question"]:
-                continue
+        #for ds_item in dataset.items:
+        #    if ds_item.input != result["question"]:
+        #        continue
                 
-            # Run Langfuse evaluation for each model
-            for model in MODELS:
-                model_id = model["id"]
-                output = result[f"{model_id}_answer"]
-                try:
-                    run_langfuse_eval(ds_item, result["question"], output, all_evaluations[model_id][-1], "django", model_id)
-                except Exception as e:
-                    print(f"Error in Langfuse evaluation for {model_id}: {type(e).__name__} - {str(e)}")
+        # Run Langfuse evaluation for each model
+        #for model in MODELS:
+        #    model_id = model["id"]
+        #    output = result[f"{model_id}_answer"]
+        #    #try:
+        #    #    run_langfuse_eval(ds_item, result["question"], output, all_evaluations[model_id][-1], "django", model_id)
+        #    #except Exception as e:
+        #    #    print(f"Error in Langfuse evaluation for {model_id}: {type(e).__name__} - {str(e)}")
         
         # Collect scores for each model
         for model in MODELS:
             model_id = model["id"]
             eval_data = all_evaluations[model_id][-1]
-            all_scores[model_id]["arch"].append(eval_data.get("architecture_reasoning", {}).get("score", 0))
-            all_scores[model_id]["consistency"].append(eval_data.get("reasoning_consistency", {}).get("score", 0))
-            all_scores[model_id]["understanding"].append(eval_data.get("code_understanding_tier", {}).get("score", 0))
-            all_scores[model_id]["grounding"].append(eval_data.get("grounding", {}).get("score", 0))
+            if "N/A" not in result[model_id + "_answer"] and "Parse error" not in eval_data["architecture_reasoning"]["feedback"]:
+                all_scores[model_id]["arch"].append(eval_data.get("architecture_reasoning", {}).get("score", 0))
+                all_scores[model_id]["consistency"].append(eval_data.get("reasoning_consistency", {}).get("score", 0))
+                all_scores[model_id]["understanding"].append(eval_data.get("code_understanding_tier", {}).get("score", 0))
+                all_scores[model_id]["grounding"].append(eval_data.get("grounding", {}).get("score", 0))
     
     for model in MODELS:
         model_id = model["id"]
@@ -273,7 +274,7 @@ def generate_html_report(evaluation_results, output_path, model_name):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Django Q&A Evaluation Report (Judge Model: {model_name})</title>
+    <title>Codepath Q&A Evaluation Report (Judge Model: {model_name})</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -377,6 +378,25 @@ def generate_html_report(evaluation_results, output_path, model_name):
             overflow-y: auto;
             white-space: pre-wrap;
             border: 1px solid #e9ecef;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }}
+        
+        .answer-text.expanded {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            max-height: none;
+            height: 100vh;
+            z-index: 1000;
+            margin: 0;
+            padding: 20px;
+            border-radius: 0;
+            overflow-y: auto;
+            background: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.3);
         }}
         
         .evaluation-grid {{
@@ -591,10 +611,77 @@ def generate_html_report(evaluation_results, output_path, model_name):
             .summary-table th, .summary-table td {{ padding: 8px 4px; }}
         }}
     </style>
+    <script>
+        function toggleExpand(element) {{
+            // Toggle the expanded class on the clicked element
+            element.classList.toggle('expanded');
+            
+            // If expanded, add overlay to the body
+            if (element.classList.contains('expanded')) {{
+                // Create overlay if it doesn't exist
+                let overlay = document.getElementById('overlay');
+                if (!overlay) {{
+                    overlay = document.createElement('div');
+                    overlay.id = 'overlay';
+                    overlay.style.position = 'fixed';
+                    overlay.style.top = '0';
+                    overlay.style.left = '0';
+                    overlay.style.right = '0';
+                    overlay.style.bottom = '0';
+                    overlay.style.background = 'rgba(0, 0, 0, 0.5)';
+                    overlay.style.zIndex = '999';
+                    overlay.style.display = 'none';
+                    overlay.onclick = function() {{
+                        document.body.removeChild(overlay);
+                        const expanded = document.querySelector('.answer-text.expanded');
+                        if (expanded) {{
+                            expanded.classList.remove('expanded');
+                        }}
+                    }};
+                    document.body.appendChild(overlay);
+                }}
+                overlay.style.display = 'block';
+                
+                // Scroll to the expanded element
+                setTimeout(() => {{
+                    element.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                }}, 10);
+            }} else {{
+                // Remove overlay if no expanded elements remain
+                const overlay = document.getElementById('overlay');
+                if (overlay && !document.querySelector('.answer-text.expanded')) {{
+                    overlay.style.display = 'none';
+                }}
+            }}
+        }}
+        
+        // Close expanded answer when clicking outside
+        document.addEventListener('click', function(event) {{
+            const answerTexts = document.querySelectorAll('.answer-text');
+            const overlay = document.getElementById('overlay');
+            let isAnswerText = false;
+            
+            // Check if click is inside any answer text
+            answerTexts.forEach(text => {{
+                if (text.contains(event.target)) {{
+                    isAnswerText = true;
+                }}
+            }});
+            
+            // If click is outside any answer text but overlay is visible
+            if (!isAnswerText && overlay && overlay.style.display === 'block') {{
+                const expanded = document.querySelector('.answer-text.expanded');
+                if (expanded) {{
+                    expanded.classList.remove('expanded');
+                }}
+                overlay.style.display = 'none';
+            }}
+        }});
+    </script>
 </head>
 <body>
     <div class="container">
-        <h1>📊 Django Q&A Evaluation Report (Judge Model: {model_name})</h1>
+        <h1>📊 Codepath Q&A Evaluation Report (Judge Model: {model_name})</h1>
         <p style="text-align: center; color: #6c757d; margin-bottom: 40px;">
             Generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} | 
             {len(evaluation_results)} questions evaluated
@@ -611,22 +698,10 @@ def generate_html_report(evaluation_results, output_path, model_name):
                 </tr>
                 <tr>
                     <th></th>
-                    <th>Arch</th>
-                    <th>Reasoning</th>
-                    <th>Code Tier</th>
-                    <th>Grounding</th>
-                    <th>Arch</th>
-                    <th>Reasoning</th>
-                    <th>Code Tier</th>
-                    <th>Grounding</th>
-                    <th>Arch</th>
-                    <th>Reasoning</th>
-                    <th>Code Tier</th>
-                    <th>Grounding</th>
-                    <th>Arch</th>
-                    <th>Reasoning</th>
-                    <th>Code Tier</th>
-                    <th>Grounding</th>
+               {''.join([
+        '<th>Arch</th><th>Reasoning</th><th>Code Tier</th><th>Grounding</th>'
+        for _ in MODELS
+    ])}
                 </tr>
             </thead>
             <tbody>
@@ -673,7 +748,7 @@ def generate_html_report(evaluation_results, output_path, model_name):
             f"""
             <div class="model-column {model['id']}_column">
                 <div class="model-header">{model.get('title_icon', '')} {model['name']}</div>
-                <div class="answer-text">{result.get(f"{model['id']}_answer", "No answer provided")}</div>
+                <div class="answer-text" onclick="toggleExpand(this)">{result.get(f"{model['id']}_answer", "No answer provided")}</div>
                 <div class="feedback-section">
                     {f'''
                     <div class="feedback-item">
@@ -714,7 +789,7 @@ def generate_html_report(evaluation_results, output_path, model_name):
                 
                 <div class="answer-section reference-answer">
                     <div class="answer-title">📖 Reference Answer</div>
-                    <div class="answer-text">{result['reference_answer']}</div>
+                    <div class="answer-text" onclick="toggleExpand(this)">{result['reference_answer']}</div>
                 </div>
                 
                 <div class="models-comparison">
@@ -829,7 +904,7 @@ def generate_html_report(evaluation_results, output_path, model_name):
         </script>
         
         <div style="text-align: center; margin-top: 40px; color: #7f8c8d; font-size: 14px;">
-            <p>📊 Django Q&A Evaluation Report - {len(MODELS)}-Model Comparison</p>
+            <p>📊 Codepath Q&A Evaluation Report - {len(MODELS)}-Model Comparison</p>
         </div>
     </div>
 </body>
@@ -885,9 +960,9 @@ def main():
          eval_data = yaml.safe_load(f)
     model_name = "gpt-5"
     if model_name == "meta-llama/llama-4-maverick-17b-128e-instruct":
-        output_path = "evaluation_results_django_{}_{}.html".format("llama-4-maverick-17b-128e-instruct", datetime.now().strftime("%Y%m%d_%H%M%S"))
+        output_path = "evaluation_results_codepath_{}_{}.html".format("llama-4-maverick-17b-128e-instruct", datetime.now().strftime("%Y%m%d_%H%M%S"))
     else:
-        output_path = "evaluation_results_django_{}_{}.html".format(model_name, datetime.now().strftime("%Y%m%d_%H%M%S"))
+        output_path = "evaluation_results_codepath_{}_{}.html".format(model_name, datetime.now().strftime("%Y%m%d_%H%M%S"))
     html_file = evaluate_responses(eval_data, output_path, model_name)
     print(f"\n🎉 Evaluation complete! HTML report generated: {html_file}")
 

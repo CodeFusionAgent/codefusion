@@ -18,7 +18,7 @@ class RepoTools:
     def __init__(self, repo_path: str):
         self.repo_path = Path(repo_path).resolve()
         self.max_file_size = 1024 * 1024  # 1MB
-        self.excluded_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', '.pytest_cache'}
+        self.excluded_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', '.pytest_cache', 'cf_cache', 'cache', '.cache', 'cf_trace'}
         self.excluded_extensions = {'.pyc', '.pyo', '.so', '.dll', '.exe', '.bin'}
     
     def scan_directory(self, directory: str = "", max_depth: int = 3, exclude_dirs: Optional[List[str]] = None) -> Dict[str, Any]:
