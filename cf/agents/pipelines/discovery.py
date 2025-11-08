@@ -316,6 +316,54 @@ class GrepSearchStrategy(DiscoveryStrategy):
             return []
 
 
+class GraphQueryStrategy(DiscoveryStrategy):
+    """Uses structural knowledge base graph queries for file discovery"""
+
+    def __init__(self, config: Dict[str, Any], structural_pipeline):
+        super().__init__(config)
+        self.structural_pipeline = structural_pipeline
+
+    def execute(self, question: str, context: Dict[str, Any]) -> List[FileCandidate]:
+        """Query KB graph for relevant files"""
+        try:
+            if not self.structural_pipeline or not self.structural_pipeline.is_kb_available():
+                print("⚠️ [GRAPH_QUERY] KB not available, skipping")
+                return []
+
+            if not self.structural_pipeline.kb_exists():
+                print("⚠️ [GRAPH_QUERY] KB doesn't exist, skipping")
+                return []
+
+            print("🔍 [GRAPH_QUERY] Querying knowledge base graph...")
+
+            # Use structural pipeline to find files
+            file_paths = self.structural_pipeline.find_files_for_question(question, max_results=100)
+
+            if not file_paths:
+                print("⚠️ [GRAPH_QUERY] No files found via graph queries")
+                return []
+
+            # Convert to FileCandidate objects
+            candidates = []
+            thresholds = self.config.get('agents', {}).get('thresholds', {})
+            high_relevance = thresholds.get('high_relevance', 0.95)
+
+            for file_path in file_paths:
+                candidates.append(FileCandidate(
+                    path=file_path,
+                    relevance_score=high_relevance,  # KB queries are highly relevant
+                    discovery_method="graph_query",
+                    metadata={'query_type': 'structural_kb'}
+                ))
+
+            print(f"✅ [GRAPH_QUERY] Found {len(candidates)} files via KB graph queries")
+            return candidates
+
+        except Exception as e:
+            print(f"⚠️ [GRAPH_QUERY] Failed: {e}")
+            return []
+
+
 class FallbackStrategy(DiscoveryStrategy):
     """Fallback strategy when other strategies find nothing"""
 
@@ -372,19 +420,35 @@ class DiscoveryPipeline:
     to find relevant files for a question.
     """
 
-    def __init__(self, repo_path: str, config: Dict[str, Any], llm_client, repo_tools, path_map: Dict[str, Any]):
+    def __init__(self, repo_path: str, config: Dict[str, Any], llm_client, repo_tools, path_map: Dict[str, Any], structural_pipeline=None):
         self.repo_path = repo_path
         self.config = config
         self.llm = llm_client
         self.repo_tools = repo_tools
         self.path_map = path_map
+        self.structural_pipeline = structural_pipeline
 
         # Initialize strategies
-        self.strategies = [
-            KeywordMatchingStrategy(config, path_map),  # Run first to provide hints
+        self.strategies = []
+
+        # Add graph query strategy first if KB is enabled and available
+        kb_config = config.get('knowledge_base', {})
+        discovery_config = kb_config.get('discovery', {})
+
+        if (kb_config.get('enabled', False) and
+            discovery_config.get('use_kb_queries', True) and
+            structural_pipeline is not None):
+            # GraphQueryStrategy is highest priority when KB is available
+            self.strategies.append(GraphQueryStrategy(config, structural_pipeline))
+            print("✅ [DISCOVERY] Enabled KB graph query strategy (highest priority)")
+
+        # Add standard strategies
+        self.strategies.extend([
+            KeywordMatchingStrategy(config, path_map),
             DomainDetectionStrategy(config, llm_client, repo_tools, path_map),
             GrepSearchStrategy(config, repo_tools),
-        ]
+        ])
+
         self.fallback = FallbackStrategy(config, repo_tools, path_map)
 
     def discover(self, question: str, max_files: int = 50) -> DiscoveryResult:
