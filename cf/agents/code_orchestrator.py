@@ -16,6 +16,7 @@ from cf.agents.pipelines.discovery import DiscoveryPipeline
 from cf.agents.pipelines.analysis import AnalysisPipeline
 from cf.agents.pipelines.validation import ValidationPipeline
 from cf.agents.pipelines.synthesis import SynthesisPipeline
+from cf.agents.pipelines.structural import StructuralPipeline
 
 
 class CodeOrchestrator(BaseAgent):
@@ -29,6 +30,7 @@ class CodeOrchestrator(BaseAgent):
         super().__init__(repo_path, config, "code_orchestrator")
 
         # Initialize pipelines
+        self.structural = None  # NEW - Structural KB pipeline
         self.discovery = None
         self.analysis = None
         self.validation = None
@@ -38,6 +40,7 @@ class CodeOrchestrator(BaseAgent):
         self.path_map = {}
         self.discovered_files = []
         self.file_summaries = {}
+        self.kb_initialized = False  # NEW - Track KB initialization
 
     def _analyze_step(self, question: str) -> str:
         """Execute one analysis step"""
@@ -61,11 +64,55 @@ class CodeOrchestrator(BaseAgent):
         return "unknown_step"
 
     def _initialize_repository(self) -> str:
-        """Initialize repository scan and path map"""
+        """Initialize repository scan, path map, and knowledge base"""
         try:
-            print("🔍 [ORCHESTRATOR] Scanning repository...")
+            print("🔍 [ORCHESTRATOR] Initializing repository...")
 
-            # Scan repository structure
+            # Check if KB is enabled
+            kb_config = self.config.get('knowledge_base', {})
+            kb_enabled = kb_config.get('enabled', False)
+            auto_build = kb_config.get('build', {}).get('auto_build', True)
+
+            # Initialize structural KB pipeline if enabled
+            if kb_enabled:
+                try:
+                    print("🔍 [ORCHESTRATOR] Initializing structural knowledge base...")
+                    self.structural = StructuralPipeline(self.repo_path, self.config)
+
+                    if self.structural.is_kb_available():
+                        # Check if KB exists
+                        if self.structural.kb_exists():
+                            print("✅ [ORCHESTRATOR] Found existing KB")
+
+                            # Check for incremental updates
+                            if kb_config.get('incremental', {}).get('enabled', True):
+                                print("🔄 [ORCHESTRATOR] Checking for file changes...")
+                                update_stats = self.structural.update_knowledge_base()
+
+                                if update_stats.get('changes', 0) > 0:
+                                    print(f"✅ [ORCHESTRATOR] KB updated: {update_stats.get('changes', 0)} files changed")
+
+                            self.kb_initialized = True
+                        elif auto_build:
+                            # Build KB for first time
+                            print("🏗️ [ORCHESTRATOR] Building KB for first time (this may take 60-90 min for large repos)...")
+                            build_result = self.structural.build_knowledge_base()
+
+                            if build_result.total_files > 0:
+                                print(f"✅ [ORCHESTRATOR] KB built: {build_result.total_files} files")
+                                self.kb_initialized = True
+                            else:
+                                print("⚠️ [ORCHESTRATOR] KB build returned 0 files")
+                        else:
+                            print("ℹ️ [ORCHESTRATOR] KB doesn't exist and auto_build is disabled")
+
+                except Exception as e:
+                    print(f"⚠️ [ORCHESTRATOR] KB initialization failed: {e}")
+                    print("   Falling back to non-KB mode")
+                    self.structural = None
+
+            # Scan repository structure (for path_map)
+            print("🔍 [ORCHESTRATOR] Scanning repository structure...")
             max_depth = self.config.get('repo', {}).get('max_scan_depth', 5)
             scan_result = self.use_tool('scan_directory', max_depth=max_depth)
 
@@ -83,13 +130,14 @@ class CodeOrchestrator(BaseAgent):
                     'size': file_info.get('size', 0)
                 }
 
-            # Initialize pipelines now that we have path_map
+            # Initialize pipelines now that we have path_map and KB
             self.discovery = DiscoveryPipeline(
                 self.repo_path,
                 self.config,
                 self.llm,
                 self.tools,
-                self.path_map
+                self.path_map,
+                structural_pipeline=self.structural  # NEW - Pass KB pipeline
             )
             self.analysis = AnalysisPipeline(
                 self.repo_path,
@@ -110,8 +158,14 @@ class CodeOrchestrator(BaseAgent):
             )
 
             print(f"✅ [ORCHESTRATOR] Found {len(self.path_map)} paths")
+
+            if self.kb_initialized:
+                kb_stats = self.structural.get_repository_stats()
+                print(f"✅ [ORCHESTRATOR] KB ready: {kb_stats.get('functions', 0)} functions, {kb_stats.get('classes', 0)} classes")
+
             self.add_insight(
-                f"Repository scanned: {len(self.path_map)} paths indexed",
+                f"Repository initialized: {len(self.path_map)} paths indexed" +
+                (f", KB active with {kb_stats.get('functions', 0)} functions" if self.kb_initialized else ""),
                 confidence=self.get_confidence('high'),
                 source="repository_scan"
             )
@@ -120,6 +174,8 @@ class CodeOrchestrator(BaseAgent):
 
         except Exception as e:
             print(f"❌ [ORCHESTRATOR] Initialization failed: {e}")
+            import traceback
+            traceback.print_exc()
             return "scan_failed"
 
     def _discover_files(self, question: str) -> str:
