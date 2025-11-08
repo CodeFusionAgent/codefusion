@@ -7,10 +7,28 @@ llm:
   max_tokens: 2000
   #temperature: 0.7
 
-# Agent Settings  
+# Agent Settings
 agents:
   max_iterations: 10
   timeout: 300  # seconds
+  use_pipeline_architecture: true  # Use new modular pipeline architecture (recommended)
+  max_files_to_analyze: 50  # Maximum files for discovery pipeline
+
+  # Synthesis configuration
+  synthesis:
+    target_narrative_min: 3000  # Minimum narrative word count
+    target_narrative_max: 5000  # Maximum narrative word count
+    max_key_files_cited: 7      # Maximum files to cite
+    min_key_files_cited: 3      # Minimum files to cite
+
+  # Thresholds for confidence scoring
+  thresholds:
+    high_confidence: 0.8
+    medium_confidence: 0.7
+    low_confidence: 0.6
+    error_confidence: 0.2
+    partial_confidence: 0.5
+    max_confidence: 0.9
 
 # Cache Settings
 cache:

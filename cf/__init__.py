@@ -4,6 +4,7 @@ from cf.configs.config_mgr import ConfigManager
 from cf.agents.supervisor import SupervisorAgent
 from cf.agents.base import BaseAgent
 from cf.agents.code import CodeAgent
+from cf.agents.code_orchestrator import CodeOrchestrator
 from cf.agents.docs import DocsAgent
 from cf.agents.web import WebAgent
 from cf.llm.client import LLMClient
@@ -21,7 +22,8 @@ __all__ = [
     "SupervisorAgent",
     "BaseAgent",
     "CodeAgent",
-    "DocsAgent", 
+    "CodeOrchestrator",
+    "DocsAgent",
     "WebAgent",
     "LLMClient",
     "ToolRegistry",
