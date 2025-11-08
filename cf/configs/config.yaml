@@ -228,3 +228,36 @@ knowledge_base:
     use_kb_queries: true  # Use graph queries for file discovery (much faster)
     fallback_to_keywords: true  # Fall back to keyword matching if KB query fails
     prefer_structural_queries: true  # Prefer structural queries over keyword matching
+
+  # Semantic Layer Settings
+  semantic:
+    enabled: true  # Enable semantic search and code similarity
+    embedding_model: "text-embedding-3-small"  # OpenAI model or "all-MiniLM-L6-v2" for local
+    use_local_model: false  # Use local sentence-transformers (free) or OpenAI (paid)
+    cache_embeddings: true  # Cache embeddings to disk
+    cache_file: ".codefusion/embeddings.pkl"
+    similarity_threshold: 0.7  # Minimum similarity for search results
+
+  # Pattern Recognition Settings
+  patterns:
+    enabled: true  # Enable design pattern and code smell detection
+    detect_design_patterns: true  # Detect design patterns (Factory, Singleton, etc)
+    detect_architectural_patterns: true  # Detect architectural patterns (MVC, Repository, etc)
+    detect_code_smells: true  # Detect code smells (God Class, Long Method, etc)
+
+    # Code smell thresholds
+    thresholds:
+      god_class_methods: 20  # Max methods before God Class
+      god_class_lines: 500  # Max lines before God Class
+      long_method_lines: 50  # Max lines before Long Method
+      long_method_complexity: 10  # Max complexity before Long Method
+      long_parameter_list: 5  # Max parameters before Long Parameter List
+      lazy_class_max_methods: 2  # Max methods for Lazy Class
+
+  # Life-of-X Analysis Settings
+  lifeofx:
+    enabled: true  # Enable execution path and data flow analysis
+    max_trace_depth: 20  # Maximum depth for execution traces
+    max_paths: 10  # Maximum execution paths to return
+    detect_long_chains: true  # Detect long call chains
+    min_chain_length: 10  # Minimum chain length to report
