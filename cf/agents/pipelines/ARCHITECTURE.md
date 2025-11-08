@@ -121,12 +121,29 @@ The pipeline architecture naturally supports parallelism
 
 ## Migration Plan
 
-### Phase 1: Extract Pipelines ✅ (COMPLETED)
+### Phase 1: Extract Pipelines ✅ (COMPLETED - Fully Integrated)
 - [x] Create `discovery.py` with all discovery strategies
 - [x] Create `analysis.py` with file analysis logic
 - [x] Create `validation.py` with validation logic
 - [x] Create `synthesis.py` with narrative generation
 - [x] Create `code_orchestrator.py` as coordinator
+- [x] **Integrate with SupervisorAgent** - Added config-based routing
+- [x] **Export from modules** - Added to `cf/__init__.py` and `cf/agents/__init__.py`
+- [x] **Configuration** - Added `use_pipeline_architecture` config flag (default: true)
+
+**Integration Details:**
+- Supervisor now uses `CodeOrchestrator` by default (config: `agents.use_pipeline_architecture: true`)
+- Legacy `CodeAgent` still available via config flag for backward compatibility
+- All synthesis parameters configurable via `agents.synthesis` section
+- Confidence thresholds configurable via `agents.thresholds` section
+
+**How to Use:**
+```yaml
+# In config.yaml
+agents:
+  use_pipeline_architecture: true  # Use new pipeline (default)
+  # Set to false to use legacy CodeAgent
+```
 
 ### Phase 2: Add Parallelism (NEXT)
 - [ ] Add async/await support to analysis pipeline
@@ -140,7 +157,7 @@ The pipeline architecture naturally supports parallelism
 - [ ] Run evaluation suite
 - [ ] Compare scores with monolithic version
 
-### Phase 4: Deprecation
+### Phase 4: Deprecation (Future)
 - [ ] Update documentation
-- [ ] Migrate existing code to use orchestrator
-- [ ] Deprecate `code.py`
+- [ ] Remove legacy CodeAgent after validation
+- [ ] Clean up old code

@@ -149,24 +149,33 @@ class SupervisorAgent(BaseAgent):
     def _consult_code_agent(self, question: str) -> str:
         """Get insights from code analysis specialist"""
         self.logger.verbose("Running code analysis agent...", "🔍")
-        
+
         if not self._code_agent:
-            from cf.agents.code import CodeAgent
-            self._code_agent = CodeAgent(self.repo_path, self.config)
-        
+            # Check config for which code agent to use (default: new pipeline-based orchestrator)
+            use_pipeline_architecture = self.config.get('agents', {}).get('use_pipeline_architecture', True)
+
+            if use_pipeline_architecture:
+                from cf.agents.code_orchestrator import CodeOrchestrator
+                self._code_agent = CodeOrchestrator(self.repo_path, self.config)
+                self.logger.verbose("Using new pipeline-based CodeOrchestrator", "⚙️")
+            else:
+                from cf.agents.code import CodeAgent
+                self._code_agent = CodeAgent(self.repo_path, self.config)
+                self.logger.verbose("Using legacy monolithic CodeAgent", "⚙️")
+
         try:
             result = self._code_agent.analyze(question)
             self.specialist_results['code'] = result
-            
+
             if result.get('success'):
                 self.all_insights.extend(result.get('insights', []))
                 self.logger.verbose_result(True, "Code analysis completed")
             else:
                 self.logger.verbose_result(False, f"Code analysis failed: {result.get('error', 'Unknown error')}")
-                
+
             self.agents_completed.append('code')
             return "consulted_code_agent"
-            
+
         except Exception as e:
             self.logger.error(f"Code agent failed: {str(e)}")
             self.specialist_results['code'] = {'success': False, 'error': str(e)}
