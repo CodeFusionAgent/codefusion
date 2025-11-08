@@ -181,3 +181,50 @@ repo:
     - ".pyo"
     - ".so"
     - ".dll"
+
+# Knowledge Base Settings (Structural Analysis)
+knowledge_base:
+  enabled: true  # Enable persistent knowledge base (recommended for large repos)
+  type: neo4j
+
+  # Neo4j Connection Settings
+  neo4j:
+    uri: "bolt://localhost:7687"
+    user: "neo4j"
+    password: ""  # Set via NEO4J_PASSWORD environment variable
+    database: "codefusion"
+
+  # KB Build Settings
+  build:
+    # Parallel processing for KB construction
+    parallel_workers: 10  # Number of parallel workers for parsing
+    batch_size: 100       # Files per batch
+    progress_interval: 1000  # Log progress every N files
+
+    # Languages to parse (currently only Python supported)
+    languages:
+      - python
+      # Future: javascript, typescript, go, java
+
+    # Build on first analysis
+    auto_build: true  # Automatically build KB if doesn't exist
+
+  # Incremental Update Settings
+  incremental:
+    enabled: true  # Enable incremental updates (dramatically improves performance)
+    check_interval: 300  # Check for file changes every N seconds
+    auto_update: true  # Automatically update KB when files change
+    use_file_hashing: true  # Use MD5 hashing for accurate change detection
+
+  # Query Optimization
+  query:
+    max_graph_depth: 5  # Maximum depth for call chain traversal
+    cache_query_results: true  # Cache graph query results
+    cache_ttl: 3600  # Query cache TTL in seconds
+    max_results: 100  # Maximum results per query
+
+  # Discovery Enhancement
+  discovery:
+    use_kb_queries: true  # Use graph queries for file discovery (much faster)
+    fallback_to_keywords: true  # Fall back to keyword matching if KB query fails
+    prefer_structural_queries: true  # Prefer structural queries over keyword matching
