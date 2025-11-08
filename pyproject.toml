@@ -33,7 +33,8 @@ dependencies = [
     "langfuse",
     "litellm[proxy]",
     "tenacity",
-    "groq"
+    "groq",
+    "neo4j>=5.0.0"  # For structural knowledge base
 ]
 
 [project.optional-dependencies]
