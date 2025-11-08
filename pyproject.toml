@@ -34,7 +34,8 @@ dependencies = [
     "litellm[proxy]",
     "tenacity",
     "groq",
-    "neo4j>=5.0.0"  # For structural knowledge base
+    "neo4j>=5.0.0",  # For structural knowledge base
+    "sentence-transformers>=2.2.0"  # For semantic layer (local embeddings)
 ]
 
 [project.optional-dependencies]
