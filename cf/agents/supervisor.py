@@ -364,17 +364,31 @@ Important:
     
     def _generate_results(self, question: str) -> Dict[str, Any]:
         """Generate final consolidated answer using LLM synthesis"""
-        
+
         self.logger.verbose_synthesis("Consolidating results with LLM...")
         self.logger.verbose_separator()
-        
+
+        # Check if all agents failed
+        all_agents_failed = all(
+            not self.specialist_results.get(agent, {}).get('success', False)
+            for agent in self.agents_completed
+        )
+
+        if all_agents_failed and len(self.agents_completed) > 0:
+            self.logger.verbose("⚠️ All agents failed - generating error response", "⚠️")
+            return self._generate_all_agents_failed_response(question)
+
         # Prepare data for LLM synthesis
         synthesis_data = self._prepare_synthesis_data(question)
-        
+
         # Use LLM to generate comprehensive narrative and title
         llm_response = self._synthesize_with_llm(question, synthesis_data)
-        
+
         if not llm_response.get('success'):
+            # Fallback: generate response from partial data if available
+            if len(self.all_insights) > 0:
+                return self._generate_partial_response(question, synthesis_data)
+
             return {
                 'success': False,
                 'error': 'Failed to synthesize results with LLM',
@@ -921,6 +935,92 @@ Consider how your findings relate to or build upon the previous insights."""
         except Exception:
             return "Context unavailable"
     
+    def _generate_all_agents_failed_response(self, question: str) -> Dict[str, Any]:
+        """Generate response when all agents failed"""
+        # Collect error messages
+        errors = []
+        for agent_type in self.agents_completed:
+            result = self.specialist_results.get(agent_type, {})
+            error = result.get('error', 'Unknown error')
+            timed_out = result.get('timed_out', False)
+            status = "timed out" if timed_out else "failed"
+            errors.append(f"- {agent_type.title()} agent {status}: {error}")
+
+        error_summary = "\n".join(errors)
+
+        narrative = f"""I encountered errors while trying to analyze your question: "{question}"
+
+**Analysis Errors:**
+{error_summary}
+
+**What happened:**
+All specialist agents ({', '.join(self.agents_completed)}) encountered issues during analysis.
+
+**Possible causes:**
+1. Repository issues (large files, access problems, corrupted files)
+2. Timeout due to complex analysis or slow processing
+3. Temporary infrastructure issues
+4. Question complexity exceeding processing limits
+
+**Recommendations:**
+- Try rephrasing your question to be more specific
+- Check if the repository is accessible and not corrupted
+- Try again in a moment (if temporary issue)
+- For large repositories, try focusing on a specific component
+"""
+
+        return {
+            'success': False,
+            'question': question,
+            'title': 'Analysis Failed - All Agents Encountered Errors',
+            'narrative': narrative,
+            'confidence': 0.0,
+            'insights': [],
+            'agents_consulted': self.agents_completed,
+            'specialist_results': self.specialist_results,
+            'error': 'All agents failed',
+            'agent': 'supervisor'
+        }
+
+    def _generate_partial_response(self, question: str, synthesis_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate response from partial insights when LLM synthesis fails"""
+        # Build narrative from insights
+        narrative_parts = [
+            f"**Partial Analysis** (LLM synthesis failed, showing raw insights)\n",
+            f"Question: {question}\n"
+        ]
+
+        # Add successful agent results
+        for agent_type, summary in synthesis_data.get('specialist_summaries', {}).items():
+            if summary.get('success'):
+                narrative_parts.append(f"\n**{agent_type.title()} Agent Findings:**")
+                for finding in summary.get('key_findings', []):
+                    narrative_parts.append(f"- {finding}")
+
+        # Add top insights
+        if len(self.all_insights) > 0:
+            narrative_parts.append(f"\n**Key Insights ({len(self.all_insights)} total):**")
+            sorted_insights = sorted(self.all_insights, key=lambda x: x.get('confidence', 0), reverse=True)
+            for i, insight in enumerate(sorted_insights[:10], 1):
+                content = insight.get('content', '')
+                confidence = insight.get('confidence', 0)
+                narrative_parts.append(f"{i}. {content} (confidence: {confidence:.1%})")
+
+        narrative = "\n".join(narrative_parts)
+
+        return {
+            'success': True,
+            'question': question,
+            'title': 'Partial Analysis Results',
+            'narrative': narrative,
+            'confidence': 0.5,
+            'insights': self.all_insights,
+            'agents_consulted': self.agents_completed,
+            'specialist_results': self.specialist_results,
+            'agent': 'supervisor',
+            'partial': True
+        }
+
     def _cache_analysis_result(self, question: str, result: Dict[str, Any]):
         """Cache analysis result for future use"""
         if not self.cache_enabled or not self.cache:
