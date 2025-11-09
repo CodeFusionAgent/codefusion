@@ -77,7 +77,7 @@ class SynthesisPipeline:
                 target_max
             )
 
-            # Use tiered LLM for synthesis (advanced model for quality)
+            # Use tiered LLM for synthesis (advanced tier for quality)
             if self.tiered_llm:
                 from cf.llm.model_tiers import ModelTier
                 narrative = self.tiered_llm.synthesize_answer(

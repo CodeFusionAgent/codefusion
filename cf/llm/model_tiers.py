@@ -2,9 +2,14 @@
 """
 Multi-Model LLM Manager with Tiered Model Support
 
-Optimizes cost and latency by matching task complexity to model capability:
-- Haiku: Fast, cheap for simple tasks (file summaries, classification, coordination)
-- Sonnet/GPT-4o: Advanced models for complex synthesis and analysis
+Optimizes cost and latency by matching task complexity to model capability.
+
+Example tier configuration:
+- Fast tier: Simple tasks (file summaries, classification, coordination)
+- Standard tier: Balanced tasks (general analysis)
+- Advanced tier: Complex tasks (final synthesis, deep reasoning)
+
+All models are fully configurable via config.yaml - no hardcoded defaults.
 """
 
 from typing import Dict, Any, Optional, List
@@ -16,9 +21,9 @@ from cf.llm.factory import LLMFactory
 
 class ModelTier(Enum):
     """Model tier for different task complexities"""
-    FAST = "fast"           # Haiku - simple tasks (summaries, classification)
-    STANDARD = "standard"   # GPT-4o - balanced tasks
-    ADVANCED = "advanced"   # Sonnet 4.5 - complex synthesis
+    FAST = "fast"           # Fast models for simple tasks (summaries, classification)
+    STANDARD = "standard"   # Balanced models for moderate tasks
+    ADVANCED = "advanced"   # Advanced models for complex synthesis
 
 
 class TieredLLMManager:
@@ -26,10 +31,13 @@ class TieredLLMManager:
     Manages multiple LLM models with different tiers for different tasks.
 
     Automatically routes tasks to appropriate models based on complexity:
-    - File summaries → Haiku (10x faster, 20x cheaper)
-    - Classification → Haiku
-    - Coordination → Haiku
-    - Final synthesis → Sonnet 4.5/GPT-4o
+    - File summaries → Fast tier (10x faster, 20x cheaper)
+    - Question classification → Fast tier
+    - Coordination decisions → Fast tier
+    - Final synthesis → Advanced tier (best quality)
+
+    All models are configured via config.yaml with no hardcoded defaults.
+    Raises ValueError if required tier configuration is missing.
     """
 
     def __init__(self, config: Dict[str, Any]):
@@ -56,26 +64,32 @@ class TieredLLMManager:
 
     def _initialize_models(self):
         """Initialize LLM models for each tier"""
-        # Fast tier (Haiku)
-        fast_model = self.tier_config.get('fast', {}).get('model', 'claude-3-5-haiku-20241022')
-        self.models['fast'] = LLMFactory.create_llm(
-            model_name=fast_model,
-            config=self.llm_config
-        )
+        # Validate configuration
+        if not self.tier_config:
+            raise ValueError(
+                "No model tiers configured. Please add 'llm.tiers' section to config.yaml"
+            )
 
-        # Standard tier (GPT-4o)
-        standard_model = self.tier_config.get('standard', {}).get('model', 'gpt-4o')
-        self.models['standard'] = LLMFactory.create_llm(
-            model_name=standard_model,
-            config=self.llm_config
-        )
+        required_tiers = ['fast', 'standard', 'advanced']
+        for tier in required_tiers:
+            if tier not in self.tier_config:
+                raise ValueError(
+                    f"Missing '{tier}' tier in config. Please configure llm.tiers.{tier}.model"
+                )
+            if 'model' not in self.tier_config[tier]:
+                raise ValueError(
+                    f"Missing model name for '{tier}' tier. Please set llm.tiers.{tier}.model"
+                )
 
-        # Advanced tier (Sonnet 4.5)
-        advanced_model = self.tier_config.get('advanced', {}).get('model', 'claude-sonnet-4-5')
-        self.models['advanced'] = LLMFactory.create_llm(
-            model_name=advanced_model,
-            config=self.llm_config
-        )
+        # Initialize models from config only (no hardcoded defaults)
+        for tier_name in required_tiers:
+            tier_config = self.tier_config[tier_name]
+            model_name = tier_config['model']
+
+            self.models[tier_name] = LLMFactory.create_llm(
+                model_name=model_name,
+                config=self.llm_config
+            )
 
     def generate(
         self,
@@ -130,7 +144,7 @@ class TieredLLMManager:
 
     def summarize_file(self, file_content: str, file_path: str, question: str) -> str:
         """
-        Summarize file content using fast model (Haiku).
+        Summarize file content using fast tier model.
 
         Fast, cheap operation suitable for batch processing.
 
@@ -167,7 +181,7 @@ Keep summary under 200 words."""
 
     def classify_question(self, question: str) -> Dict[str, Any]:
         """
-        Classify question type using fast model (Haiku).
+        Classify question type using fast tier model.
 
         Args:
             question: User question
@@ -223,7 +237,7 @@ Return JSON only:
         max_passes: int
     ) -> Dict[str, Any]:
         """
-        Decide next step in multi-pass coordination using fast model (Haiku).
+        Decide next step in multi-pass coordination using fast tier model.
 
         Args:
             pass_num: Current pass number
@@ -281,7 +295,7 @@ Return JSON only:
         context: Dict[str, Any]
     ) -> str:
         """
-        Synthesize final answer using advanced model (Sonnet 4.5).
+        Synthesize final answer using advanced tier model.
 
         This is the most complex task requiring deep reasoning.
 
@@ -423,20 +437,17 @@ Provide a comprehensive answer that:
         }
 
     def _estimate_cost(self) -> Dict[str, float]:
-        """Estimate cost based on usage"""
-        # Rough cost estimates (per 1M tokens)
-        costs = {
-            'fast': 0.25,      # Haiku: $0.25/1M input, $1.25/1M output
-            'standard': 2.50,  # GPT-4o: ~$2.50/1M average
-            'advanced': 3.00   # Sonnet 4.5: ~$3.00/1M average
-        }
-
+        """Estimate cost based on usage (reads from config)"""
         tier_costs = {}
         total = 0.0
 
         for tier, stats in self.usage_stats.items():
             tokens = stats['tokens']
-            cost = (tokens / 1_000_000) * costs.get(tier, 2.0)
+
+            # Get cost from config (per 1M tokens)
+            cost_per_1m = self.tier_config.get(tier, {}).get('cost_per_1m', 0.0)
+            cost = (tokens / 1_000_000) * cost_per_1m
+
             tier_costs[tier] = cost
             total += cost
 

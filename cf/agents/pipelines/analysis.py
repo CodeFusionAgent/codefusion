@@ -227,7 +227,7 @@ class AnalysisPipeline:
 
     def _generate_file_summary(self, file_path: str, file_result: Dict[str, Any], question: str) -> tuple:
         """
-        Generate LLM summary for a single file using fast model (Haiku)
+        Generate LLM summary for a single file using fast tier model.
 
         Returns:
             (FileSummary, llm_metrics)
