@@ -25,10 +25,11 @@ class SynthesisPipeline:
     Uses LLM to synthesize insights from file summaries.
     """
 
-    def __init__(self, repo_path: str, config: Dict[str, Any], llm_client):
+    def __init__(self, repo_path: str, config: Dict[str, Any], llm_client, tiered_llm=None):
         self.repo_path = repo_path
         self.config = config
         self.llm = llm_client
+        self.tiered_llm = tiered_llm  # Optional tiered LLM manager
 
     def synthesize(self, question: str, file_summaries: Dict[str, Any], insights: List[Dict[str, Any]]) -> SynthesisResult:
         """
@@ -58,6 +59,14 @@ class SynthesisPipeline:
             # Select key files to cite (highest relevance)
             key_files = self._select_key_files(file_summaries, max_files)
 
+            # Classify question type for appropriate synthesis strategy
+            question_type = 'standard'
+            if self.tiered_llm:
+                from cf.llm.model_tiers import ModelTier
+                classification = self.tiered_llm.classify_question(question)
+                question_type = classification.get('type', 'standard')
+                print(f"   Question type: {question_type} (confidence: {classification.get('confidence', 0):.2f})")
+
             # Build synthesis prompt
             prompt = self._build_synthesis_prompt(
                 question,
@@ -68,36 +77,52 @@ class SynthesisPipeline:
                 target_max
             )
 
-            # Call LLM for synthesis (use main model for quality)
-            response = self.llm.generate(prompt, "You are a technical documentation expert. Write comprehensive, accurate narratives.")
+            # Use tiered LLM for synthesis (advanced model for quality)
+            if self.tiered_llm:
+                from cf.llm.model_tiers import ModelTier
+                narrative = self.tiered_llm.synthesize_answer(
+                    question=question,
+                    question_type=question_type,
+                    insights=insights,
+                    context={
+                        'file_summaries': file_summaries,
+                        'key_files': key_files
+                    }
+                ).strip()
+                word_count = len(narrative.split())
+            else:
+                # Fallback to old method
+                response = self.llm.generate(prompt, "You are a technical documentation expert. Write comprehensive, accurate narratives.")
 
-            if response.get('success'):
+                if not response.get('success'):
+                    raise Exception("Synthesis failed")
+
                 narrative = response.get('content', '').strip()
                 word_count = len(narrative.split())
 
-                # Calculate confidence based on completeness
-                confidence = self._calculate_synthesis_confidence(
-                    narrative,
-                    file_summaries,
-                    target_min,
-                    target_max
-                )
+            # Calculate confidence based on completeness
+            confidence = self._calculate_synthesis_confidence(
+                narrative,
+                file_summaries,
+                target_min,
+                target_max
+            )
 
-                synthesis_time = time.time() - start_time
+            synthesis_time = time.time() - start_time
 
-                print(f"✅ [SYNTHESIS] Generated narrative:")
-                print(f"   Words: {word_count} (target: {target_min}-{target_max})")
-                print(f"   Key files: {len(key_files)}")
-                print(f"   Confidence: {confidence:.2f}")
-                print(f"   Time: {synthesis_time*1000:.0f}ms")
+            print(f"✅ [SYNTHESIS] Generated narrative:")
+            print(f"   Words: {word_count} (target: {target_min}-{target_max})")
+            print(f"   Key files: {len(key_files)}")
+            print(f"   Confidence: {confidence:.2f}")
+            print(f"   Time: {synthesis_time*1000:.0f}ms")
 
-                return SynthesisResult(
-                    narrative=narrative,
-                    key_files_cited=key_files,
-                    confidence=confidence,
-                    word_count=word_count,
-                    synthesis_time_ms=round(synthesis_time * 1000, 2)
-                )
+            return SynthesisResult(
+                narrative=narrative,
+                key_files_cited=key_files,
+                confidence=confidence,
+                word_count=word_count,
+                synthesis_time_ms=round(synthesis_time * 1000, 2)
+            )
 
         except Exception as e:
             print(f"❌ [SYNTHESIS] Failed: {e}")

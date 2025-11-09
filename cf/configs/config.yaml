@@ -7,12 +7,33 @@ llm:
   max_tokens: 2000
   #temperature: 0.7
 
+  # Multi-Model Tiered Strategy (NEW)
+  # Match task complexity to model capability for optimal cost/performance
+  tiers:
+    fast:
+      model: "claude-3-5-haiku-20241022"  # Fast, cheap for simple tasks
+      use_cases: ["file_summaries", "classification", "coordination"]
+      cost_per_1m: 0.25  # ~$0.25/1M tokens
+    standard:
+      model: "gpt-4o"  # Balanced for most tasks
+      use_cases: ["general_analysis", "moderate_reasoning"]
+      cost_per_1m: 2.50  # ~$2.50/1M tokens
+    advanced:
+      model: "claude-sonnet-4-5"  # Best for complex synthesis
+      use_cases: ["final_synthesis", "deep_reasoning"]
+      cost_per_1m: 3.00  # ~$3.00/1M tokens
+
 # Agent Settings
 agents:
   max_iterations: 10
   timeout: 300  # seconds
   use_pipeline_architecture: true  # Use new modular pipeline architecture (recommended)
   max_files_to_analyze: 50  # Maximum files for discovery pipeline
+
+  # Parallel Processing Settings (NEW)
+  # Dramatically improves performance for file analysis
+  parallel_analysis: true  # Enable parallel file analysis (recommended)
+  parallel_workers: 10  # Number of concurrent LLM calls (adjust based on API limits)
 
   # Synthesis configuration
   synthesis:
