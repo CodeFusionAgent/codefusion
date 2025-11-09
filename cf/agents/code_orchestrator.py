@@ -95,6 +95,67 @@ class CodeOrchestrator(BaseAgent):
         # Note: self.iteration is reset by BaseAgent.analyze()
         # Note: self.structural, self.path_map, and pipelines are preserved
 
+    def _detect_primary_language(self) -> str:
+        """
+        Detect primary programming language in repository.
+        Returns: Language name or None
+        """
+        try:
+            from pathlib import Path
+            from collections import Counter
+
+            # Count file extensions
+            extensions = Counter()
+            repo_path = Path(self.repo_path)
+
+            # Language extension mapping
+            lang_map = {
+                '.py': 'Python',
+                '.js': 'JavaScript',
+                '.ts': 'TypeScript',
+                '.jsx': 'JavaScript',
+                '.tsx': 'TypeScript',
+                '.java': 'Java',
+                '.go': 'Go',
+                '.rs': 'Rust',
+                '.cpp': 'C++',
+                '.c': 'C',
+                '.cs': 'C#',
+                '.rb': 'Ruby',
+                '.php': 'PHP',
+                '.swift': 'Swift',
+                '.kt': 'Kotlin',
+                '.scala': 'Scala'
+            }
+
+            # Excluded directories
+            excluded_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv',
+                           'build', 'dist', 'target', 'vendor', '.idea', '.vscode'}
+
+            # Count extensions (limit to 1000 files for speed)
+            count = 0
+            for path in repo_path.rglob('*'):
+                if count >= 1000:
+                    break
+
+                # Skip excluded directories
+                if any(excluded in path.parts for excluded in excluded_dirs):
+                    continue
+
+                if path.is_file() and path.suffix in lang_map:
+                    extensions[path.suffix] += 1
+                    count += 1
+
+            if extensions:
+                # Get most common extension
+                most_common_ext = extensions.most_common(1)[0][0]
+                return lang_map.get(most_common_ext)
+
+        except Exception as e:
+            print(f"⚠️ [LANGUAGE_DETECTION] Failed: {e}")
+
+        return None
+
     def _analyze_step(self, question: str) -> str:
         """
         Execute one analysis step using state-based flow.
@@ -165,9 +226,17 @@ class CodeOrchestrator(BaseAgent):
         try:
             print("🔍 [ORCHESTRATOR] Initializing repository...")
 
+            # Detect repository language
+            primary_language = self._detect_primary_language()
+            if primary_language:
+                print(f"🔍 [ORCHESTRATOR] Detected primary language: {primary_language}")
+                if primary_language != 'Python':
+                    print(f"⚠️ [ORCHESTRATOR] KB structural analysis currently supports Python only")
+                    print(f"   Will use file-based analysis for {primary_language} code")
+
             # Check if KB is enabled
             kb_config = self.config.get('knowledge_base', {})
-            kb_enabled = kb_config.get('enabled', False)
+            kb_enabled = kb_config.get('enabled', False) and primary_language == 'Python'
             auto_build = kb_config.get('build', {}).get('auto_build', True)
 
             # Initialize structural KB pipeline if enabled
@@ -362,6 +431,15 @@ class CodeOrchestrator(BaseAgent):
             # Check if we have enough data
             if not self.file_summaries:
                 print("⚠️ [ORCHESTRATOR] No file summaries available")
+
+                # Store helpful error message
+                self.results = {
+                    'narrative': self._generate_no_files_message(question),
+                    'key_files': [],
+                    'confidence': 0.1,
+                    'word_count': 0,
+                    'validation': {'valid': False, 'grounding_score': 0.0}
+                }
                 return "insufficient_data"
 
             # Generate narrative using synthesis pipeline
@@ -436,6 +514,24 @@ class CodeOrchestrator(BaseAgent):
             self.results.get('narrative') and
             (len(self.file_summaries) > 0 or self.results.get('confidence', 0) > min_confidence)
         )
+
+    def _generate_no_files_message(self, question: str) -> str:
+        """Generate helpful message when no files found"""
+        return f"""I couldn't find relevant files to answer your question: "{question}"
+
+This could happen for several reasons:
+1. The question might be about code that doesn't exist in this repository
+2. The file discovery process might need broader search parameters
+3. The question might be too specific or use different terminology than the codebase
+
+Suggestions:
+- Try rephrasing your question with more general terms
+- Check if the feature/component exists in this codebase
+- Ask about the overall architecture first to understand available components
+
+Discovery attempts made: {self.discovery_attempt + 1}
+Files discovered: {len(self.discovered_files)}
+"""
 
     def _generate_results(self, question: str) -> Dict[str, Any]:
         """Generate final results"""
