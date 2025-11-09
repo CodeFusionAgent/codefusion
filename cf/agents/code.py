@@ -56,7 +56,34 @@ class CodeAgent(BaseAgent):
             print("⚠️ [CODE_AGENT] File summary cache is DISABLED")
         else:
             print(f"✅ [CODE_AGENT] File summary cache ENABLED (TTL: {file_cache_ttl}s, dir: {cache_dir}/file_summaries)")
-    
+
+    def reset_question_state(self):
+        """
+        Reset state for new question while preserving expensive resources.
+
+        Keeps:
+        - self.file_cache (persistent file summary cache)
+        - self.path_map (if already loaded)
+
+        Clears:
+        - Question-specific conversation history and results
+        - Parent class state (iteration, insights, etc.) handled by BaseAgent
+        """
+        # Clear question-specific state
+        self.conversation_history = []
+        self.tool_results = []
+        self.tools_used = set()
+        self.file_analysis_metrics = []
+        self.discovered_files = []
+        self.file_summaries = {}
+        self.directory_summaries = {}
+        self.results = {}
+        self.insights = []
+        self.actions_taken = []
+
+        # Note: self.iteration is reset by BaseAgent.analyze()
+        # Note: self.file_cache and self.path_map are preserved
+
     def _analyze_step(self, question: str) -> str:
         """Execute one ReAct step: Reason -> Act -> Observe"""
 
