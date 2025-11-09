@@ -141,13 +141,29 @@ class StructuralPipeline:
         abs_path = os.path.abspath(repo_path)
         return hashlib.md5(abs_path.encode()).hexdigest()
 
-    def __del__(self):
-        """Cleanup Neo4j connection on object destruction"""
+    def __enter__(self):
+        """Context manager entry - returns self for use in 'with' statements"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - ensures KB connection is closed"""
+        self.close()
+        return False  # Don't suppress exceptions
+
+    def close(self):
+        """Explicitly close KB connection (safe for interactive mode)"""
         try:
             if hasattr(self, 'kb') and self.kb is not None:
                 self.kb.close()
-        except Exception:
-            pass  # Ignore cleanup errors
+                self.kb = None
+                print("✅ [STRUCTURAL] KB connection closed")
+        except Exception as e:
+            print(f"⚠️ [STRUCTURAL] Failed to close KB connection: {e}")
+
+    def __del__(self):
+        """Cleanup Neo4j connection on object destruction"""
+        # Call explicit close method
+        self.close()
 
     def is_kb_available(self) -> bool:
         """Check if KB is available and connected"""
@@ -465,13 +481,17 @@ class StructuralPipeline:
                 # Check if question is about patterns or architecture
                 if any(word in question.lower() for word in ['pattern', 'architecture', 'design', 'structure']):
                     # Query all classes first (would need optimization for large codebases)
-                    query = f"""
-                    MATCH (c:Class {{repo_id: '{self.repo_id}'}})
+                    query = """
+                    MATCH (c:Class {repo_id: $repo_id})
                     RETURN c.qualified_name as name, c.file_path as file, c
-                    LIMIT 500
+                    LIMIT $limit
                     """
-                    result = self.kb.execute_query(query)
-                    all_classes = [record['c'] for record in result.records()]
+                    # Use parameterized query to prevent injection
+                    result = self.kb.execute_query(query, {
+                        'repo_id': self.repo_id,
+                        'limit': self.patterns_config.get('max_classes_to_analyze', 500)
+                    })
+                    all_classes = [record['c'] for record in result.nodes]
 
                     # Detect patterns
                     patterns = self.detect_design_patterns(all_classes)
@@ -482,14 +502,18 @@ class StructuralPipeline:
                             # Try to query for the class
                             class_name = pattern.get('class_name')
                             if class_name:
-                                query = f"""
-                                MATCH (c:Class {{repo_id: '{self.repo_id}', qualified_name: '{class_name}'}})
+                                query = """
+                                MATCH (c:Class {repo_id: $repo_id, qualified_name: $class_name})
                                 RETURN c.file_path as file_path
                                 LIMIT 1
                                 """
-                                result = self.kb.execute_query(query)
-                                if result.records():
-                                    file_path = result.records()[0].get('file_path')
+                                # Use parameterized query to prevent injection
+                                result = self.kb.execute_query(query, {
+                                    'repo_id': self.repo_id,
+                                    'class_name': class_name
+                                })
+                                if result.nodes:
+                                    file_path = result.nodes[0].get('file_path')
 
                         if file_path:
                             # Patterns are highly relevant for architecture questions
@@ -691,17 +715,22 @@ class StructuralPipeline:
 
         print("   📊 Querying structural data from KB...")
         # Get all classes and functions from KB for processing
-        all_classes_query = f"""
-        MATCH (c:Class {{repo_id: '{self.repo_id}'}})
+        all_classes_query = """
+        MATCH (c:Class {repo_id: $repo_id})
         RETURN c.qualified_name as name, c.file_path as file, c
-        LIMIT 10000
+        LIMIT $limit
         """
 
-        all_functions_query = f"""
-        MATCH (f:Function {{repo_id: '{self.repo_id}'}})
+        all_functions_query = """
+        MATCH (f:Function {repo_id: $repo_id})
         RETURN f.qualified_name as name, f.file_path as file, f
-        LIMIT 10000
+        LIMIT $limit
         """
+
+        query_params = {
+            'repo_id': self.repo_id,
+            'limit': 10000
+        }
 
         # Build semantic layer
         if self.semantic_config.get('enabled', False) and self.code_embedder:
