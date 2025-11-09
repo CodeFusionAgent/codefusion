@@ -559,3 +559,60 @@ class Neo4jKnowledgeBase:
             print(f"❌ Query failed: {e}")
 
         return results
+
+    def execute_query(self, query: str, parameters: Dict[str, Any] = None) -> QueryResult:
+        """
+        Execute arbitrary Cypher query with optional parameters.
+
+        IMPORTANT: Always use parameterized queries to prevent injection attacks.
+        Use $parameter_name in query string and pass values via parameters dict.
+
+        Args:
+            query: Cypher query string (use $param for parameters)
+            parameters: Dictionary of parameter values (default: {})
+
+        Returns:
+            QueryResult with query results
+
+        Example:
+            # GOOD - parameterized:
+            result = kb.execute_query(
+                "MATCH (c:Class {repo_id: $repo_id}) RETURN c",
+                {'repo_id': 'abc123'}
+            )
+
+            # BAD - f-string injection risk:
+            result = kb.execute_query(f"MATCH (c:Class {{repo_id: '{repo_id}'}}) RETURN c")
+        """
+        if parameters is None:
+            parameters = {}
+
+        start_time = time.time()
+        results = QueryResult()
+
+        try:
+            with self.driver.session(database=self.database) as session:
+                result = session.run(query, **parameters)
+
+                # Collect all records
+                for record in result:
+                    # Convert record to dict, handling different node types
+                    node_dict = {}
+                    for key in record.keys():
+                        value = record[key]
+                        # Handle Neo4j node objects
+                        if hasattr(value, '__dict__'):
+                            node_dict[key] = dict(value)
+                        else:
+                            node_dict[key] = value
+                    results.nodes.append(node_dict)
+
+                results.total_results = len(results.nodes)
+                results.query_time_ms = (time.time() - start_time) * 1000
+
+        except Exception as e:
+            print(f"❌ Query execution failed: {e}")
+            print(f"   Query: {query[:200]}...")
+            print(f"   Parameters: {parameters}")
+
+        return results
