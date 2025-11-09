@@ -42,6 +42,30 @@ class CodeOrchestrator(BaseAgent):
         self.file_summaries = {}
         self.kb_initialized = False  # NEW - Track KB initialization
 
+    def reset_question_state(self):
+        """
+        Reset state for new question while preserving expensive resources.
+
+        Keeps:
+        - self.structural (KB pipeline and connection)
+        - self.path_map (repository structure)
+        - self.kb_initialized (KB status)
+        - All pipelines (discovery, analysis, validation, synthesis)
+
+        Clears:
+        - Question-specific results and file lists
+        - Parent class state (iteration, insights, etc.) handled by BaseAgent
+        """
+        # Clear question-specific state
+        self.discovered_files = []
+        self.file_summaries = {}
+        self.results = {}
+        self.insights = []
+        self.actions_taken = []
+
+        # Note: self.iteration is reset by BaseAgent.analyze()
+        # Note: self.structural, self.path_map, and pipelines are preserved
+
     def _analyze_step(self, question: str) -> str:
         """Execute one analysis step"""
 

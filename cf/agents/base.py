@@ -138,14 +138,21 @@ class BaseAgent(ABC):
     def analyze(self, question: str) -> Dict[str, Any]:
         """
         Main analysis method - runs the agent's analysis loop
-        
+
         Args:
             question: The user's question
-            
+
         Returns:
             Analysis results with insights, data, confidence
         """
         try:
+            # Reset iteration counter for new question (critical for interactive mode)
+            self.iteration = 0
+
+            # Reset question-specific state if agent implements it
+            if hasattr(self, 'reset_question_state') and callable(self.reset_question_state):
+                self.reset_question_state()
+
             # Main analysis loop
             while self.iteration < self.max_iterations:
                 self.iteration += 1
