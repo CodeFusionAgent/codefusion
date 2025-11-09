@@ -48,7 +48,8 @@ class SupervisorAgent(BaseAgent):
         self.pass_results = {}  # Store results from each pass
         self.repo_cache_status = None  # 'new' or 'existing'
         self.context_sharing_decision = None  # LLM decides per pass
-        
+        self.all_passes_complete = False  # Track when all multi-pass coordination is done
+
         # Multi-pass configuration
         self.pass_config = {
             'standard': {'max_passes': 3},
@@ -311,8 +312,10 @@ Important:
             return "web_agent_failed"
     
     def _is_analysis_complete(self, question: str) -> bool:
-        """Check if all specialist agents have been consulted"""
-        return len(self.agents_completed) >= len(self.agents_to_consult)
+        """Check if all multi-pass coordination is complete"""
+        # Multi-pass logic: only complete when all passes are done
+        # Don't exit just because current pass agents are done
+        return self.all_passes_complete
     
     def _generate_results(self, question: str) -> Dict[str, Any]:
         """Generate final consolidated answer using LLM synthesis"""
@@ -648,13 +651,16 @@ Return JSON format only."""
             
             elif action == 'next_pass' and self.pass_number < self.pass_config[self.analysis_type]['max_passes']:
                 return self._start_next_pass(question, pass_analysis)
-            
+
             else:
                 # All passes complete or max attempts reached
+                self.all_passes_complete = True
+                self.logger.verbose(f"✅ All passes complete - Pass {self.pass_number}/{self.pass_config[self.analysis_type]['max_passes']}", "🏁")
                 return "all_passes_complete"
                 
         except Exception as e:
             self.logger.error(f"Pass completion handling failed: {str(e)}")
+            self.all_passes_complete = True
             return "all_passes_complete"  # Fallback to completion
     
     def _analyze_pass_results(self, question: str) -> Dict[str, Any]:
@@ -712,11 +718,14 @@ Return JSON format only."""
                 self.logger.error("LLM call failed, using fallback logic")
             
             # Fallback logic (runs when LLM fails or JSON parsing fails)
+            # Use config threshold instead of hardcoded value
+            min_insights_threshold = self.config.get('agents', {}).get('thresholds', {}).get('min_insights_for_pass', 2)
+
             # For summary questions, always proceed to Pass 2 if we're on Pass 1
             if self.analysis_type == 'summary' and self.pass_number == 1:
                 return {'action': 'next_pass', 'reasoning': 'Summary Pass 1 complete, proceeding to Pass 2 (fallback)', 'context_sharing': True}
-            elif current_insights < 2 and self.current_pass_attempt < self.max_pass_attempts:
-                return {'action': 'retry', 'reasoning': 'Insufficient insights, retrying (fallback)', 'retry_reason': 'Low insight count'}
+            elif current_insights < min_insights_threshold and self.current_pass_attempt < self.max_pass_attempts:
+                return {'action': 'retry', 'reasoning': f'Insufficient insights ({current_insights} < {min_insights_threshold}), retrying (fallback)', 'retry_reason': 'Low insight count'}
             elif self.pass_number < self.pass_config[self.analysis_type]['max_passes']:
                 return {'action': 'next_pass', 'reasoning': 'Proceeding to next pass (fallback)', 'context_sharing': True}
             else:
@@ -725,11 +734,14 @@ Return JSON format only."""
         except Exception as e:
             self.logger.error(f"Pass analysis failed: {str(e)}")
             # Even on exception, use fallback logic instead of immediately completing
+            # Use config threshold instead of hardcoded value
+            min_insights_threshold = self.config.get('agents', {}).get('thresholds', {}).get('min_insights_for_pass', 2)
+
             # For summary questions, always proceed to Pass 2 if we're on Pass 1
             if self.analysis_type == 'summary' and self.pass_number == 1:
                 return {'action': 'next_pass', 'reasoning': f'Summary Pass 1 complete despite exception, proceeding to Pass 2: {str(e)}', 'context_sharing': True}
-            elif current_insights < 2 and self.current_pass_attempt < self.max_pass_attempts:
-                return {'action': 'retry', 'reasoning': f'Exception occurred, retrying: {str(e)}', 'retry_reason': 'Analysis exception'}
+            elif current_insights < min_insights_threshold and self.current_pass_attempt < self.max_pass_attempts:
+                return {'action': 'retry', 'reasoning': f'Exception occurred, retrying (insights: {current_insights} < {min_insights_threshold}): {str(e)}', 'retry_reason': 'Analysis exception'}
             elif self.pass_number < self.pass_config[self.analysis_type]['max_passes']:
                 return {'action': 'next_pass', 'reasoning': f'Exception occurred, proceeding: {str(e)}', 'context_sharing': True}
             else:

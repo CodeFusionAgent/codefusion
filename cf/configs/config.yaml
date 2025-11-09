@@ -34,6 +34,7 @@ agents:
   # Dramatically improves performance for file analysis
   parallel_analysis: true  # Enable parallel file analysis (recommended)
   parallel_workers: 10  # Number of concurrent LLM calls (adjust based on API limits)
+  parallel_min_files: 3  # Minimum files to enable parallel processing
 
   # Synthesis configuration
   synthesis:
@@ -42,7 +43,7 @@ agents:
     max_key_files_cited: 7      # Maximum files to cite
     min_key_files_cited: 3      # Minimum files to cite
 
-  # Thresholds for confidence scoring
+  # Thresholds for confidence scoring and decision making
   thresholds:
     high_confidence: 0.8
     medium_confidence: 0.7
@@ -50,6 +51,9 @@ agents:
     error_confidence: 0.2
     partial_confidence: 0.5
     max_confidence: 0.9
+    min_confidence: 0.3  # Minimum confidence for accepting results
+    min_insights_for_pass: 2  # Minimum insights required before moving to next pass
+    loop_detection_min_actions: 3  # Minimum actions before checking for loops
 
 # Cache Settings
 cache:

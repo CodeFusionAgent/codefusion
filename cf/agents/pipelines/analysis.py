@@ -76,8 +76,9 @@ class AnalysisPipeline:
 
             start_time = time.time()
 
-            # Choose processing mode
-            if self.use_parallel and len(file_paths) > 3:
+            # Choose processing mode - use config threshold instead of hardcoded value
+            min_files_for_parallel = self.config.get('agents', {}).get('parallel_min_files', 3)
+            if self.use_parallel and len(file_paths) > min_files_for_parallel:
                 result = self._analyze_parallel(file_paths, question)
             else:
                 result = self._analyze_serial(file_paths, question)
