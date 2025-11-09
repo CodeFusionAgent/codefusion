@@ -121,11 +121,14 @@ class BaseAgent(ABC):
     @trace_method("loop_detection")
     def detect_loop(self) -> bool:
         """Detect if agent is stuck in a loop"""
-        if len(self.actions_taken) < 3:
+        # Use config threshold instead of hardcoded value
+        min_actions_for_loop_check = self.config.get('agents', {}).get('loop_detection_min_actions', 3)
+
+        if len(self.actions_taken) < min_actions_for_loop_check:
             return False
-        
+
         # Check for repeated actions
-        recent_actions = self.actions_taken[-3:]
+        recent_actions = self.actions_taken[-min_actions_for_loop_check:]
         return len(set(recent_actions)) <= 1
     
     @trace_method("loop_detection")

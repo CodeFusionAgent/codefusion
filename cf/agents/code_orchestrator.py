@@ -405,11 +405,14 @@ class CodeOrchestrator(BaseAgent):
 
         More robust than iteration-based: validates actual completion criteria.
         """
+        # Use config threshold instead of hardcoded value
+        min_confidence = self.config.get('agents', {}).get('thresholds', {}).get('min_confidence', 0.3)
+
         # Must be in COMPLETE state AND have valid results
         return (
             self.current_state == AnalysisState.COMPLETE and
             self.results.get('narrative') and
-            (len(self.file_summaries) > 0 or self.results.get('confidence', 0) > 0.3)
+            (len(self.file_summaries) > 0 or self.results.get('confidence', 0) > min_confidence)
         )
 
     def _generate_results(self, question: str) -> Dict[str, Any]:
