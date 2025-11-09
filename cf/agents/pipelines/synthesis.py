@@ -5,6 +5,7 @@ Responsible for generating final technical narratives from analyzed data.
 All parameters are config-driven for maximum flexibility.
 """
 
+import re
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
@@ -30,6 +31,16 @@ class SynthesisPipeline:
         self.config = config
         self.llm = llm_client
         self.tiered_llm = tiered_llm  # Optional tiered LLM manager
+
+        # Compile regex patterns for validation performance (ISSUE #9 fix)
+        # Single pass through narrative instead of multiple findall() calls
+        self.validation_pattern = re.compile(
+            r'(?P<line_ref>line[s]?\s+\d+|L\d+)|'  # Line references
+            r'(?P<path_ref>[\w/.-]+\.\w+)|'        # File paths
+            r'(?P<code_block>```)|'                # Code blocks
+            r'(?P<section>^#+\s+)',                # Section headers
+            re.IGNORECASE | re.MULTILINE
+        )
 
     def synthesize(self, question: str, file_summaries: Dict[str, Any], insights: List[Dict[str, Any]]) -> SynthesisResult:
         """
@@ -248,27 +259,40 @@ Generate the narrative now:"""
         elif word_count >= target_mid * word_count_tolerance:
             confidence += confidence_increment
 
-        # Check for line number references
-        line_refs = len(re.findall(r'line[s]?\s+\d+|L\d+', narrative, re.IGNORECASE))
+        # Single-pass regex matching for performance (optimized for large narratives)
+        # Count all pattern types in one iteration instead of multiple findall() calls
+        line_refs = 0
+        path_refs = 0
+        code_blocks = 0
+        sections = 0
+
+        for match in self.validation_pattern.finditer(narrative):
+            if match.group('line_ref'):
+                line_refs += 1
+            elif match.group('path_ref'):
+                path_refs += 1
+            elif match.group('code_block'):
+                code_blocks += 1
+            elif match.group('section'):
+                sections += 1
+
+        # Evaluate line references
         if line_refs >= line_refs_high:
             confidence += confidence_increment * 2
         elif line_refs >= line_refs_medium:
             confidence += confidence_increment
 
-        # Check for file path references
-        path_refs = len(re.findall(r'[\w/.-]+\.\w+', narrative))
+        # Evaluate file path references
         if path_refs >= path_refs_high:
             confidence += confidence_increment * 2
         elif path_refs >= path_refs_medium:
             confidence += confidence_increment
 
-        # Check for code examples
-        code_blocks = len(re.findall(r'```', narrative))
+        # Evaluate code examples
         if code_blocks >= code_blocks_min:
             confidence += confidence_increment
 
-        # Check for structural markers (sections, headers)
-        sections = len(re.findall(r'^#+\s+', narrative, re.MULTILINE))
+        # Evaluate structural markers
         if sections >= sections_min:
             confidence += confidence_increment
 

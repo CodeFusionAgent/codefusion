@@ -35,6 +35,7 @@ agents:
   parallel_analysis: true  # Enable parallel file analysis (recommended)
   parallel_workers: 10  # Number of concurrent LLM calls (adjust based on API limits)
   parallel_min_files: 3  # Minimum files to enable parallel processing
+  max_llm_json_size: 10000  # Maximum JSON response size from LLM (chars)
 
   # Synthesis configuration
   synthesis:
@@ -243,6 +244,7 @@ knowledge_base:
     parallel_workers: 10  # Number of parallel workers for parsing
     batch_size: 100       # Files per batch
     progress_interval: 1000  # Log progress every N files
+    max_build_time_seconds: 7200  # Maximum time for KB build (2 hours)
 
     # Languages to parse (currently only Python supported)
     languages:
@@ -280,6 +282,7 @@ knowledge_base:
     cache_embeddings: true  # Cache embeddings to disk
     cache_file: ".codefusion/embeddings.pkl"
     similarity_threshold: 0.7  # Minimum similarity for search results
+    default_relevance: 0.7  # Default relevance score if invalid
 
   # Pattern Recognition Settings
   patterns:
