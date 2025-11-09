@@ -131,15 +131,32 @@ CRITICAL RULES:
 5. AVOID test directories, examples, build output, vendor code, and documentation"""
 
     def _parse_domain_response(self, content: str) -> Optional[Dict[str, Any]]:
-        """Parse JSON response from LLM"""
+        """Parse JSON response from LLM with validation"""
         try:
             start = content.find('{')
             end = content.rfind('}') + 1
             if start >= 0 and end > start:
                 json_content = content[start:end]
-                return json.loads(json_content)
+
+                # Validate JSON size to prevent DoS
+                max_json_size = self.config.get('agents', {}).get('max_llm_json_size', 10000)
+                if len(json_content) > max_json_size:
+                    print(f"⚠️ [DOMAIN_DETECTION] JSON response too large: {len(json_content)} chars (max: {max_json_size})")
+                    return None
+
+                # Parse JSON
+                result = json.loads(json_content)
+
+                # Validate structure
+                if not isinstance(result, dict):
+                    print(f"⚠️ [DOMAIN_DETECTION] Invalid JSON type: {type(result)}")
+                    return None
+
+                return result
         except json.JSONDecodeError as e:
             print(f"⚠️ [DOMAIN_DETECTION] Failed to parse JSON: {e}")
+        except Exception as e:
+            print(f"⚠️ [DOMAIN_DETECTION] Unexpected error parsing JSON: {e}")
         return None
 
     def _get_files_from_directories(self, directories: List[str]) -> List[FileCandidate]:

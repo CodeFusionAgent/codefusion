@@ -260,11 +260,19 @@ class AnalysisPipeline:
                     'total_tokens': prompt_tokens + completion_tokens
                 }
             else:
-                # Fallback to old method
+                # Fallback to old method (with method existence check)
                 prompt = self._build_analysis_prompt(file_path, content, structure, question)
-                response = self.llm.generate_fast(prompt, "You are a code analysis expert. Extract key insights from code.")
+                system_prompt = "You are a code analysis expert. Extract key insights from code."
 
-                if not response.get('success'):
+                # Try generate_fast first, fall back to generate if not available
+                if hasattr(self.llm, 'generate_fast'):
+                    response = self.llm.generate_fast(prompt, system_prompt)
+                else:
+                    response = self.llm.generate(prompt, system_prompt)
+
+                # Validate response
+                if not response or not response.get('success'):
+                    print(f"⚠️ [ANALYSIS] LLM generation failed for {file_path}")
                     return None, {}
 
                 summary_data = self._parse_summary_response(response.get('content', ''))

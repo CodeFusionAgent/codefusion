@@ -230,8 +230,12 @@ class StructuralPipeline:
         num_workers = self.build_config.get('parallel_workers', 10)
         batch_size = self.build_config.get('batch_size', 100)
         progress_interval = self.build_config.get('progress_interval', 1000)
+        max_build_time = self.build_config.get('max_build_time_seconds', 7200)  # 2 hours default
 
-        print(f"⚙️ Using {num_workers} parallel workers")
+        print(f"⚙️ Using {num_workers} parallel workers (timeout: {max_build_time}s)")
+
+        # Track if we hit timeout
+        timeout_hit = False
 
         # Process files in parallel
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
@@ -243,6 +247,17 @@ class StructuralPipeline:
 
             # Process results as they complete
             for i, future in enumerate(concurrent.futures.as_completed(future_to_file), 1):
+                # Check timeout
+                elapsed = time.time() - start_time
+                if elapsed > max_build_time:
+                    print(f"\n⚠️ KB build timeout after {elapsed:.0f}s (max: {max_build_time}s)")
+                    print(f"   Processed {i}/{total_files} files before timeout")
+                    timeout_hit = True
+                    # Cancel remaining futures
+                    for remaining_future in future_to_file:
+                        remaining_future.cancel()
+                    break
+
                 file_path = future_to_file[future]
 
                 try:
@@ -304,7 +319,11 @@ class StructuralPipeline:
             errors=errors
         )
 
-        print(f"\n✅ Knowledge base built successfully!")
+        if timeout_hit:
+            print(f"\n⚠️ Knowledge base build incomplete (timeout)")
+            print(f"   Processed {successful}/{total_files} files successfully")
+        else:
+            print(f"\n✅ Knowledge base built successfully!")
         print(f"   Files: {successful}/{total_files}")
         print(f"   Functions: {total_functions}")
         print(f"   Classes: {total_classes}")
@@ -402,13 +421,37 @@ class StructuralPipeline:
         if self.semantic_config.get('enabled', False):
             try:
                 semantic_results = self.search_by_natural_language(question, top_k=max_results)
+
+                # Validate semantic search results
+                if not isinstance(semantic_results, list):
+                    print(f"⚠️ [KB_SEMANTIC] Invalid results type: {type(semantic_results)}")
+                    semantic_results = []
+
+                default_relevance = self.semantic_config.get('default_relevance', 0.7)
+
                 for result in semantic_results:
-                    file_path = result.get('metadata', {}).get('file_path')
-                    if file_path:
-                        score = result.get('similarity_score', 0.7)
+                    # Validate result structure
+                    if not isinstance(result, dict):
+                        continue
+
+                    if 'metadata' not in result:
+                        continue
+
+                    metadata = result.get('metadata', {})
+                    if not isinstance(metadata, dict):
+                        continue
+
+                    file_path = metadata.get('file_path')
+                    if file_path and isinstance(file_path, str):
+                        score = result.get('similarity_score')
+                        # Validate score
+                        if not isinstance(score, (int, float)) or score < 0 or score > 1:
+                            score = default_relevance
+
                         file_scores[file_path] = max(file_scores.get(file_path, 0), score)
                         file_paths.append(file_path)
-                print(f"✅ [KB_SEMANTIC] Found {len(semantic_results)} files via semantic search")
+
+                print(f"✅ [KB_SEMANTIC] Found {len([r for r in semantic_results if isinstance(r, dict)])} files via semantic search")
             except Exception as e:
                 print(f"⚠️ [KB_SEMANTIC] Semantic search failed: {e}")
 
