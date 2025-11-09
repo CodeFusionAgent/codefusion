@@ -55,6 +55,24 @@ agents:
     min_insights_for_pass: 2  # Minimum insights required before moving to next pass
     loop_detection_min_actions: 3  # Minimum actions before checking for loops
 
+    # Validation thresholds
+    min_analysis_certainty: 0.7  # Minimum grounding score for validation
+    min_line_coverage: 0.5  # Minimum line number coverage
+    min_path_accuracy: 0.9  # Minimum file path accuracy
+    validation_no_refs_score: 0.3  # Score when no references found
+    validation_refs_base: 0.5  # Base score for grounding calculation
+    validation_refs_increment: 0.05  # Increment per reference
+
+  # Synthesis quality thresholds
+  synthesis_thresholds:
+    word_count_tolerance: 0.8  # Accept if >= 80% of target
+    line_refs_high: 5  # High quality line reference count
+    line_refs_medium: 3  # Medium quality line reference count
+    path_refs_high: 5  # High quality path reference count
+    path_refs_medium: 3  # Medium quality path reference count
+    code_blocks_min: 4  # Minimum code blocks for bonus
+    sections_min: 3  # Minimum sections for structure bonus
+
 # Cache Settings
 cache:
   enabled: false                 # Set to false to disable caching for debugging

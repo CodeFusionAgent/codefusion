@@ -232,34 +232,44 @@ Generate the narrative now:"""
 
         # Check word count (±20% of target)
         word_count = len(narrative.split())
+        # Get synthesis quality thresholds from config
+        synthesis_thresholds = self.config.get('agents', {}).get('synthesis_thresholds', {})
+        word_count_tolerance = synthesis_thresholds.get('word_count_tolerance', 0.8)
+        line_refs_high = synthesis_thresholds.get('line_refs_high', 5)
+        line_refs_medium = synthesis_thresholds.get('line_refs_medium', 3)
+        path_refs_high = synthesis_thresholds.get('path_refs_high', 5)
+        path_refs_medium = synthesis_thresholds.get('path_refs_medium', 3)
+        code_blocks_min = synthesis_thresholds.get('code_blocks_min', 4)
+        sections_min = synthesis_thresholds.get('sections_min', 3)
+
         target_mid = (target_min + target_max) / 2
         if target_min <= word_count <= target_max:
             confidence += confidence_increment * 2
-        elif word_count >= target_mid * 0.8:
+        elif word_count >= target_mid * word_count_tolerance:
             confidence += confidence_increment
 
         # Check for line number references
         line_refs = len(re.findall(r'line[s]?\s+\d+|L\d+', narrative, re.IGNORECASE))
-        if line_refs >= 5:
+        if line_refs >= line_refs_high:
             confidence += confidence_increment * 2
-        elif line_refs >= 3:
+        elif line_refs >= line_refs_medium:
             confidence += confidence_increment
 
         # Check for file path references
         path_refs = len(re.findall(r'[\w/.-]+\.\w+', narrative))
-        if path_refs >= 5:
+        if path_refs >= path_refs_high:
             confidence += confidence_increment * 2
-        elif path_refs >= 3:
+        elif path_refs >= path_refs_medium:
             confidence += confidence_increment
 
         # Check for code examples
         code_blocks = len(re.findall(r'```', narrative))
-        if code_blocks >= 4:
+        if code_blocks >= code_blocks_min:
             confidence += confidence_increment
 
         # Check for structural markers (sections, headers)
         sections = len(re.findall(r'^#+\s+', narrative, re.MULTILINE))
-        if sections >= 3:
+        if sections >= sections_min:
             confidence += confidence_increment
 
         return min(confidence, max_confidence)
