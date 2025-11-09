@@ -73,9 +73,21 @@ class DesignPatternDetector:
         Returns:
             List of detected patterns
         """
+        return self.detect_all_patterns(structural_data.classes)
+
+    def detect_all_patterns(self, all_classes: List[ClassNode]) -> List[PatternMatch]:
+        """
+        Detect all design patterns in a list of classes.
+
+        Args:
+            all_classes: List of ClassNode objects
+
+        Returns:
+            List of detected patterns
+        """
         patterns = []
 
-        for class_node in structural_data.classes:
+        for class_node in all_classes:
             # Detect creational patterns
             patterns.extend(self._detect_singleton(class_node))
             patterns.extend(self._detect_factory(class_node))

@@ -70,6 +70,19 @@ class ArchitecturalPatternDetector:
             all_classes.extend(structural_data.classes)
             all_files.append(structural_data.file_node)
 
+        return self.detect_all_patterns(all_classes, all_files)
+
+    def detect_all_patterns(self, all_classes: List[Any], all_files: List[Any]) -> List[ArchitecturalMatch]:
+        """
+        Detect architectural patterns given lists of classes and files.
+
+        Args:
+            all_classes: List of ClassNode objects
+            all_files: List of FileNode objects
+
+        Returns:
+            List of detected architectural patterns
+        """
         patterns = []
 
         # Detect patterns
