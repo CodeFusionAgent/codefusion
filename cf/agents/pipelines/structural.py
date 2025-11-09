@@ -363,70 +363,175 @@ class StructuralPipeline:
 
     def find_files_for_question(self, question: str, max_results: int = 50) -> List[str]:
         """
-        Find relevant files for a question using KB queries.
+        Find relevant files for a question using enhanced KB features.
 
-        Analyzes question to extract intent and uses graph queries.
+        Uses semantic search, pattern detection, and execution tracing as primary methods,
+        with fallback to traditional keyword-based queries.
 
         Args:
             question: User question
             max_results: Maximum files to return
 
         Returns:
-            List of file paths
+            List of file paths ranked by relevance
         """
         if not self.is_kb_available() or not self.kb_exists():
             return []
 
-        # Extract keywords and intent from question
+        file_paths = []
+        file_scores = {}  # Track relevance scores for ranking
+
+        # Strategy 1: Semantic Search (PRIMARY - uses vector embeddings)
+        if self.semantic_config.get('enabled', False):
+            try:
+                semantic_results = self.search_by_natural_language(question, top_k=max_results)
+                for result in semantic_results:
+                    file_path = result.get('metadata', {}).get('file_path')
+                    if file_path:
+                        score = result.get('similarity_score', 0.7)
+                        file_scores[file_path] = max(file_scores.get(file_path, 0), score)
+                        file_paths.append(file_path)
+                print(f"✅ [KB_SEMANTIC] Found {len(semantic_results)} files via semantic search")
+            except Exception as e:
+                print(f"⚠️ [KB_SEMANTIC] Semantic search failed: {e}")
+
+        # Strategy 2: Question Type Detection for specialized queries
         intent = self._analyze_question(question)
 
-        file_paths = []
+        # Life-of-X questions: Use execution path tracing
+        if intent.get('type') == 'life_of_x':
+            try:
+                entry_point = intent.get('entry_point', '')
+                if entry_point and self.lifeofx_config.get('enabled', False):
+                    paths = self.trace_execution_path(entry_point, max_depth=10, max_paths=5)
+                    for path_info in paths:
+                        for step in path_info.get('steps', []):
+                            file_path = step.get('metadata', {}).get('file_path')
+                            if file_path:
+                                # High relevance for execution flow files
+                                file_scores[file_path] = max(file_scores.get(file_path, 0), 0.9)
+                                file_paths.append(file_path)
+                    print(f"✅ [KB_LIFEOFX] Found {len(paths)} execution paths")
+            except Exception as e:
+                print(f"⚠️ [KB_LIFEOFX] Execution tracing failed: {e}")
 
-        # Query based on intent
-        if intent.get('type') == 'dependency':
-            # "How does authentication work?" -> Find files importing 'auth' modules
+        # Dependency queries
+        elif intent.get('type') == 'dependency':
             modules = intent.get('modules', [])
             for module in modules:
-                result = self.kb.find_files_by_dependency(module, self.repo_id)
-                file_paths.extend([node['path'] for node in result.nodes])
+                try:
+                    result = self.kb.find_files_by_dependency(module, self.repo_id)
+                    for node in result.nodes:
+                        file_path = node.get('path')
+                        if file_path:
+                            file_scores[file_path] = max(file_scores.get(file_path, 0), 0.85)
+                            file_paths.append(file_path)
+                except Exception:
+                    pass
 
+        # Function usage queries
         elif intent.get('type') == 'function_usage':
-            # "What calls the login function?" -> Find callers
             function_name = intent.get('function')
             if function_name:
-                result = self.kb.find_function_callers(function_name, self.repo_id)
-                # Extract file paths from function nodes
-                file_paths.extend([node['file_path'] for node in result.nodes if 'file_path' in node])
+                try:
+                    result = self.kb.find_function_callers(function_name, self.repo_id)
+                    for node in result.nodes:
+                        file_path = node.get('file_path')
+                        if file_path:
+                            file_scores[file_path] = max(file_scores.get(file_path, 0), 0.85)
+                            file_paths.append(file_path)
+                except Exception:
+                    pass
 
+        # Class hierarchy queries
         elif intent.get('type') == 'class_hierarchy':
-            # "What inherits from BaseModel?" -> Find class hierarchy
             class_name = intent.get('class')
             if class_name:
-                result = self.kb.find_class_hierarchy(class_name, self.repo_id)
-                file_paths.extend([node['file_path'] for node in result.nodes if 'file_path' in node])
+                try:
+                    result = self.kb.find_class_hierarchy(class_name, self.repo_id)
+                    for node in result.nodes:
+                        file_path = node.get('file_path')
+                        if file_path:
+                            file_scores[file_path] = max(file_scores.get(file_path, 0), 0.85)
+                            file_paths.append(file_path)
+                except Exception:
+                    pass
 
-        elif intent.get('type') == 'search':
-            # "Find authentication code" -> Search by name
+        # Strategy 3: Pattern-based discovery (for architecture questions)
+        if self.patterns_config.get('enabled', False):
+            try:
+                # Check if question is about patterns or architecture
+                if any(word in question.lower() for word in ['pattern', 'architecture', 'design', 'structure']):
+                    # Query all classes first (would need optimization for large codebases)
+                    query = f"""
+                    MATCH (c:Class {{repo_id: '{self.repo_id}'}})
+                    RETURN c.qualified_name as name, c.file_path as file, c
+                    LIMIT 500
+                    """
+                    result = self.kb.execute_query(query)
+                    all_classes = [record['c'] for record in result.records()]
+
+                    # Detect patterns
+                    patterns = self.detect_design_patterns(all_classes)
+                    for pattern in patterns:
+                        # Extract file path from class metadata
+                        file_path = pattern.get('evidence', {}).get('file_path')
+                        if not file_path:
+                            # Try to query for the class
+                            class_name = pattern.get('class_name')
+                            if class_name:
+                                query = f"""
+                                MATCH (c:Class {{repo_id: '{self.repo_id}', qualified_name: '{class_name}'}})
+                                RETURN c.file_path as file_path
+                                LIMIT 1
+                                """
+                                result = self.kb.execute_query(query)
+                                if result.records():
+                                    file_path = result.records()[0].get('file_path')
+
+                        if file_path:
+                            # Patterns are highly relevant for architecture questions
+                            file_scores[file_path] = max(file_scores.get(file_path, 0), 0.88)
+                            file_paths.append(file_path)
+                    print(f"✅ [KB_PATTERNS] Found {len(patterns)} design patterns")
+            except Exception as e:
+                print(f"⚠️ [KB_PATTERNS] Pattern detection failed: {e}")
+
+        # Strategy 4: Fallback to keyword-based search (if no results yet)
+        if not file_paths:
             search_term = intent.get('term', '')
             if search_term:
-                # Search functions
-                result = self.kb.search_by_name(search_term, self.repo_id, node_type='Function')
-                file_paths.extend([node['file_path'] for node in result.nodes if 'file_path' in node])
+                try:
+                    # Search functions
+                    result = self.kb.search_by_name(search_term, self.repo_id, node_type='Function')
+                    for node in result.nodes:
+                        file_path = node.get('file_path')
+                        if file_path:
+                            file_scores[file_path] = max(file_scores.get(file_path, 0), 0.6)
+                            file_paths.append(file_path)
 
-                # Search classes
-                result = self.kb.search_by_name(search_term, self.repo_id, node_type='Class')
-                file_paths.extend([node['file_path'] for node in result.nodes if 'file_path' in node])
+                    # Search classes
+                    result = self.kb.search_by_name(search_term, self.repo_id, node_type='Class')
+                    for node in result.nodes:
+                        file_path = node.get('file_path')
+                        if file_path:
+                            file_scores[file_path] = max(file_scores.get(file_path, 0), 0.6)
+                            file_paths.append(file_path)
+                    print(f"✅ [KB_KEYWORD] Found {len(file_paths)} files via keyword search")
+                except Exception:
+                    pass
 
-        # Remove duplicates and limit
-        file_paths = list(dict.fromkeys(file_paths))[:max_results]
+        # Remove duplicates and rank by score
+        unique_files = list(dict.fromkeys(file_paths))
+        ranked_files = sorted(unique_files, key=lambda f: file_scores.get(f, 0.5), reverse=True)
 
-        return file_paths
+        return ranked_files[:max_results]
 
     def _analyze_question(self, question: str) -> Dict[str, Any]:
         """
         Analyze question to extract intent and entities.
 
-        Simple keyword-based analysis (could be enhanced with LLM).
+        Enhanced with life-of-x detection and better pattern matching.
 
         Args:
             question: User question
@@ -435,6 +540,25 @@ class StructuralPipeline:
             Dictionary with intent type and entities
         """
         question_lower = question.lower()
+
+        # Life-of-X patterns (execution flow questions)
+        if any(pattern in question_lower for pattern in [
+            'how does', 'how do', 'lifecycle', 'life of', 'flow of',
+            'journey of', 'trace', 'execution', 'what happens when'
+        ]):
+            # Try to extract entry point
+            # Look for keywords after "how does" or similar
+            entry_point = None
+            words = question.split()
+            for i, word in enumerate(words):
+                if word.lower() in ['how', 'does', 'do']:
+                    # Next non-stopword might be the entry point
+                    for j in range(i + 1, min(i + 4, len(words))):
+                        if words[j].lower() not in ['the', 'a', 'an', 'work', 'works']:
+                            entry_point = words[j].strip('?.,;')
+                            break
+                    break
+            return {'type': 'life_of_x', 'entry_point': entry_point or ''}
 
         # Dependency patterns
         if any(word in question_lower for word in ['import', 'uses', 'depends on', 'dependency']):
