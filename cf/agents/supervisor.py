@@ -28,15 +28,14 @@ class SupervisorAgent(BaseAgent):
         self._web_agent = None
         
         # Question-specific state (reset each question)
-        self._reset_question_state()
-    
-    def _reset_question_state(self):
+        self.reset_question_state()
+
+    def reset_question_state(self):
         """Reset state for new question"""
         self.agents_to_consult = ['code', 'docs', 'web']
         self.agents_completed = []
         self.all_insights = []
         self.specialist_results = {}
-        self.iteration = 0
         self.actions_taken = []
         self.results = {}
         self.insights = []
@@ -81,14 +80,11 @@ class SupervisorAgent(BaseAgent):
         """
         # Start timing
         start_time = time.time()
-        
-        # Reset state for new question
-        self._reset_question_state()
-        
+
         # Start new tracing session
         self.session_id = self.tracer.start_session(f"supervisor_q_{int(time.time())}")
-        
-        # Call parent analyze method
+
+        # Call parent analyze method (which will call reset_question_state automatically)
         result = super().analyze(question)
         
         # Calculate execution time
