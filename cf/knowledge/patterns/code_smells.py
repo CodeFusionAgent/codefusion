@@ -88,16 +88,29 @@ class CodeSmellDetector:
         Returns:
             List of detected code smells
         """
+        return self.detect_all_smells(structural_data.classes, structural_data.functions)
+
+    def detect_all_smells(self, all_classes: List[ClassNode], all_functions: List[FunctionNode]) -> List[CodeSmellMatch]:
+        """
+        Detect all code smells in lists of classes and functions.
+
+        Args:
+            all_classes: List of ClassNode objects
+            all_functions: List of FunctionNode objects
+
+        Returns:
+            List of detected code smells
+        """
         smells = []
 
         # Detect class-level smells
-        for class_node in structural_data.classes:
+        for class_node in all_classes:
             smells.extend(self._detect_god_class(class_node))
-            smells.extend(self._detect_data_class(class_node, structural_data.functions))
+            smells.extend(self._detect_data_class(class_node, all_functions))
             smells.extend(self._detect_lazy_class(class_node))
 
         # Detect method-level smells
-        for function in structural_data.functions:
+        for function in all_functions:
             smells.extend(self._detect_long_method(function))
             smells.extend(self._detect_long_parameter_list(function))
 

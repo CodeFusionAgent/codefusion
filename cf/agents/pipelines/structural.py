@@ -835,10 +835,12 @@ class StructuralPipeline:
 
         return [
             {
-                'start_node': p.start_node.element_id,
-                'end_node': p.end_node.element_id,
-                'path_length': p.path_length,
-                'nodes': [n.element_id for n in p.nodes]
+                'start_node': p.start_node,
+                'end_node': p.end_node,
+                'path_length': len(p.path),
+                'path': p.path,
+                'transformations': p.transformations,
+                'confidence': p.confidence
             }
             for p in paths
         ]
@@ -873,13 +875,15 @@ class StructuralPipeline:
             {
                 'entry_point': p.entry_point,
                 'exit_point': p.exit_point,
-                'path_length': p.path_length,
-                'execution_time_estimate': p.execution_time_estimate,
+                'total_functions': p.total_functions,
+                'max_depth': p.max_depth,
+                'confidence': p.confidence,
                 'steps': [
                     {
                         'function_name': s.function_name,
-                        'file_path': s.file_path,
-                        'line_number': s.line_number
+                        'qualified_name': s.qualified_name,
+                        'step_type': s.step_type,
+                        'metadata': s.metadata
                     }
                     for s in p.steps
                 ]
@@ -912,13 +916,15 @@ class StructuralPipeline:
         return {
             'entry_point': path.entry_point,
             'exit_point': path.exit_point,
-            'path_length': path.path_length,
-            'execution_time_estimate': path.execution_time_estimate,
+            'total_functions': path.total_functions,
+            'max_depth': path.max_depth,
+            'confidence': path.confidence,
             'steps': [
                 {
                     'function_name': s.function_name,
-                    'file_path': s.file_path,
-                    'line_number': s.line_number
+                    'qualified_name': s.qualified_name,
+                    'step_type': s.step_type,
+                    'metadata': s.metadata
                 }
                 for s in path.steps
             ]
