@@ -72,6 +72,8 @@ class ValidationPipeline:
             # Calculate scores
             thresholds = self.config.get('agents', {}).get('thresholds', {})
             min_certainty = thresholds.get('min_analysis_certainty', 0.7)
+            min_line_coverage = thresholds.get('min_line_coverage', 0.5)
+            min_path_accuracy = thresholds.get('min_path_accuracy', 0.9)
 
             grounding_score = self._calculate_grounding_score(answer, file_summaries)
             line_coverage = self._calculate_line_coverage(answer)
@@ -81,8 +83,8 @@ class ValidationPipeline:
             error_count = len([i for i in issues if i.severity == 'error'])
             valid = (error_count == 0 and
                     grounding_score >= min_certainty and
-                    line_coverage >= 0.5 and
-                    path_accuracy >= 0.9)
+                    line_coverage >= min_line_coverage and
+                    path_accuracy >= min_path_accuracy)
 
             print(f"📊 [VALIDATION] Scores:")
             print(f"   Grounding: {grounding_score:.2f}")
@@ -218,11 +220,18 @@ class ValidationPipeline:
 
         # Score based on references
         total_refs = line_refs + path_refs + entity_refs
+
+        # Get thresholds from config
+        thresholds = self.config.get('agents', {}).get('thresholds', {})
+        no_refs_score = thresholds.get('validation_no_refs_score', 0.3)
+        refs_base_score = thresholds.get('validation_refs_base', 0.5)
+        refs_increment = thresholds.get('validation_refs_increment', 0.05)
+
         if total_refs == 0:
-            return 0.3  # Low score for no references
+            return no_refs_score  # Low score for no references
 
         # Normalize to 0-1 scale
-        score = min(0.5 + (total_refs * 0.05), 1.0)
+        score = min(refs_base_score + (total_refs * refs_increment), 1.0)
         return score
 
     def _calculate_line_coverage(self, answer: str) -> float:
