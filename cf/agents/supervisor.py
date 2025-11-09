@@ -54,25 +54,10 @@ class SupervisorAgent(BaseAgent):
             'standard': {'max_passes': 3},
             'summary': {'max_passes': 2}
         }
-        
-        # Initialize cache with debug knob
+
+        # Cache is already initialized by BaseAgent.__init__()
+        # Just track if it's enabled for checking later
         self.cache_enabled = self.config.get('cache', {}).get('enabled', True)
-        self.cache = None
-        if self.cache_enabled:
-            try:
-                cache_config = {
-                    'enabled': True,
-                    'cache_dir': self.config.get('cache', {}).get('cache_dir', 'cf_cache'),
-                    'ttl': self.config.get('cache', {}).get('ttl', 3600),  # 1 hour default
-                    'similarity_threshold': self.config.get('cache', {}).get('similarity_threshold', 0.8)
-                }
-                self.cache = SemanticCache('supervisor', cache_config)
-                self.logger.verbose(f"💾 Cache enabled: {cache_config['cache_dir']}", "⚙️")
-            except Exception as e:
-                self.logger.error(f"Cache initialization failed: {e}")
-                self.cache_enabled = False
-        else:
-            self.logger.verbose("💾 Cache disabled for debugging", "⚙️")
     
     def analyze(self, question: str) -> Dict[str, Any]:
         """
