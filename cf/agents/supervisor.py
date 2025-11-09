@@ -10,6 +10,7 @@ import json
 import hashlib
 from pathlib import Path
 from typing import Dict, List, Any
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from cf.agents.base import BaseAgent
 from cf.cache.semantic import SemanticCache
 
@@ -206,9 +207,56 @@ Important:
         
         return "all_agents_consulted"
     
+    def _consult_agent_with_timeout(self, agent_type: str, question: str, timeout_seconds: int) -> Dict[str, Any]:
+        """Execute agent call with timeout enforcement"""
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self._get_agent_result, agent_type, question)
+            try:
+                return future.result(timeout=timeout_seconds)
+            except FuturesTimeoutError:
+                self.logger.error(f"{agent_type} agent exceeded {timeout_seconds}s timeout")
+                return {
+                    'success': False,
+                    'error': f'Agent timeout after {timeout_seconds}s',
+                    'insights': [],
+                    'timed_out': True
+                }
+            except Exception as e:
+                self.logger.error(f"{agent_type} agent execution failed: {str(e)}")
+                return {
+                    'success': False,
+                    'error': str(e),
+                    'insights': []
+                }
+
+    def _get_agent_result(self, agent_type: str, question: str) -> Dict[str, Any]:
+        """Get result from specific agent type"""
+        if agent_type == 'code':
+            if not self._code_agent:
+                use_pipeline = self.config.get('agents', {}).get('use_pipeline_architecture', True)
+                if use_pipeline:
+                    from cf.agents.code_orchestrator import CodeOrchestrator
+                    self._code_agent = CodeOrchestrator(self.repo_path, self.config)
+                else:
+                    from cf.agents.code import CodeAgent
+                    self._code_agent = CodeAgent(self.repo_path, self.config)
+            return self._code_agent.analyze(question)
+        elif agent_type == 'docs':
+            if not self._docs_agent:
+                from cf.agents.docs import DocsAgent
+                self._docs_agent = DocsAgent(self.repo_path, self.config)
+            return self._docs_agent.analyze(question)
+        elif agent_type == 'web':
+            if not self._web_agent:
+                from cf.agents.web import WebAgent
+                self._web_agent = WebAgent(self.repo_path, self.config)
+            return self._web_agent.analyze(question)
+        else:
+            return {'success': False, 'error': f'Unknown agent type: {agent_type}', 'insights': []}
+
     def _consult_agent(self, agent_type: str, question: str) -> str:
         """Consult a specific specialist agent"""
-        
+
         if agent_type == 'code':
             return self._consult_code_agent(question)
         elif agent_type == 'docs':
@@ -222,26 +270,19 @@ Important:
         """Get insights from code analysis specialist"""
         self.logger.verbose("Running code analysis agent...", "🔍")
 
-        if not self._code_agent:
-            # Check config for which code agent to use (default: new pipeline-based orchestrator)
-            use_pipeline_architecture = self.config.get('agents', {}).get('use_pipeline_architecture', True)
-
-            if use_pipeline_architecture:
-                from cf.agents.code_orchestrator import CodeOrchestrator
-                self._code_agent = CodeOrchestrator(self.repo_path, self.config)
-                self.logger.verbose("Using new pipeline-based CodeOrchestrator", "⚙️")
-            else:
-                from cf.agents.code import CodeAgent
-                self._code_agent = CodeAgent(self.repo_path, self.config)
-                self.logger.verbose("Using legacy monolithic CodeAgent", "⚙️")
-
         try:
-            result = self._code_agent.analyze(question)
+            # Get timeout from config
+            timeout_seconds = self.config.get('agents', {}).get('timeout', 300)
+
+            # Execute with timeout enforcement
+            result = self._consult_agent_with_timeout('code', question, timeout_seconds)
             self.specialist_results['code'] = result
 
             if result.get('success'):
                 self.all_insights.extend(result.get('insights', []))
                 self.logger.verbose_result(True, "Code analysis completed")
+            elif result.get('timed_out'):
+                self.logger.verbose_result(False, f"Code analysis timed out after {timeout_seconds}s")
             else:
                 self.logger.verbose_result(False, f"Code analysis failed: {result.get('error', 'Unknown error')}")
 
@@ -258,24 +299,26 @@ Important:
     def _consult_docs_agent(self, question: str) -> str:
         """Get insights from documentation specialist"""
         self.logger.verbose("Running documentation agent...", "📚")
-        
-        if not self._docs_agent:
-            from cf.agents.docs import DocsAgent
-            self._docs_agent = DocsAgent(self.repo_path, self.config)
-        
+
         try:
-            result = self._docs_agent.analyze(question)
+            # Get timeout from config
+            timeout_seconds = self.config.get('agents', {}).get('timeout', 300)
+
+            # Execute with timeout enforcement
+            result = self._consult_agent_with_timeout('docs', question, timeout_seconds)
             self.specialist_results['docs'] = result
-            
+
             if result.get('success'):
                 self.all_insights.extend(result.get('insights', []))
                 self.logger.verbose_result(True, "Documentation analysis completed")
+            elif result.get('timed_out'):
+                self.logger.verbose_result(False, f"Documentation analysis timed out after {timeout_seconds}s")
             else:
                 self.logger.verbose_result(False, f"Documentation analysis failed: {result.get('error', 'Unknown error')}")
-                
+
             self.agents_completed.append('docs')
             return "consulted_docs_agent"
-            
+
         except Exception as e:
             self.logger.error(f"Docs agent failed: {str(e)}")
             self.specialist_results['docs'] = {'success': False, 'error': str(e)}
@@ -286,24 +329,26 @@ Important:
     def _consult_web_agent(self, question: str) -> str:
         """Get insights from web search specialist"""
         self.logger.verbose("Running web search agent...", "🌐")
-        
-        if not self._web_agent:
-            from cf.agents.web import WebAgent
-            self._web_agent = WebAgent(self.repo_path, self.config)
-        
+
         try:
-            result = self._web_agent.analyze(question)
+            # Get timeout from config
+            timeout_seconds = self.config.get('agents', {}).get('timeout', 300)
+
+            # Execute with timeout enforcement
+            result = self._consult_agent_with_timeout('web', question, timeout_seconds)
             self.specialist_results['web'] = result
-            
+
             if result.get('success'):
                 self.all_insights.extend(result.get('insights', []))
                 self.logger.verbose_result(True, "Web search completed")
+            elif result.get('timed_out'):
+                self.logger.verbose_result(False, f"Web search timed out after {timeout_seconds}s")
             else:
                 self.logger.verbose_result(False, f"Web search failed: {result.get('error', 'Unknown error')}")
-                
+
             self.agents_completed.append('web')
             return "consulted_web_agent"
-            
+
         except Exception as e:
             self.logger.error(f"Web agent failed: {str(e)}")
             self.specialist_results['web'] = {'success': False, 'error': str(e)}
