@@ -8,9 +8,11 @@ Clean orchestrator that coordinates specialized pipelines:
 - Synthesis: Generate technical narratives
 
 This replaces the monolithic CodeAgent with a modular pipeline architecture.
+Uses state-based flow for adaptive analysis.
 """
 
 from typing import Dict, List, Any
+from enum import Enum
 from cf.agents.base import BaseAgent
 from cf.agents.pipelines.discovery import DiscoveryPipeline
 from cf.agents.pipelines.analysis import AnalysisPipeline
@@ -18,6 +20,16 @@ from cf.agents.pipelines.validation import ValidationPipeline
 from cf.agents.pipelines.synthesis import SynthesisPipeline
 from cf.agents.pipelines.structural import StructuralPipeline
 from cf.llm.model_tiers import TieredLLMManager
+
+
+class AnalysisState(Enum):
+    """States for analysis workflow - enables adaptive flow"""
+    INIT = "init"                        # Initial state
+    REPO_READY = "repo_ready"           # Repository scanned
+    FILES_DISCOVERED = "files_discovered"  # Files found
+    FILES_ANALYZED = "files_analyzed"    # Files analyzed
+    SYNTHESIS_COMPLETE = "synthesis_complete"  # Answer generated
+    COMPLETE = "complete"                # All done
 
 
 class CodeOrchestrator(BaseAgent):
@@ -40,11 +52,17 @@ class CodeOrchestrator(BaseAgent):
         self.validation = None
         self.synthesis = None
 
-        # State
+        # State tracking (state-based flow instead of iteration-based)
+        self.current_state = AnalysisState.INIT
         self.path_map = {}
         self.discovered_files = []
         self.file_summaries = {}
         self.kb_initialized = False  # NEW - Track KB initialization
+
+        # Adaptive discovery config
+        self.discovery_attempt = 0
+        self.max_discovery_attempts = 3
+        self.min_files_threshold = 3  # Minimum files needed for good analysis
 
     def reset_question_state(self):
         """
@@ -61,35 +79,81 @@ class CodeOrchestrator(BaseAgent):
         - Parent class state (iteration, insights, etc.) handled by BaseAgent
         """
         # Clear question-specific state
+        self.current_state = AnalysisState.INIT if not self.path_map else AnalysisState.REPO_READY
         self.discovered_files = []
         self.file_summaries = {}
         self.results = {}
         self.insights = []
         self.actions_taken = []
+        self.discovery_attempt = 0
 
         # Note: self.iteration is reset by BaseAgent.analyze()
         # Note: self.structural, self.path_map, and pipelines are preserved
 
     def _analyze_step(self, question: str) -> str:
-        """Execute one analysis step"""
+        """
+        Execute one analysis step using state-based flow.
 
-        # Step 1: Initialize path map (first iteration only)
-        if self.iteration == 1:
-            return self._initialize_repository()
+        State-based flow enables adaptive behavior:
+        - Can retry discovery if insufficient files found
+        - Can skip states if data is already available (cached)
+        - Can adapt based on question complexity
+        """
 
-        # Step 2: Discover relevant files
-        if self.iteration == 2:
-            return self._discover_files(question)
+        # State: INIT → Initialize repository
+        if self.current_state == AnalysisState.INIT:
+            action = self._initialize_repository()
+            if action == "scan_complete":
+                self.current_state = AnalysisState.REPO_READY
+            return action
 
-        # Step 3: Analyze discovered files
-        if self.iteration == 3:
-            return self._analyze_files(question)
+        # State: REPO_READY → Discover relevant files
+        elif self.current_state == AnalysisState.REPO_READY:
+            action = self._discover_files(question)
 
-        # Step 4: Validate and complete
-        if self.iteration >= 4:
-            return self._finalize_analysis(question)
+            if action == "discovery_complete":
+                # Check if we found enough files
+                if len(self.discovered_files) >= self.min_files_threshold:
+                    self.current_state = AnalysisState.FILES_DISCOVERED
+                    print(f"✅ [ORCHESTRATOR] Discovery successful: {len(self.discovered_files)} files")
+                else:
+                    # Insufficient files - retry with broader search if attempts remain
+                    self.discovery_attempt += 1
+                    if self.discovery_attempt < self.max_discovery_attempts:
+                        print(f"⚠️ [ORCHESTRATOR] Only {len(self.discovered_files)} files found (min: {self.min_files_threshold})")
+                        print(f"   Retrying with broader search (attempt {self.discovery_attempt + 1}/{self.max_discovery_attempts})...")
+                        # Reset to retry discovery with broader parameters
+                        return "discovery_retry"
+                    else:
+                        # Max attempts reached, proceed anyway
+                        print(f"⚠️ [ORCHESTRATOR] Max discovery attempts reached. Proceeding with {len(self.discovered_files)} files.")
+                        self.current_state = AnalysisState.FILES_DISCOVERED if self.discovered_files else AnalysisState.COMPLETE
+            return action
 
-        return "unknown_step"
+        # State: FILES_DISCOVERED → Analyze files
+        elif self.current_state == AnalysisState.FILES_DISCOVERED:
+            action = self._analyze_files(question)
+            if action == "analysis_complete" and self.file_summaries:
+                self.current_state = AnalysisState.FILES_ANALYZED
+            return action
+
+        # State: FILES_ANALYZED → Generate synthesis
+        elif self.current_state == AnalysisState.FILES_ANALYZED:
+            action = self._finalize_analysis(question)
+            if action == "synthesis_complete" and self.results.get('narrative'):
+                self.current_state = AnalysisState.SYNTHESIS_COMPLETE
+            return action
+
+        # State: SYNTHESIS_COMPLETE → Mark complete
+        elif self.current_state == AnalysisState.SYNTHESIS_COMPLETE:
+            self.current_state = AnalysisState.COMPLETE
+            return "complete"
+
+        # State: COMPLETE → Nothing more to do
+        elif self.current_state == AnalysisState.COMPLETE:
+            return "already_complete"
+
+        return "unknown_state"
 
     def _initialize_repository(self) -> str:
         """Initialize repository scan, path map, and knowledge base"""
@@ -329,16 +393,24 @@ class CodeOrchestrator(BaseAgent):
             print(f"✅ [ORCHESTRATOR] Answer generated and validated")
             print(f"   Validation: {'✅ PASSED' if validation_result.valid else '⚠️ ISSUES FOUND'}")
 
-            return "finalized"
+            return "synthesis_complete"
 
         except Exception as e:
             print(f"❌ [ORCHESTRATOR] Finalization failed: {e}")
             return "finalization_failed"
 
     def _is_analysis_complete(self, question: str) -> bool:
-        """Check if analysis is complete"""
-        # Complete after finalization step
-        return self.iteration >= 4 and self.results.get('narrative')
+        """
+        Check if analysis is complete using state-based logic.
+
+        More robust than iteration-based: validates actual completion criteria.
+        """
+        # Must be in COMPLETE state AND have valid results
+        return (
+            self.current_state == AnalysisState.COMPLETE and
+            self.results.get('narrative') and
+            (len(self.file_summaries) > 0 or self.results.get('confidence', 0) > 0.3)
+        )
 
     def _generate_results(self, question: str) -> Dict[str, Any]:
         """Generate final results"""

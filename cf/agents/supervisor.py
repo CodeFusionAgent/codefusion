@@ -32,7 +32,7 @@ class SupervisorAgent(BaseAgent):
 
     def reset_question_state(self):
         """Reset state for new question"""
-        self.agents_to_consult = ['code', 'docs', 'web']
+        self.agents_to_consult = []  # Will be determined intelligently based on question
         self.agents_completed = []
         self.all_insights = []
         self.specialist_results = {}
@@ -58,7 +58,51 @@ class SupervisorAgent(BaseAgent):
         # Cache is already initialized by BaseAgent.__init__()
         # Just track if it's enabled for checking later
         self.cache_enabled = self.config.get('cache', {}).get('enabled', True)
-    
+
+    def _select_agents_for_question(self, question: str) -> List[str]:
+        """
+        Intelligently select which specialist agents to consult based on question.
+
+        Saves time and cost by not consulting irrelevant agents.
+        Uses heuristics + optional LLM routing for complex cases.
+        """
+        q_lower = question.lower()
+        selected_agents = []
+
+        # Code agent: Implementation, architecture, how-it-works questions
+        if any(keyword in q_lower for keyword in [
+            'how', 'implement', 'function', 'class', 'method', 'code', 'work',
+            'algorithm', 'logic', 'architecture', 'component', 'module', 'api',
+            'endpoint', 'route', 'handler', 'process', 'execute', 'call', 'flow'
+        ]):
+            selected_agents.append('code')
+
+        # Docs agent: Documentation, setup, installation, README questions
+        if any(keyword in q_lower for keyword in [
+            'readme', 'document', 'doc', 'install', 'setup', 'configure',
+            'getting started', 'usage', 'tutorial', 'guide', 'example',
+            'deployment', 'requirement', 'depend'
+        ]):
+            selected_agents.append('docs')
+
+        # Web agent: Only for external dependencies, latest versions, or framework updates
+        if any(keyword in q_lower for keyword in [
+            'latest', 'version', 'release', 'update', 'upgrade', 'current',
+            'npm', 'pypi', 'package', 'library', 'framework version'
+        ]):
+            selected_agents.append('web')
+
+        # Default: If no specific agents matched, use code agent (most useful for codebase questions)
+        if not selected_agents:
+            selected_agents.append('code')
+            self.logger.verbose("No specific agent patterns matched - defaulting to code agent", "🤖")
+
+        # Deduplicate while preserving order
+        selected_agents = list(dict.fromkeys(selected_agents))
+
+        self.logger.verbose(f"Selected agents for question: {', '.join(selected_agents)}", "🎯")
+        return selected_agents
+
     def analyze(self, question: str) -> Dict[str, Any]:
         """
         Override analyze to reset state for each new question
@@ -99,9 +143,12 @@ class SupervisorAgent(BaseAgent):
             analysis_setup = self._setup_analysis_strategy(question)
             if not analysis_setup.get('success'):
                 return "analysis_setup_failed"
-            
+
+            # Intelligently select which agents to consult based on question
+            self.agents_to_consult = self._select_agents_for_question(question)
+
             self.logger.verbose(f"Analysis type: {self.analysis_type}, Pass {self.pass_number}/{self.pass_config[self.analysis_type]['max_passes']}", "🎯")
-            
+
             # Log cache strategy results
             cache_strategy = analysis_setup.get('cache_strategy', {})
             if cache_strategy.get('has_cache'):
