@@ -63,45 +63,81 @@ class SupervisorAgent(BaseAgent):
         """
         Intelligently select which specialist agents to consult based on question.
 
-        Saves time and cost by not consulting irrelevant agents.
-        Uses heuristics + optional LLM routing for complex cases.
+        Uses LLM (fast tier) for intelligent routing to save time and cost.
+        Falls back to all agents if LLM routing fails.
         """
-        q_lower = question.lower()
-        selected_agents = []
+        # Check if tiered LLM is available for intelligent routing
+        if hasattr(self, '_code_agent') and hasattr(self._code_agent, 'tiered_llm') and self._code_agent.tiered_llm:
+            tiered_llm = self._code_agent.tiered_llm
+        else:
+            # Fallback: initialize tiered LLM if not available
+            try:
+                from cf.llm.model_tiers import TieredLLMManager
+                tiered_llm = TieredLLMManager(self.config)
+            except Exception:
+                # If tiered LLM fails, use all agents as safe fallback
+                self.logger.verbose("Tiered LLM not available - consulting all agents", "⚠️")
+                return ['code', 'docs', 'web']
 
-        # Code agent: Implementation, architecture, how-it-works questions
-        if any(keyword in q_lower for keyword in [
-            'how', 'implement', 'function', 'class', 'method', 'code', 'work',
-            'algorithm', 'logic', 'architecture', 'component', 'module', 'api',
-            'endpoint', 'route', 'handler', 'process', 'execute', 'call', 'flow'
-        ]):
-            selected_agents.append('code')
+        # Use fast tier model to intelligently route question
+        prompt = f"""You are an intelligent agent router for a codebase analysis system.
 
-        # Docs agent: Documentation, setup, installation, README questions
-        if any(keyword in q_lower for keyword in [
-            'readme', 'document', 'doc', 'install', 'setup', 'configure',
-            'getting started', 'usage', 'tutorial', 'guide', 'example',
-            'deployment', 'requirement', 'depend'
-        ]):
-            selected_agents.append('docs')
+Available specialist agents:
+- code: Analyzes source code, implementation details, architecture, how things work
+- docs: Analyzes documentation, README files, setup instructions, guides
+- web: Searches web for latest versions, external dependencies, framework updates
 
-        # Web agent: Only for external dependencies, latest versions, or framework updates
-        if any(keyword in q_lower for keyword in [
-            'latest', 'version', 'release', 'update', 'upgrade', 'current',
-            'npm', 'pypi', 'package', 'library', 'framework version'
-        ]):
-            selected_agents.append('web')
+Question: "{question}"
 
-        # Default: If no specific agents matched, use code agent (most useful for codebase questions)
-        if not selected_agents:
-            selected_agents.append('code')
-            self.logger.verbose("No specific agent patterns matched - defaulting to code agent", "🤖")
+Which agents should handle this question? Consider:
+1. code agent: Use for questions about implementation, algorithms, code flow, architecture
+2. docs agent: Use for questions about documentation, installation, setup, usage
+3. web agent: Use ONLY for questions about latest versions, external packages, or current releases
 
-        # Deduplicate while preserving order
-        selected_agents = list(dict.fromkeys(selected_agents))
+Return JSON with selected agents:
+{{"agents": ["code"], "reasoning": "brief explanation"}}
 
-        self.logger.verbose(f"Selected agents for question: {', '.join(selected_agents)}", "🎯")
-        return selected_agents
+Important:
+- Select minimum necessary agents (usually 1-2, rarely all 3)
+- Default to just "code" for technical implementation questions
+- Only include "web" if question explicitly asks about versions/updates
+"""
+
+        try:
+            from cf.llm.model_tiers import ModelTier
+            response = tiered_llm.generate(
+                prompt=prompt,
+                tier=ModelTier.FAST,
+                temperature=0.1,
+                max_tokens=150
+            )
+
+            # Parse JSON response
+            import json
+            # Extract JSON from response
+            start = response.find('{')
+            end = response.rfind('}') + 1
+            if start >= 0 and end > start:
+                json_str = response[start:end]
+                result = json.loads(json_str)
+                selected_agents = result.get('agents', ['code'])
+                reasoning = result.get('reasoning', '')
+
+                # Validate agents
+                valid_agents = ['code', 'docs', 'web']
+                selected_agents = [a for a in selected_agents if a in valid_agents]
+
+                if not selected_agents:
+                    selected_agents = ['code']  # Default fallback
+
+                self.logger.verbose(f"Selected agents: {', '.join(selected_agents)} - {reasoning}", "🎯")
+                return selected_agents
+
+        except Exception as e:
+            self.logger.verbose(f"Agent selection failed: {e} - using default [code]", "⚠️")
+
+        # Fallback: use code agent as most versatile default
+        return ['code']
 
     def analyze(self, question: str) -> Dict[str, Any]:
         """
