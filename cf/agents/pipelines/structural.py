@@ -361,7 +361,7 @@ class StructuralPipeline:
 
     # ========== Query Interface ==========
 
-    def find_files_for_question(self, question: str, max_results: int = 50) -> List[str]:
+    def find_files_for_question(self, question: str, max_results: int = 50, question_context: Dict[str, Any] = None) -> List[str]:
         """
         Find relevant files for a question using enhanced KB features.
 
@@ -371,6 +371,7 @@ class StructuralPipeline:
         Args:
             question: User question
             max_results: Maximum files to return
+            question_context: Optional LLM classification from supervisor (replaces hardcoded patterns)
 
         Returns:
             List of file paths ranked by relevance
@@ -396,7 +397,8 @@ class StructuralPipeline:
                 print(f"⚠️ [KB_SEMANTIC] Semantic search failed: {e}")
 
         # Strategy 2: Question Type Detection for specialized queries
-        intent = self._analyze_question(question)
+        # Use LLM classification from supervisor if available, otherwise fall back to patterns
+        intent = self._analyze_question(question, llm_context=question_context)
 
         # Life-of-X questions: Use execution path tracing
         if intent.get('type') == 'life_of_x':
@@ -527,18 +529,85 @@ class StructuralPipeline:
 
         return ranked_files[:max_results]
 
-    def _analyze_question(self, question: str) -> Dict[str, Any]:
+    def _analyze_question(self, question: str, llm_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Analyze question to extract intent and entities.
 
-        Enhanced with life-of-x detection and better pattern matching.
+        Now uses LLM classification from supervisor when available (replaces hardcoded patterns).
+        Falls back to pattern matching only if LLM context is not provided.
 
         Args:
             question: User question
+            llm_context: Optional LLM classification from supervisor (contains 'analysis_type')
 
         Returns:
             Dictionary with intent type and entities
         """
+        # PRIORITY 1: Use LLM classification from supervisor if available
+        if llm_context and 'analysis_type' in llm_context:
+            analysis_type = llm_context.get('analysis_type', 'standard')
+
+            # Map supervisor's analysis_type to KB query type
+            if analysis_type == 'summary':
+                # Summary questions typically need broad coverage
+                return {'type': 'search', 'term': '', 'llm_classified': True, 'analysis_type': 'summary'}
+            elif analysis_type == 'standard':
+                # Standard questions - try to extract entities from the question
+                # Look for specific patterns that indicate specialized queries
+                question_lower = question.lower()
+
+                # Check for life-of-x indicators
+                if any(pattern in question_lower for pattern in [
+                    'how does', 'how do', 'lifecycle', 'life of', 'flow of',
+                    'journey of', 'trace', 'execution', 'what happens when'
+                ]):
+                    # Extract entry point
+                    entry_point = None
+                    words = question.split()
+                    for i, word in enumerate(words):
+                        if word.lower() in ['how', 'does', 'do']:
+                            for j in range(i + 1, min(i + 4, len(words))):
+                                if words[j].lower() not in ['the', 'a', 'an', 'work', 'works']:
+                                    entry_point = words[j].strip('?.,;')
+                                    break
+                            break
+                    return {'type': 'life_of_x', 'entry_point': entry_point or '', 'llm_classified': True}
+
+                # Check for dependency patterns
+                if any(word in question_lower for word in ['import', 'uses', 'depends on', 'dependency']):
+                    modules = [word.rstrip('s.') for word in question.split() if word.endswith('s') or word.endswith('.')]
+                    return {'type': 'dependency', 'modules': modules, 'llm_classified': True}
+
+                # Check for function call patterns
+                if any(word in question_lower for word in ['calls', 'calling', 'invokes', 'who calls']):
+                    words = question.split()
+                    function = None
+                    for i, word in enumerate(words):
+                        if word.lower() in ['function', 'method'] and i + 1 < len(words):
+                            function = words[i + 1].strip('?.,;')
+                            break
+                    return {'type': 'function_usage', 'function': function, 'llm_classified': True}
+
+                # Check for class hierarchy patterns
+                if any(word in question_lower for word in ['inherits', 'extends', 'subclass', 'parent', 'base class']):
+                    words = question.split()
+                    class_name = None
+                    for i, word in enumerate(words):
+                        if word.lower() in ['class', 'from'] and i + 1 < len(words):
+                            class_name = words[i + 1].strip('?.,;')
+                            break
+                    return {'type': 'class_hierarchy', 'class': class_name, 'llm_classified': True}
+
+                # Default: keyword search for standard questions
+                stop_words = {'how', 'does', 'what', 'where', 'is', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'and', 'or'}
+                terms = [word.strip('?.,;') for word in question.split() if word.lower() not in stop_words]
+                search_term = max(terms, key=len) if terms else ''
+                return {'type': 'search', 'term': search_term, 'llm_classified': True}
+
+        # FALLBACK: Use hardcoded pattern matching if no LLM context
+        # This path is only taken if supervisor doesn't provide classification
+        print("⚠️ [KB_QUERY] No LLM classification provided, using fallback pattern matching")
+
         question_lower = question.lower()
 
         # Life-of-X patterns (execution flow questions)
@@ -547,7 +616,6 @@ class StructuralPipeline:
             'journey of', 'trace', 'execution', 'what happens when'
         ]):
             # Try to extract entry point
-            # Look for keywords after "how does" or similar
             entry_point = None
             words = question.split()
             for i, word in enumerate(words):
@@ -562,16 +630,11 @@ class StructuralPipeline:
 
         # Dependency patterns
         if any(word in question_lower for word in ['import', 'uses', 'depends on', 'dependency']):
-            # Extract potential module names
-            modules = []
-            for word in question.split():
-                if word.endswith('s') or word.endswith('.'):
-                    modules.append(word.rstrip('s.'))
+            modules = [word.rstrip('s.') for word in question.split() if word.endswith('s') or word.endswith('.')]
             return {'type': 'dependency', 'modules': modules}
 
         # Function call patterns
         if any(word in question_lower for word in ['calls', 'calling', 'invokes', 'who calls']):
-            # Extract function name (simple heuristic)
             words = question.split()
             for i, word in enumerate(words):
                 if word.lower() in ['function', 'method']:
@@ -589,13 +652,9 @@ class StructuralPipeline:
             return {'type': 'class_hierarchy', 'class': None}
 
         # Default: keyword search
-        # Extract meaningful terms (filter out common words)
         stop_words = {'how', 'does', 'what', 'where', 'is', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'and', 'or'}
         terms = [word.strip('?.,;') for word in question.split() if word.lower() not in stop_words]
-
-        # Use longest term as search term
         search_term = max(terms, key=len) if terms else ''
-
         return {'type': 'search', 'term': search_term}
 
     def get_repository_stats(self) -> Dict[str, Any]:

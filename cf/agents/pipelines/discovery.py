@@ -336,8 +336,15 @@ class GraphQueryStrategy(DiscoveryStrategy):
 
             print("🔍 [GRAPH_QUERY] Querying knowledge base graph...")
 
-            # Use structural pipeline to find files
-            file_paths = self.structural_pipeline.find_files_for_question(question, max_results=100)
+            # Extract LLM question classification from supervisor (if available)
+            question_context = context.get('question_context', {})
+
+            # Use structural pipeline to find files with LLM classification
+            file_paths = self.structural_pipeline.find_files_for_question(
+                question,
+                max_results=100,
+                question_context=question_context  # Pass LLM classification
+            )
 
             if not file_paths:
                 print("⚠️ [GRAPH_QUERY] No files found via graph queries")
@@ -451,18 +458,24 @@ class DiscoveryPipeline:
 
         self.fallback = FallbackStrategy(config, repo_tools, path_map)
 
-    def discover(self, question: str, max_files: int = 50) -> DiscoveryResult:
+    def discover(self, question: str, max_files: int = 50, question_context: Dict[str, Any] = None) -> DiscoveryResult:
         """
         Execute all discovery strategies and return ranked file candidates
 
         Args:
             question: The user's question
             max_files: Maximum number of files to return
+            question_context: Optional LLM classification from supervisor (replaces hardcoded patterns)
 
         Returns:
             DiscoveryResult with ranked file candidates
         """
         context = {}
+
+        # Add question context from supervisor (LLM classification) to eliminate hardcoded patterns
+        if question_context:
+            context['question_context'] = question_context
+
         all_candidates = []
         strategies_used = []
 

@@ -240,6 +240,14 @@ Important:
                 else:
                     from cf.agents.code import CodeAgent
                     self._code_agent = CodeAgent(self.repo_path, self.config)
+
+            # Pass LLM question classification to code agent to eliminate hardcoded patterns
+            if hasattr(self._code_agent, 'set_question_context'):
+                self._code_agent.set_question_context({
+                    'analysis_type': self.analysis_type,
+                    'question': question
+                })
+
             return self._code_agent.analyze(question)
         elif agent_type == 'docs':
             if not self._docs_agent:

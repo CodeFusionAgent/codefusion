@@ -68,6 +68,21 @@ class CodeOrchestrator(BaseAgent):
         self.synthesis_retry_count = 0
         self.max_synthesis_retries = 2  # Max retries if validation fails
 
+        # Question context from supervisor (LLM classification)
+        self.question_context = {}  # Stores analysis_type and other metadata
+
+    def set_question_context(self, context: Dict[str, Any]):
+        """
+        Set question context from supervisor (LLM classification).
+
+        This replaces hardcoded pattern matching in KB discovery with
+        supervisor's intelligent LLM-based question classification.
+
+        Args:
+            context: Dictionary with 'analysis_type', 'question', etc.
+        """
+        self.question_context = context or {}
+
     def reset_question_state(self):
         """
         Reset state for new question while preserving expensive resources.
@@ -374,9 +389,13 @@ class CodeOrchestrator(BaseAgent):
         try:
             print("🔍 [ORCHESTRATOR] Discovering relevant files...")
 
-            # Run discovery pipeline
+            # Run discovery pipeline with question context from supervisor
             max_files = self.config.get('agents', {}).get('max_files_to_analyze', 50)
-            discovery_result = self.discovery.discover(question, max_files)
+            discovery_result = self.discovery.discover(
+                question,
+                max_files,
+                question_context=self.question_context  # Pass LLM classification
+            )
 
             # Store discovered files
             self.discovered_files = [f.path for f in discovery_result.files]
