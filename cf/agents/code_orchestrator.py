@@ -64,6 +64,10 @@ class CodeOrchestrator(BaseAgent):
         self.max_discovery_attempts = 3
         self.min_files_threshold = 3  # Minimum files needed for good analysis
 
+        # Quality feedback loop config
+        self.synthesis_retry_count = 0
+        self.max_synthesis_retries = 2  # Max retries if validation fails
+
     def reset_question_state(self):
         """
         Reset state for new question while preserving expensive resources.
@@ -86,6 +90,7 @@ class CodeOrchestrator(BaseAgent):
         self.insights = []
         self.actions_taken = []
         self.discovery_attempt = 0
+        self.synthesis_retry_count = 0
 
         # Note: self.iteration is reset by BaseAgent.analyze()
         # Note: self.structural, self.path_map, and pipelines are preserved
@@ -372,7 +377,18 @@ class CodeOrchestrator(BaseAgent):
                 self.file_summaries
             )
 
-            # Store results
+            # Quality feedback loop: retry if validation fails and retries remain
+            if not validation_result.valid and self.synthesis_retry_count < self.max_synthesis_retries:
+                self.synthesis_retry_count += 1
+                print(f"⚠️ [ORCHESTRATOR] Validation failed (grounding: {validation_result.grounding_score:.1%})")
+                print(f"   Retrying synthesis (attempt {self.synthesis_retry_count + 1}/{self.max_synthesis_retries + 1})...")
+                print(f"   Issues: {len(validation_result.issues)} problems detected")
+
+                # Clear previous results and retry
+                self.results = {}
+                return "synthesis_retry"
+
+            # Store results (either validation passed or max retries exhausted)
             self.results = {
                 'narrative': synthesis_result.narrative,
                 'key_files': synthesis_result.key_files_cited,
@@ -386,12 +402,18 @@ class CodeOrchestrator(BaseAgent):
                     'issues': [
                         {'severity': i.severity, 'type': i.issue_type, 'message': i.message}
                         for i in validation_result.issues
-                    ]
+                    ],
+                    'retry_count': self.synthesis_retry_count
                 }
             }
 
-            print(f"✅ [ORCHESTRATOR] Answer generated and validated")
-            print(f"   Validation: {'✅ PASSED' if validation_result.valid else '⚠️ ISSUES FOUND'}")
+            if validation_result.valid:
+                print(f"✅ [ORCHESTRATOR] Answer generated and validated")
+                print(f"   Validation: ✅ PASSED (grounding: {validation_result.grounding_score:.1%})")
+            else:
+                print(f"⚠️ [ORCHESTRATOR] Answer generated with validation issues")
+                print(f"   Validation: ⚠️ FAILED (grounding: {validation_result.grounding_score:.1%})")
+                print(f"   Max retries exhausted ({self.synthesis_retry_count}/{self.max_synthesis_retries})")
 
             return "synthesis_complete"
 
