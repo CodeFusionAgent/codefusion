@@ -116,6 +116,10 @@ class CodeOrchestrator(BaseAgent):
                                 if update_stats.get('changes', 0) > 0:
                                     print(f"✅ [ORCHESTRATOR] KB updated: {update_stats.get('changes', 0)} files changed")
 
+                            # Initialize enhanced layers after loading existing KB
+                            print("🔬 [ORCHESTRATOR] Initializing enhanced knowledge layers...")
+                            self.structural._build_enhanced_layers()
+
                             self.kb_initialized = True
                         elif auto_build:
                             # Build KB for first time
