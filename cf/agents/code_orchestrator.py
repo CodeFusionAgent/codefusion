@@ -17,6 +17,7 @@ from cf.agents.pipelines.analysis import AnalysisPipeline
 from cf.agents.pipelines.validation import ValidationPipeline
 from cf.agents.pipelines.synthesis import SynthesisPipeline
 from cf.agents.pipelines.structural import StructuralPipeline
+from cf.llm.model_tiers import TieredLLMManager
 
 
 class CodeOrchestrator(BaseAgent):
@@ -28,6 +29,9 @@ class CodeOrchestrator(BaseAgent):
 
     def __init__(self, repo_path: str, config: Dict[str, Any]):
         super().__init__(repo_path, config, "code_orchestrator")
+
+        # Initialize tiered LLM manager
+        self.tiered_llm = TieredLLMManager(config)
 
         # Initialize pipelines
         self.structural = None  # NEW - Structural KB pipeline
@@ -189,7 +193,8 @@ class CodeOrchestrator(BaseAgent):
                     self.config,
                     self.llm,
                     self.tools,
-                    self.cache
+                    self.cache,
+                    tiered_llm=self.tiered_llm  # Pass tiered LLM manager
                 )
             if self.validation is None:
                 self.validation = ValidationPipeline(
@@ -201,7 +206,8 @@ class CodeOrchestrator(BaseAgent):
                 self.synthesis = SynthesisPipeline(
                     self.repo_path,
                     self.config,
-                    self.llm
+                    self.llm,
+                    tiered_llm=self.tiered_llm  # Pass tiered LLM manager
                 )
 
             print(f"✅ [ORCHESTRATOR] Found {len(self.path_map)} paths")
