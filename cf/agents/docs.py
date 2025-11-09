@@ -15,11 +15,16 @@ class DocsAgent(BaseAgent):
     
     def __init__(self, repo_path: str, config: Dict[str, Any]):
         super().__init__(repo_path, config, "docs")
-        
+
         # Track conversation history for function calling loop
         self.conversation_history = []
         self.tool_results = []
-    
+
+    def reset_question_state(self):
+        """Reset state for new question to prevent memory accumulation"""
+        self.conversation_history = []
+        self.tool_results = []
+
     def _analyze_step(self, question: str) -> str:
         """Run complete function calling loop until LLM says done"""
         

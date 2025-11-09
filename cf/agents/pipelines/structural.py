@@ -141,6 +141,14 @@ class StructuralPipeline:
         abs_path = os.path.abspath(repo_path)
         return hashlib.md5(abs_path.encode()).hexdigest()
 
+    def __del__(self):
+        """Cleanup Neo4j connection on object destruction"""
+        try:
+            if hasattr(self, 'kb') and self.kb is not None:
+                self.kb.close()
+        except Exception:
+            pass  # Ignore cleanup errors
+
     def is_kb_available(self) -> bool:
         """Check if KB is available and connected"""
         return self.kb is not None

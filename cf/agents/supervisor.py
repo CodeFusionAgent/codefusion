@@ -66,6 +66,13 @@ class SupervisorAgent(BaseAgent):
         # Start timing
         start_time = time.time()
 
+        # End previous tracing session before starting new one
+        if hasattr(self, 'session_id') and self.session_id:
+            try:
+                self.tracer.end_session(self.session_id)
+            except Exception:
+                pass  # Ignore if session already ended
+
         # Start new tracing session
         self.session_id = self.tracer.start_session(f"supervisor_q_{int(time.time())}")
 
