@@ -2,30 +2,42 @@
 Tool Registry for CodeFusion
 
 Central registry for all tools available to agents.
+Supports pluggable agents via AgentRegistry.
+Tracks per-tool metrics for cost analysis.
 """
 
-from typing import Dict, Any, Callable
+import time
+from typing import Dict, Any, Callable, Optional
 from pathlib import Path
 
 from cf.tools.repo_tools import RepoTools
 from cf.tools.llm_tools import LLMTools
 from cf.tools.web_tools import WebTools
+from cf.tools.metrics import ToolMetricsTracker
 
 
 class ToolRegistry:
     """Central registry for all CodeFusion tools"""
-    
-    def __init__(self, repo_path: str):
+
+    def __init__(self, repo_path: str, agent_registry: Optional[Any] = None):
         self.repo_path = repo_path
-        
+        self.agent_registry = agent_registry
+
         # Initialize tool modules
         self.repo_tools = RepoTools(repo_path)
         self.llm_tools = LLMTools()
         self.web_tools = WebTools()
-        
+
+        # Initialize metrics tracker
+        self.metrics_tracker = ToolMetricsTracker()
+
         # Register all available tools
         self.tools: Dict[str, Callable] = {}
         self._register_tools()
+
+        # Register agent tools if registry provided
+        if self.agent_registry:
+            self._register_agent_tools()
     
     def _register_tools(self):
         """Register all available tools"""
@@ -49,18 +61,58 @@ class ToolRegistry:
         self.tools['search_documentation'] = self.web_tools.search_documentation
     
     def execute(self, tool_name: str, **params) -> Dict[str, Any]:
-        """Execute a tool with parameters"""
+        """Execute a tool with parameters and track metrics"""
         if tool_name not in self.tools:
             return {
                 'error': f'Tool "{tool_name}" not found',
                 'available_tools': list(self.tools.keys())
             }
-        
+
+        start_time = time.time()
+        success = False
+        tokens = 0
+        cost = 0.0
+        error = ""
+
         try:
             result = self.tools[tool_name](**params)
-            return result if isinstance(result, dict) else {'result': result}
+
+            # Extract tokens and cost if available
+            if isinstance(result, dict):
+                tokens = result.get('tokens', 0)
+                cost = result.get('cost', 0.0)
+
+                # For LLM results with usage
+                if 'usage' in result:
+                    usage = result['usage']
+                    tokens = usage.get('total_tokens', 0)
+
+                    # Estimate cost if not provided
+                    if cost == 0.0 and 'cost_estimate' in result:
+                        cost = result['cost_estimate']
+
+            success = True
+            final_result = result if isinstance(result, dict) else {'result': result}
+
         except Exception as e:
-            return {'error': str(e)}
+            error = str(e)
+            final_result = {'error': error}
+
+        finally:
+            duration = time.time() - start_time
+
+            # Record metrics
+            self.metrics_tracker.record_call(
+                tool_name=tool_name,
+                duration=duration,
+                success=success,
+                tokens=tokens,
+                cost=cost,
+                error=error,
+                metadata=params
+            )
+
+        return final_result
     
     def get_available_tools(self) -> Dict[str, str]:
         """Get list of available tools with descriptions"""
@@ -287,4 +339,70 @@ class ToolRegistry:
             schema = self.get_tool_schema(tool_name)
             if schema:  # Only add if schema exists
                 schemas.append(schema)
+
+        # Add agent tool schemas if registry provided
+        if self.agent_registry:
+            agent_schemas = self.agent_registry.get_all_tool_schemas()
+            schemas.extend(agent_schemas)
+
         return schemas
+
+    def _register_agent_tools(self):
+        """Register tools from all agents in the agent registry"""
+        if not self.agent_registry:
+            return
+
+        agent_tools = self.agent_registry.get_all_tools()
+        for tool_name, tool_func in agent_tools.items():
+            # Avoid name conflicts with existing tools
+            if tool_name in self.tools:
+                print(f"⚠️ Tool '{tool_name}' from agent conflicts with existing tool")
+                continue
+
+            self.tools[tool_name] = tool_func
+            print(f"✅ Registered agent tool: {tool_name}")
+
+    def register_agent(self, agent: Any):
+        """
+        Register a knowledge agent and its tools.
+
+        Args:
+            agent: KnowledgeAgent instance to register
+        """
+        if not self.agent_registry:
+            print("⚠️ No agent registry configured")
+            return False
+
+        # Register agent in registry
+        success = self.agent_registry.register(agent)
+
+        if success:
+            # Refresh agent tools
+            self._register_agent_tools()
+
+        return success
+
+    def get_metrics(self) -> Dict[str, Any]:
+        """
+        Get tool usage metrics.
+
+        Returns:
+            Dictionary with all tool metrics
+        """
+        return self.metrics_tracker.export_for_eval()
+
+    def get_tool_metrics(self, tool_name: str) -> Dict[str, Any]:
+        """
+        Get metrics for a specific tool.
+
+        Args:
+            tool_name: Tool to get metrics for
+
+        Returns:
+            Tool metrics dictionary
+        """
+        return self.metrics_tracker.get_tool_metrics(tool_name)
+
+    def reset_metrics(self):
+        """Reset all tool metrics"""
+        self.metrics_tracker.reset()
