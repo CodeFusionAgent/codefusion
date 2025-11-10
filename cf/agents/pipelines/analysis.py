@@ -8,7 +8,7 @@ Supports parallel file processing and caching.
 import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Optional
 from dataclasses import dataclass
 
 

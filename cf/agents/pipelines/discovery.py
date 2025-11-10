@@ -6,7 +6,7 @@ Uses multiple strategies: domain detection, keyword matching, grep search, fallb
 """
 
 import json
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,11 +26,17 @@ class FileCandidate:
 
 @dataclass
 class DiscoveryResult:
-    """Result of file discovery process"""
+    """
+    Result of file discovery process.
+    
+    Includes standard success/error fields for consistent error handling.
+    """
     files: List[FileCandidate]
     domain_info: Dict[str, Any]
     strategies_used: List[str]
     total_candidates: int
+    success: bool = True
+    error: Optional[str] = None
 
     def get_top_files(self, n: int = 50) -> List[FileCandidate]:
         """Get top N files by relevance score"""
