@@ -521,8 +521,11 @@ class StructuralPipeline:
         # Strategy 3: Pattern-based discovery (for architecture questions)
         if self.patterns_config.get('enabled', False):
             try:
-                # Check if question is about patterns or architecture
-                if any(word in question.lower() for word in ['pattern', 'architecture', 'design', 'structure']):
+                # Use LLM classification from question_context instead of hardcoded keywords
+                question_type = llm_context.get('type', 'search') if llm_context else 'search'
+                is_pattern_question = question_type in ['pattern', 'architecture', 'class_hierarchy']
+                
+                if is_pattern_question:
                     # Query all classes first (would need optimization for large codebases)
                     query = """
                     MATCH (c:Class {repo_id: $repo_id})
