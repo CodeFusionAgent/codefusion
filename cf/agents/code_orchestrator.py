@@ -39,17 +39,26 @@ class CodeOrchestrator(BaseAgent):
     Clean architecture with ~200 lines vs 4,375 in monolithic CodeAgent.
     """
 
-    def __init__(self, repo_path: str, config: Dict[str, Any]):
-        super().__init__(repo_path, config, "code_orchestrator")
-
-        # Initialize tiered LLM manager
+    def __init__(self, repo_path: str, config: Dict[str, Any], tool_registry=None, agent_registry=None):
+        # Accept shared registries from supervisor to avoid duplication
+        # Initialize tiered LLM manager BEFORE BaseAgent (needs to be available)
         self.tiered_llm = TieredLLMManager(config)
 
-        # Initialize tool registry for KB access (tool-first pattern)
-        from cf.tools.registry import ToolRegistry
-        from cf.agents.registry import AgentRegistry
-        self.agent_registry = AgentRegistry()
-        self.tool_registry = ToolRegistry(repo_path, agent_registry=self.agent_registry)
+        # Set up registries before BaseAgent.__init__
+        if agent_registry is None:
+            from cf.agents.registry import AgentRegistry
+            self.agent_registry = AgentRegistry()
+        else:
+            self.agent_registry = agent_registry
+
+        if tool_registry is None:
+            from cf.tools.registry import ToolRegistry
+            self.tool_registry = ToolRegistry(repo_path, agent_registry=self.agent_registry)
+        else:
+            self.tool_registry = tool_registry
+
+        # Initialize BaseAgent with shared tool registry
+        super().__init__(repo_path, config, "code_orchestrator", tool_registry=self.tool_registry)
 
         # Initialize pipelines
         self.structural = None  # Structural KB pipeline

@@ -123,25 +123,21 @@ Important:
             )
 
             # Parse JSON response
-            import json
-            # Extract JSON from response
-            start = response.find('{')
-            end = response.rfind('}') + 1
-            if start >= 0 and end > start:
-                json_str = response[start:end]
-                result = json.loads(json_str)
-                selected_agents = result.get('agents', ['code'])
-                reasoning = result.get('reasoning', '')
+            from cf.utils.llm_parser import LLMResponseParser
 
-                # Validate agents
-                valid_agents = ['code', 'docs', 'web']
-                selected_agents = [a for a in selected_agents if a in valid_agents]
+            result = LLMResponseParser.extract_json(response, fallback={'agents': ['code']})
+            selected_agents = result.get('agents', ['code'])
+            reasoning = result.get('reasoning', '')
 
-                if not selected_agents:
-                    selected_agents = ['code']  # Default fallback
+            # Validate agents
+            valid_agents = ['code', 'docs', 'web']
+            selected_agents = [a for a in selected_agents if a in valid_agents]
 
-                self.logger.verbose(f"Selected agents: {', '.join(selected_agents)} - {reasoning}", "🎯")
-                return selected_agents
+            if not selected_agents:
+                selected_agents = ['code']  # Default fallback
+
+            self.logger.verbose(f"Selected agents: {', '.join(selected_agents)} - {reasoning}", "🎯")
+            return selected_agents
 
         except Exception as e:
             self.logger.verbose(f"Agent selection failed: {e} - using default [code]", "⚠️")
@@ -242,17 +238,15 @@ Important:
         if agent_type == 'code':
             if not self._code_agent:
                 # Always use pipeline architecture (CodeOrchestrator)
-                # Pass shared tool registry for cross-agent tool usage
+                # Pass shared registries for cross-agent tool usage (no duplication!)
                 from cf.agents.code_orchestrator import CodeOrchestrator
-                self._code_agent = CodeOrchestrator(self.repo_path, self.config)
-
-                # Register CodeOrchestrator's KB agent with shared registry
-                if hasattr(self._code_agent, 'agent_registry'):
-                    for agent_name in self._code_agent.agent_registry.list_agents():
-                        agent = self._code_agent.agent_registry.get_agent(agent_name)
-                        if agent and agent_name not in self._agent_registry.list_agents():
-                            self._agent_registry.register(agent)
-                            self.logger.verbose(f"Registered KB agent '{agent_name}' in shared registry", "🔗")
+                self._code_agent = CodeOrchestrator(
+                    self.repo_path,
+                    self.config,
+                    tool_registry=self._shared_tool_registry,
+                    agent_registry=self._agent_registry
+                )
+                # KB agents are automatically registered in shared registry during orchestrator init
 
             # Pass LLM question classification to code agent to eliminate hardcoded patterns
             if hasattr(self._code_agent, 'set_question_context'):
@@ -531,20 +525,15 @@ The Architecture & Flow section should be particularly rich - it's the heart of 
                 
                 # Try to parse JSON response
                 try:
-                    if content.startswith('{'):
-                        synthesis = json.loads(content)
+                    from cf.utils.llm_parser import LLMResponseParser
+
+                    synthesis = LLMResponseParser.extract_json(content)
+                    if synthesis:
+                        return {'success': True, 'synthesis': synthesis}
                     else:
-                        # Extract JSON from markdown
-                        start = content.find('{')
-                        end = content.rfind('}') + 1
-                        if start >= 0 and end > start:
-                            synthesis = json.loads(content[start:end])
-                        else:
-                            raise ValueError("No JSON found")
-                    
-                    return {'success': True, 'synthesis': synthesis}
-                    
-                except json.JSONDecodeError:
+                        raise ValueError("No JSON found")
+
+                except (json.JSONDecodeError, ValueError):
                     # Fallback: treat as plain text narrative
                     return {
                         'success': True,
@@ -644,13 +633,15 @@ Return JSON format only."""
             llm_response = self.call_llm(prompt, system_prompt)
             
             if llm_response.get('success'):
-                try:
-                    result = json.loads(llm_response.get('content', '{}'))
-                    self.analysis_type = result.get('analysis_type', 'standard')
-                    return {'success': True, 'analysis_type': self.analysis_type, 'reasoning': result.get('reasoning', '')}
-                except json.JSONDecodeError:
-                    self.analysis_type = 'standard'
-                    return {'success': True, 'analysis_type': 'standard', 'reasoning': 'JSON parse failed, using fallback'}
+                from cf.utils.llm_parser import LLMResponseParser
+
+                result = LLMResponseParser.extract_json_with_validation(
+                    llm_response.get('content', ''),
+                    required_keys=['analysis_type'],
+                    fallback={'analysis_type': 'standard', 'reasoning': 'JSON parse failed'}
+                )
+                self.analysis_type = result.get('analysis_type', 'standard')
+                return {'success': True, 'analysis_type': self.analysis_type, 'reasoning': result.get('reasoning', '')}
             
             self.analysis_type = 'standard'
             return {'success': True, 'analysis_type': 'standard', 'reasoning': 'LLM call failed, using fallback'}
@@ -791,12 +782,16 @@ Return JSON format only."""
             llm_response = self.call_llm(prompt, system_prompt)
             
             if llm_response.get('success'):
-                try:
-                    analysis = json.loads(llm_response.get('content', '{}'))
+                from cf.utils.llm_parser import LLMResponseParser
+
+                analysis = LLMResponseParser.extract_json(
+                    llm_response.get('content', ''),
+                    fallback=None
+                )
+                if analysis:
                     return analysis
-                except json.JSONDecodeError:
-                    # JSON parse failed, fall through to fallback logic
-                    self.logger.error("JSON parse failed, using fallback logic")
+                # JSON parse failed, fall through to fallback logic
+                self.logger.error("JSON parse failed, using fallback logic")
             else:
                 # LLM call failed, fall through to fallback logic
                 self.logger.error("LLM call failed, using fallback logic")

@@ -5,7 +5,7 @@ Responsible for validating claims, checking line numbers, and ensuring grounding
 All validation logic is config-driven and language-agnostic.
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Optional
 from dataclasses import dataclass
 import re
 
