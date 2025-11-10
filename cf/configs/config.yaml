@@ -27,7 +27,6 @@ llm:
 agents:
   max_iterations: 20  # Increased from 10 to support 3 passes with 3 agents (worst case: 13 iterations + margin)
   timeout: 300  # seconds
-  use_pipeline_architecture: true  # Use new modular pipeline architecture (recommended)
   max_files_to_analyze: 50  # Maximum files for discovery pipeline
 
   # Parallel Processing Settings (NEW)

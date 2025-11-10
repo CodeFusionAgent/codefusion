@@ -66,6 +66,9 @@ class StructuralKBAgent(KnowledgeAgent):
         """Register all KB query tools (unprefixed - registry will prefix)"""
         tools = {}
 
+        # High-Level Discovery Tool (combines multiple strategies)
+        tools['find_files_for_question'] = self._find_files_for_question
+
         # Semantic Layer Tools
         if self.semantic_config.get('enabled', False):
             tools['search_by_semantics'] = self._search_by_semantics
@@ -602,3 +605,56 @@ class StructuralKBAgent(KnowledgeAgent):
         except Exception as e:
             self._record_call(time_taken=time.time() - start_time, error=True)
             return {'success': False, 'error': str(e)}
+
+    # ========== High-Level Discovery Tool ==========
+
+    def _find_files_for_question(self, question: str, max_results: int = 50,
+                                 question_context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Find relevant files for a question using all KB strategies.
+
+        This is the primary file discovery tool that combines:
+        - Semantic search (vector embeddings)
+        - Pattern detection (AST analysis)
+        - Life-of-X tracing (execution paths)
+        - Dependency analysis (graph queries)
+
+        Args:
+            question: User question
+            max_results: Maximum files to return
+            question_context: Optional LLM classification context from supervisor
+
+        Returns:
+            Dictionary with success status and list of file paths
+        """
+        start_time = time.time()
+        try:
+            # Check if KB has find_files_for_question method (StructuralPipeline does)
+            if hasattr(self.kb, 'find_files_for_question'):
+                file_paths = self.kb.find_files_for_question(
+                    question=question,
+                    max_results=max_results,
+                    question_context=question_context
+                )
+            else:
+                # Fallback: just use semantic search
+                file_paths = []
+                if self.semantic_config.get('enabled', False):
+                    results = self.kb.search_by_natural_language(question, top_k=max_results)
+                    for result in results:
+                        if isinstance(result, dict) and 'metadata' in result:
+                            file_path = result.get('metadata', {}).get('file_path')
+                            if file_path:
+                                file_paths.append(file_path)
+
+            self._record_call(time_taken=time.time() - start_time, error=False)
+
+            return {
+                'success': True,
+                'file_paths': file_paths,
+                'count': len(file_paths),
+                'question': question
+            }
+        except Exception as e:
+            self._record_call(time_taken=time.time() - start_time, error=True)
+            return {'success': False, 'error': str(e), 'file_paths': []}

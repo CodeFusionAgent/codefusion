@@ -13,8 +13,8 @@ class WebAgent(BaseAgent):
     Web research agent with true function calling loop.
     """
     
-    def __init__(self, repo_path: str, config: Dict[str, Any]):
-        super().__init__(repo_path, config, "web")
+    def __init__(self, repo_path: str, config: Dict[str, Any], tool_registry=None):
+        super().__init__(repo_path, config, "web", tool_registry=tool_registry)
 
         # Track conversation history for function calling loop
         self.conversation_history = []

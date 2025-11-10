@@ -45,8 +45,14 @@ class CodeOrchestrator(BaseAgent):
         # Initialize tiered LLM manager
         self.tiered_llm = TieredLLMManager(config)
 
+        # Initialize tool registry for KB access (tool-first pattern)
+        from cf.tools.registry import ToolRegistry
+        from cf.agents.registry import AgentRegistry
+        self.agent_registry = AgentRegistry()
+        self.tool_registry = ToolRegistry(repo_path, agent_registry=self.agent_registry)
+
         # Initialize pipelines
-        self.structural = None  # NEW - Structural KB pipeline
+        self.structural = None  # Structural KB pipeline
         self.discovery = None
         self.analysis = None
         self.validation = None
@@ -57,7 +63,7 @@ class CodeOrchestrator(BaseAgent):
         self.path_map = {}
         self.discovered_files = []
         self.file_summaries = {}
-        self.kb_initialized = False  # NEW - Track KB initialization
+        self.kb_initialized = False  # Track KB initialization
 
         # Adaptive discovery config
         self.discovery_attempt = 0
@@ -262,6 +268,12 @@ class CodeOrchestrator(BaseAgent):
                         print("🔍 [ORCHESTRATOR] Initializing structural knowledge base...")
                         self.structural = StructuralPipeline(self.repo_path, self.config)
 
+                        # Register KB agent with tool registry (tool-first pattern)
+                        from cf.agents.kb.structural_kb_agent import StructuralKBAgent
+                        kb_agent = StructuralKBAgent(kb=self.structural, config=self.config)
+                        self.agent_registry.register(kb_agent)
+                        print("✅ [ORCHESTRATOR] Registered StructuralKBAgent with tool registry")
+
                         if self.structural.is_kb_available():
                             # Check if KB exists
                             if self.structural.kb_exists():
@@ -338,7 +350,7 @@ class CodeOrchestrator(BaseAgent):
                     self.llm,
                     self.tools,
                     self.path_map,
-                    structural_pipeline=self.structural  # NEW - Pass KB pipeline
+                    tool_registry=self.tool_registry  # UPDATED - Pass tool registry (tool-first pattern)
                 )
             if self.analysis is None:
                 self.analysis = AnalysisPipeline(
