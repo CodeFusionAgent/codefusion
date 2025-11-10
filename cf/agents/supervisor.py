@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from cf.agents.base import BaseAgent
+from cf.agents.multi_pass_coordinator import MultiPassCoordinator
 from cf.cache.semantic import SemanticCache
 
 
@@ -39,31 +40,22 @@ class SupervisorAgent(BaseAgent):
         # Question-specific state (reset each question)
         self.reset_question_state()
 
+        # Multi-pass coordinator (handles complex state management)
+        self.pass_coordinator = MultiPassCoordinator(self.config, self.call_llm)
+
     def reset_question_state(self):
         """Reset state for new question"""
         self.agents_to_consult = []  # Will be determined intelligently based on question
-        self.agents_completed = []
-        self.all_insights = []
-        self.specialist_results = {}
         self.actions_taken = []
         self.results = {}
         self.insights = []
         
-        # Multi-pass coordination state
+        # Analysis type tracking
         self.analysis_type = None  # Will be determined by LLM
-        self.pass_number = 1
-        self.current_pass_attempt = 1
-        self.max_pass_attempts = 3  # Retry mechanism
-        self.pass_results = {}  # Store results from each pass
         self.repo_cache_status = None  # 'new' or 'existing'
-        self.context_sharing_decision = None  # LLM decides per pass
-        self.all_passes_complete = False  # Track when all multi-pass coordination is done
-
-        # Multi-pass configuration
-        self.pass_config = {
-            'standard': {'max_passes': 3},
-            'summary': {'max_passes': 2}
-        }
+        
+        # Multi-pass coordinator handles: pass_number, attempts, context_sharing, etc.
+        # No need to track these separately anymore
 
         # Cache is already initialized by BaseAgent.__init__()
         # Just track if it's enabled for checking later
