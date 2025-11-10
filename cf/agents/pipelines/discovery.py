@@ -334,34 +334,44 @@ class GrepSearchStrategy(DiscoveryStrategy):
 
 
 class GraphQueryStrategy(DiscoveryStrategy):
-    """Uses structural knowledge base graph queries for file discovery"""
+    """
+    Uses structural knowledge base graph queries for file discovery.
 
-    def __init__(self, config: Dict[str, Any], structural_pipeline):
+    UPDATED: Now uses tool_registry instead of direct pipeline access.
+    Enforces tool-first design pattern.
+    """
+
+    def __init__(self, config: Dict[str, Any], tool_registry):
         super().__init__(config)
-        self.structural_pipeline = structural_pipeline
+        self.tool_registry = tool_registry
 
     def execute(self, question: str, context: Dict[str, Any]) -> List[FileCandidate]:
-        """Query KB graph for relevant files"""
+        """Query KB graph for relevant files using tool registry"""
         try:
-            if not self.structural_pipeline or not self.structural_pipeline.is_kb_available():
-                print("⚠️ [GRAPH_QUERY] KB not available, skipping")
+            if not self.tool_registry:
+                print("⚠️ [GRAPH_QUERY] Tool registry not available, skipping")
                 return []
 
-            if not self.structural_pipeline.kb_exists():
-                print("⚠️ [GRAPH_QUERY] KB doesn't exist, skipping")
-                return []
-
-            print("🔍 [GRAPH_QUERY] Querying knowledge base graph...")
+            print("🔍 [GRAPH_QUERY] Querying knowledge base via tools...")
 
             # Extract LLM question classification from supervisor (if available)
             question_context = context.get('question_context', {})
 
-            # Use structural pipeline to find files with LLM classification
-            file_paths = self.structural_pipeline.find_files_for_question(
-                question,
+            # Use tool registry to call KB discovery tool
+            # Tool name: structural_kb_find_files_for_question (prefixed by registry)
+            result = self.tool_registry.execute(
+                'structural_kb_find_files_for_question',
+                question=question,
                 max_results=100,
                 question_context=question_context  # Pass LLM classification
             )
+
+            if not result.get('success'):
+                error = result.get('error', 'Unknown error')
+                print(f"⚠️ [GRAPH_QUERY] KB tool failed: {error}")
+                return []
+
+            file_paths = result.get('file_paths', [])
 
             if not file_paths:
                 print("⚠️ [GRAPH_QUERY] No files found via graph queries")
@@ -376,15 +386,17 @@ class GraphQueryStrategy(DiscoveryStrategy):
                 candidates.append(FileCandidate(
                     path=file_path,
                     relevance_score=high_relevance,  # KB queries are highly relevant
-                    discovery_method="graph_query",
-                    metadata={'query_type': 'structural_kb'}
+                    discovery_method="graph_query_tool",  # Updated to indicate tool usage
+                    metadata={'query_type': 'structural_kb', 'via_tools': True}
                 ))
 
-            print(f"✅ [GRAPH_QUERY] Found {len(candidates)} files via KB graph queries")
+            print(f"✅ [GRAPH_QUERY] Found {len(candidates)} files via KB tools")
             return candidates
 
         except Exception as e:
             print(f"⚠️ [GRAPH_QUERY] Failed: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
 
@@ -442,29 +454,32 @@ class DiscoveryPipeline:
     """
     Main discovery pipeline that orchestrates multiple strategies
     to find relevant files for a question.
+
+    UPDATED: Now uses tool_registry instead of direct structural_pipeline access.
+    Enforces tool-first design pattern.
     """
 
-    def __init__(self, repo_path: str, config: Dict[str, Any], llm_client, repo_tools, path_map: Dict[str, Any], structural_pipeline=None):
+    def __init__(self, repo_path: str, config: Dict[str, Any], llm_client, repo_tools, path_map: Dict[str, Any], tool_registry=None):
         self.repo_path = repo_path
         self.config = config
         self.llm = llm_client
         self.repo_tools = repo_tools
         self.path_map = path_map
-        self.structural_pipeline = structural_pipeline
+        self.tool_registry = tool_registry
 
         # Initialize strategies
         self.strategies = []
 
-        # Add graph query strategy first if KB is enabled and available
+        # Add graph query strategy first if KB is enabled and available via tools
         kb_config = config.get('knowledge_base', {})
         discovery_config = kb_config.get('discovery', {})
 
         if (kb_config.get('enabled', False) and
             discovery_config.get('use_kb_queries', True) and
-            structural_pipeline is not None):
-            # GraphQueryStrategy is highest priority when KB is available
-            self.strategies.append(GraphQueryStrategy(config, structural_pipeline))
-            print("✅ [DISCOVERY] Enabled KB graph query strategy (highest priority)")
+            tool_registry is not None):
+            # GraphQueryStrategy is highest priority when KB tools are available
+            self.strategies.append(GraphQueryStrategy(config, tool_registry))
+            print("✅ [DISCOVERY] Enabled KB graph query strategy via tools (highest priority)")
 
         # Add standard strategies
         self.strategies.extend([

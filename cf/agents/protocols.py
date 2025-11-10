@@ -128,6 +128,24 @@ class KnowledgeBaseProtocol(Protocol):
         """
         ...
 
+    # High-Level Discovery Method
+    def find_files_for_question(self, question: str, max_results: int = 50,
+                                question_context: Dict[str, Any] = None) -> List[str]:
+        """
+        Find relevant files for a question using multiple KB strategies.
+
+        Combines semantic search, pattern detection, life-of-x tracing, etc.
+
+        Args:
+            question: User question
+            max_results: Maximum files to return
+            question_context: Optional LLM classification context
+
+        Returns:
+            List of file paths ranked by relevance
+        """
+        ...
+
     # Life-of-X Methods
     def trace_execution_path(self, entry_point: str, max_depth: int = 10,
                             max_paths: int = 5) -> List[Dict[str, Any]]:

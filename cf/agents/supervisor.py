@@ -21,13 +21,21 @@ class SupervisorAgent(BaseAgent):
     """
     
     def __init__(self, repo_path: str, config: Dict[str, Any]):
-        super().__init__(repo_path, config, "supervisor")
-        
+        # Initialize shared tool/agent registry BEFORE calling super().__init__
+        # so that supervisor and all specialist agents share the same registry
+        from cf.tools.registry import ToolRegistry
+        from cf.agents.registry import AgentRegistry
+        self._agent_registry = AgentRegistry()
+        self._shared_tool_registry = ToolRegistry(repo_path, agent_registry=self._agent_registry)
+
+        # Initialize BaseAgent with shared tool registry
+        super().__init__(repo_path, config, "supervisor", tool_registry=self._shared_tool_registry)
+
         # Specialist agents (persistent across questions)
         self._code_agent = None
         self._docs_agent = None
         self._web_agent = None
-        
+
         # Question-specific state (reset each question)
         self.reset_question_state()
 
@@ -233,13 +241,18 @@ Important:
         """Get result from specific agent type"""
         if agent_type == 'code':
             if not self._code_agent:
-                use_pipeline = self.config.get('agents', {}).get('use_pipeline_architecture', True)
-                if use_pipeline:
-                    from cf.agents.code_orchestrator import CodeOrchestrator
-                    self._code_agent = CodeOrchestrator(self.repo_path, self.config)
-                else:
-                    from cf.agents.code import CodeAgent
-                    self._code_agent = CodeAgent(self.repo_path, self.config)
+                # Always use pipeline architecture (CodeOrchestrator)
+                # Pass shared tool registry for cross-agent tool usage
+                from cf.agents.code_orchestrator import CodeOrchestrator
+                self._code_agent = CodeOrchestrator(self.repo_path, self.config)
+
+                # Register CodeOrchestrator's KB agent with shared registry
+                if hasattr(self._code_agent, 'agent_registry'):
+                    for agent_name in self._code_agent.agent_registry.list_agents():
+                        agent = self._code_agent.agent_registry.get_agent(agent_name)
+                        if agent and agent_name not in self._agent_registry.list_agents():
+                            self._agent_registry.register(agent)
+                            self.logger.verbose(f"Registered KB agent '{agent_name}' in shared registry", "🔗")
 
             # Pass LLM question classification to code agent to eliminate hardcoded patterns
             if hasattr(self._code_agent, 'set_question_context'):
@@ -251,13 +264,17 @@ Important:
             return self._code_agent.analyze(question)
         elif agent_type == 'docs':
             if not self._docs_agent:
+                # Pass shared tool registry for cross-agent tool usage
                 from cf.agents.docs import DocsAgent
-                self._docs_agent = DocsAgent(self.repo_path, self.config)
+                self._docs_agent = DocsAgent(self.repo_path, self.config,
+                                              tool_registry=self._shared_tool_registry)
             return self._docs_agent.analyze(question)
         elif agent_type == 'web':
             if not self._web_agent:
+                # Pass shared tool registry for cross-agent tool usage
                 from cf.agents.web import WebAgent
-                self._web_agent = WebAgent(self.repo_path, self.config)
+                self._web_agent = WebAgent(self.repo_path, self.config,
+                                            tool_registry=self._shared_tool_registry)
             return self._web_agent.analyze(question)
         else:
             return {'success': False, 'error': f'Unknown agent type: {agent_type}', 'insights': []}

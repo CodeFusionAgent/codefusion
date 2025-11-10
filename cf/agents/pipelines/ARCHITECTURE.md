@@ -4,21 +4,9 @@
 
 This directory contains the new **pipeline architecture** for CodeFusion, designed to replace the monolithic `CodeAgent` with modular, testable, and maintainable components.
 
-## Architecture Comparison
+## Architecture
 
-### Current (Monolithic) Architecture
-- **File**: `cf/agents/code.py`
-- **Lines**: 4,375 lines
-- **Methods**: 65 methods
-- **Structure**: Single monolithic class with ReAct loop
-- **Issues**:
-  - Hard to test individual components
-  - No parallelism support
-  - Difficult to maintain and debug
-  - Circular dependencies between methods
-  - Mixed concerns (discovery + analysis + validation + synthesis)
-
-### New (Pipeline) Architecture
+### Pipeline Architecture (Current)
 - **Files**: 5 modular pipeline files
 - **Total Lines**: ~1,200 lines (73% reduction)
 - **Structure**: Orchestrator + 4 specialized pipelines
@@ -121,43 +109,29 @@ The pipeline architecture naturally supports parallelism
 
 ## Migration Plan
 
-### Phase 1: Extract Pipelines ✅ (COMPLETED - Fully Integrated)
+### Phase 1: Extract Pipelines ✅ (COMPLETED)
 - [x] Create `discovery.py` with all discovery strategies
 - [x] Create `analysis.py` with file analysis logic
 - [x] Create `validation.py` with validation logic
 - [x] Create `synthesis.py` with narrative generation
 - [x] Create `code_orchestrator.py` as coordinator
-- [x] **Integrate with SupervisorAgent** - Added config-based routing
+- [x] **Integrate with SupervisorAgent**
 - [x] **Export from modules** - Added to `cf/__init__.py` and `cf/agents/__init__.py`
-- [x] **Configuration** - Added `use_pipeline_architecture` config flag (default: true)
 
-**Integration Details:**
-- Supervisor now uses `CodeOrchestrator` by default (config: `agents.use_pipeline_architecture: true`)
-- Legacy `CodeAgent` still available via config flag for backward compatibility
-- All synthesis parameters configurable via `agents.synthesis` section
-- Confidence thresholds configurable via `agents.thresholds` section
+### Phase 2: Add Parallelism ✅ (COMPLETED)
+- [x] Add async/await support to analysis pipeline
+- [x] Implement parallel file processing
+- [x] Add batch processing for large codebases
+- [x] Benchmark performance improvements
 
-**How to Use:**
-```yaml
-# In config.yaml
-agents:
-  use_pipeline_architecture: true  # Use new pipeline (default)
-  # Set to false to use legacy CodeAgent
-```
+### Phase 3: Tool-First Architecture ✅ (COMPLETED)
+- [x] Enforce tool-first pattern in DiscoveryPipeline
+- [x] Update CodeOrchestrator to use tools only
+- [x] Remove hardcoded keyword patterns from structural.py
+- [x] Replace intent detection with pure LLM approach
 
-### Phase 2: Add Parallelism (NEXT)
-- [ ] Add async/await support to analysis pipeline
-- [ ] Implement parallel file processing
-- [ ] Add batch processing for large codebases
-- [ ] Benchmark performance improvements
-
-### Phase 3: Testing & Validation
-- [ ] Unit tests for each pipeline
-- [ ] Integration tests for orchestrator
-- [ ] Run evaluation suite
-- [ ] Compare scores with monolithic version
-
-### Phase 4: Deprecation (Future)
-- [ ] Update documentation
-- [ ] Remove legacy CodeAgent after validation
-- [ ] Clean up old code
+### Phase 4: Deprecation ✅ (COMPLETED)
+- [x] Update documentation
+- [x] Remove legacy CodeAgent (4,402 lines)
+- [x] Remove use_pipeline_architecture toggle
+- [x] Clean up imports and exports

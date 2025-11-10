@@ -29,16 +29,18 @@ class BaseAgent(ABC):
     Clean design with decorator-based tracing.
     """
     
-    def __init__(self, repo_path: str, config: Dict[str, Any], agent_name: str):
+    def __init__(self, repo_path: str, config: Dict[str, Any], agent_name: str,
+                 tool_registry: Optional[ToolRegistry] = None):
         self.repo_path = repo_path
         self.config = config
         self.agent_name = agent_name
-        
+
         # Setup logging
         self.logger = get_logger(agent_name, config)
-        
+
         # Core components
-        self.tools = ToolRegistry(repo_path)
+        # Support shared tool registry for cross-agent tool usage
+        self.tools = tool_registry if tool_registry else ToolRegistry(repo_path)
         self.llm = LLMClient(config.get('llm', {}))
         self.tracer = Tracer(agent_name, config.get('trace', {}))
         self.cache = SemanticCache(agent_name, config.get('cache', {}))
