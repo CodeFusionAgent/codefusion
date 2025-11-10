@@ -2,38 +2,40 @@
 Basic Usage Examples for CodeFusion Pluggable Architecture
 
 Demonstrates:
-1. Quick setup and usage
+1. Quick setup and usage (tool-only approach)
 2. Using KB query tools
 3. Registering custom agents
 4. Per-tool metrics tracking
 5. LlmTask for multi-turn conversations
+
+Updated to follow tool-first design pattern - no direct pipeline access.
 """
 
 import yaml
 from pathlib import Path
 
 from cf.integration.setup import quick_setup, create_integrated_system
-from cf.agents.kb_agents import KnowledgeAgent
+from cf.agents.knowledge_base import KnowledgeAgent
 from cf.llm.task import Message, MessageRole
 
 
 def example_1_quick_start():
     """
-    Example 1: Quick start with default setup
+    Example 1: Quick start with default setup (tool-only approach)
     """
     print("\n" + "="*80)
-    print("Example 1: Quick Start")
+    print("Example 1: Quick Start - Tool-First Design")
     print("="*80)
 
     # Quick setup with sensible defaults
     system = quick_setup(repo_path="/path/to/your/repo")
 
-    # Access components
+    # Access ONLY tool registry (tool-first design)
+    # Note: No direct pipeline access - all operations through tools!
     tools = system['tool_registry']
-    pipeline = system['pipeline']
 
-    # Use KB tools (now exposed!)
-    print("\n= Using KB Query Tools:")
+    # Use KB tools
+    print("\n📚 Using KB Query Tools:")
     print("-" * 80)
 
     # Semantic search
@@ -45,11 +47,11 @@ def example_1_quick_start():
     )
 
     if result.get('success'):
-        print(f" Found {result['count']} results via semantic search")
+        print(f"✅ Found {result['count']} results via semantic search")
         for i, item in enumerate(result['results'][:3], 1):
             print(f"   {i}. {item.get('metadata', {}).get('file_path', 'N/A')}")
     else:
-        print(f"L Error: {result.get('error')}")
+        print(f"❌ Error: {result.get('error')}")
 
     # Pattern detection
     result = tools.execute(
@@ -58,9 +60,9 @@ def example_1_quick_start():
     )
 
     if result.get('success'):
-        print(f"\n Found {result['count']} design patterns")
+        print(f"\n✅ Found {result['count']} design patterns")
     else:
-        print(f"\nL Error: {result.get('error')}")
+        print(f"\n❌ Error: {result.get('error')}")
 
 
 def example_2_custom_agent():
@@ -94,239 +96,199 @@ def example_2_custom_agent():
                 {
                     'type': 'function',
                     'function': {
-                        'name': 'security_agent_find_security_vulnerabilities',
+                        'name': self.get_prefixed_tool_name('find_security_vulnerabilities'),
                         'description': 'Scan code for security vulnerabilities',
                         'parameters': {
                             'type': 'object',
                             'properties': {
-                                'severity': {
-                                    'type': 'string',
-                                    'enum': ['critical', 'high', 'medium', 'low', 'all']
-                                }
+                                'scope': {'type': 'string', 'description': 'Scope to scan (file, directory, all)'}
                             }
                         }
                     }
                 }
             ]
 
-        def find_vulnerabilities(self, severity='all'):
+        def find_vulnerabilities(self, scope: str = 'all'):
             """Find security vulnerabilities"""
+            # Simplified implementation
             return {
                 'success': True,
                 'vulnerabilities': [
-                    {'type': 'SQL Injection', 'severity': 'high', 'file': 'api/db.py:45'},
-                    {'type': 'XSS Risk', 'severity': 'medium', 'file': 'views/user.py:123'}
+                    {'type': 'SQL Injection', 'file': 'db.py', 'line': 42, 'severity': 'high'},
+                    {'type': 'XSS', 'file': 'views.py', 'line': 15, 'severity': 'medium'}
                 ],
                 'count': 2
             }
 
-        def check_sql_injection(self, file_path=''):
-            return {'success': True, 'found': True, 'locations': ['api/db.py:45']}
+        def check_sql_injection(self, file_path: str):
+            """Check for SQL injection vulnerabilities"""
+            return {'success': True, 'vulnerable': False}
 
-        def find_xss_risks(self):
-            return {'success': True, 'risks': 1}
+        def find_xss_risks(self, file_path: str):
+            """Find XSS risks"""
+            return {'success': True, 'risks': []}
 
-    # Create system
-    config_path = Path(__file__).parent.parent / "cf" / "configs" / "config.yaml"
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
-
-    system = create_integrated_system("/path/to/repo", config)
-
-    # Register custom agent
-    security_agent = SecurityAnalysisAgent()
-    system['agent_registry'].register(security_agent)
-
-    # Refresh tool registry to pick up new tools
+    # Create system and register custom agent
+    system = quick_setup(repo_path="/path/to/your/repo")
+    registry = system['agent_registry']
     tools = system['tool_registry']
 
-    # Use custom agent tools
-    print("\n= Using Custom Security Agent:")
+    # Register custom agent
+    security_agent = SecurityAnalysisAgent(config={})
+    registry.register(security_agent)
+
+    # Use custom agent tools (automatically prefixed!)
+    print("\n🔒 Using Custom Security Agent:")
     print("-" * 80)
 
-    result = tools.execute('security_agent_find_security_vulnerabilities', severity='high')
+    result = tools.execute('security_agent_find_security_vulnerabilities', scope='all')
 
     if result.get('success'):
-        print(f" Found {result['count']} vulnerabilities")
+        print(f"✅ Found {result['count']} vulnerabilities")
         for vuln in result['vulnerabilities']:
-            print(f"   - {vuln['severity'].upper()}: {vuln['type']} at {vuln['file']}")
+            print(f"   - {vuln['type']} in {vuln['file']}:{vuln['line']} ({vuln['severity']})")
+    else:
+        print(f"❌ Error: {result.get('error')}")
 
 
 def example_3_metrics_tracking():
     """
-    Example 3: Per-tool metrics tracking
+    Example 3: Track per-tool metrics
     """
     print("\n" + "="*80)
     print("Example 3: Per-Tool Metrics Tracking")
     print("="*80)
 
-    system = quick_setup("/path/to/repo")
+    system = quick_setup(repo_path="/path/to/your/repo")
     tools = system['tool_registry']
 
     # Execute several tools
-    print("\n=� Executing tools...")
-    tools.execute('structural_kb_search_by_semantics', query="authentication", limit=10)
-    tools.execute('structural_kb_find_design_patterns', pattern_type='Factory')
-    tools.execute('structural_kb_detect_code_smells', scope='all')
+    print("\n📊 Executing tools...")
+    tools.execute('structural_kb_search_by_semantics', query="find auth code", limit=5)
+    tools.execute('structural_kb_find_design_patterns', pattern_type='Singleton')
+    tools.execute('structural_kb_get_architecture_overview')
 
     # Get metrics
     metrics = tools.get_metrics()
 
-    print("\n=� Tool Usage Metrics:")
+    print("\n📈 Tool Usage Metrics:")
     print("-" * 80)
-    print(f"Total tool calls: {metrics['summary']['total_tool_calls']}")
-    print(f"Unique tools used: {metrics['summary']['unique_tools_used']}")
-    print(f"Total execution time: {metrics['summary']['total_time']:.2f}s")
-    print(f"Total cost: ${metrics['summary']['total_cost']:.4f}")
 
-    print("\n=� Cost Breakdown:")
-    for tool_cost in metrics['cost_breakdown'][:5]:
-        print(f"  {tool_cost['tool_name']}: ${tool_cost['total_cost']:.4f} ({tool_cost['calls']} calls)")
+    if 'tool_metrics' in metrics:
+        for tool_name, tool_metrics in metrics['tool_metrics'].items():
+            print(f"\n{tool_name}:")
+            print(f"   Calls: {tool_metrics.get('calls', 0)}")
+            print(f"   Avg Time: {tool_metrics.get('avg_duration', 0):.3f}s")
+            print(f"   Success Rate: {tool_metrics.get('success_rate', 0):.1%}")
+            if tool_metrics.get('total_cost', 0) > 0:
+                print(f"   Total Cost: ${tool_metrics.get('total_cost', 0):.4f}")
 
 
-def example_4_llm_task():
+def example_4_llm_task_multi_turn():
     """
     Example 4: Multi-turn conversation with LlmTask
     """
     print("\n" + "="*80)
-    print("Example 4: Multi-Turn Conversation with LlmTask")
+    print("Example 4: Multi-Turn LLM Conversation")
     print("="*80)
 
-    system = quick_setup("/path/to/repo")
+    system = quick_setup(repo_path="/path/to/your/repo")
     llm_task = system['llm_task']
 
     # Set system context
-    llm_task.set_system_message(
-        "You are a code analysis assistant. Help the user understand their codebase."
-    )
+    llm_task.set_system_message("You are a helpful code analysis assistant.")
 
-    print("\n=� Multi-Turn Conversation:")
+    print("\n💬 Multi-turn conversation:")
     print("-" * 80)
 
     # Turn 1
-    response1 = llm_task.ask("What is a singleton pattern?")
-    print(f"\nUser: What is a singleton pattern?")
-    print(f"Assistant: {response1['content'][:100]}...")
+    response1 = llm_task.ask("What are common security vulnerabilities in Python?")
+    print(f"\n👤 User: What are common security vulnerabilities in Python?")
+    print(f"🤖 Assistant: {response1['content'][:200]}...")
 
-    # Turn 2 (has context from Turn 1)
-    response2 = llm_task.ask("Can you show me an example in Python?")
-    print(f"\nUser: Can you show me an example in Python?")
-    print(f"Assistant: {response2['content'][:100]}...")
+    # Turn 2 (has context from turn 1)
+    response2 = llm_task.ask("Can you explain the first one in more detail?")
+    print(f"\n👤 User: Can you explain the first one in more detail?")
+    print(f"🤖 Assistant: {response2['content'][:200]}...")
 
-    # Turn 3 (has context from both previous turns)
-    response3 = llm_task.ask("What are the pros and cons?")
-    print(f"\nUser: What are the pros and cons?")
-    print(f"Assistant: {response3['content'][:100]}...")
-
-    # Get conversation history
-    history = llm_task.get_history()
-    print(f"\n=� Conversation history: {len(history)} messages")
-
-    # Get metrics
+    # Get conversation metrics
     metrics = llm_task.get_metrics()
-    print(f"\n=� LLM Task Metrics:")
-    print(f"  Total calls: {metrics['total_calls']}")
-    print(f"  Total tokens: {metrics['total_tokens']}")
-    print(f"  Total cost: ${metrics['total_cost']:.4f}")
-    print(f"  Messages in history: {metrics['messages_in_history']}")
+    print(f"\n📊 Conversation Metrics:")
+    print(f"   Total Calls: {metrics['total_calls']}")
+    print(f"   Total Tokens: {metrics['total_tokens']}")
+    print(f"   Total Cost: ${metrics['total_cost']:.4f}")
+    print(f"   Messages in History: {metrics['messages_in_history']}")
 
 
-def example_5_langfuse_tracing():
+def example_5_langfuse_integration():
     """
-    Example 5: Enable Langfuse tracing
+    Example 5: Langfuse observability integration
     """
     print("\n" + "="*80)
-    print("Example 5: Langfuse Tracing (Optional)")
+    print("Example 5: Langfuse Observability")
     print("="*80)
-
-    config_path = Path(__file__).parent.parent / "cf" / "configs" / "config.yaml"
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
 
     # Create system with Langfuse enabled
     system = create_integrated_system(
-        repo_path="/path/to/repo",
-        config=config,
+        repo_path="/path/to/your/repo",
+        config=yaml.safe_load(open("cf/configs/config.yaml")),
         enable_langfuse=True,
         langfuse_config={
-            'public_key': 'pk-lf-...',  # Your Langfuse public key
-            'secret_key': 'sk-lf-...',  # Your Langfuse secret key
+            'public_key': 'pk-...',
+            'secret_key': 'sk-...',
             'host': 'https://cloud.langfuse.com'
         }
     )
 
+    tools = system['tool_registry']
     tracer = system['tracer']
 
-    print("\n=� Langfuse tracing enabled!")
-    print("   All LLM calls and tool executions will be traced to Langfuse")
-    print("   View your traces at: https://cloud.langfuse.com")
+    # All tool calls are automatically traced
+    print("\n📡 Tool calls automatically traced to Langfuse:")
+    print("-" * 80)
 
-    # Use the system normally - tracing happens automatically
-    tools = system['tool_registry']
-    result = tools.execute('structural_kb_search_by_semantics', query="test")
+    result = tools.execute('structural_kb_search_by_semantics', query="find auth code")
 
-    print(f"\n Tool execution traced (success: {result.get('success', False)})")
+    print(f"✅ Executed tool: structural_kb_search_by_semantics")
+    print(f"   Results: {result.get('count', 0)} items")
+    print(f"   Trace sent to Langfuse for analysis")
 
 
 def example_6_all_kb_tools():
     """
-    Example 6: Showcase all KB query tools
+    Example 6: Showcase all available KB tools
     """
     print("\n" + "="*80)
-    print("Example 6: All Available KB Query Tools")
+    print("Example 6: All Available KB Tools")
     print("="*80)
 
-    system = quick_setup("/path/to/repo")
+    system = quick_setup(repo_path="/path/to/your/repo")
     tools = system['tool_registry']
 
-    kb_tools = [
-        ('search_by_semantics', 'Natural language code search'),
-        ('search_by_functionality', 'Find code by functional description'),
-        ('find_similar_components', 'Find similar code components'),
-        ('detect_duplicate_code', 'Detect code duplication'),
-        ('find_design_patterns', 'Find design patterns (Singleton, Factory, etc.)'),
-        ('detect_code_smells', 'Detect anti-patterns and code smells'),
-        ('get_architecture_overview', 'Get high-level architecture overview'),
-        ('get_module_boundaries', 'Identify module boundaries'),
-        ('identify_cross_cutting_concerns', 'Find cross-cutting concerns'),
-        ('trace_execution_path', 'Trace execution flow from entry point'),
-        ('trace_data_flow', 'Trace data flow through code'),
-        ('trace_request_lifecycle', 'Trace HTTP request lifecycle')
-    ]
-
-    print("\n=�  Available KB Query Tools:")
+    print("\n🛠️ Available KB Query Tools:")
     print("-" * 80)
 
-    for tool_name, description in kb_tools:
-        full_name = f"structural_kb_{tool_name}"
-        print(f"  {full_name}")
-        print(f"    {description}")
-        print()
+    # List all available tools
+    available_tools = tools.get_available_tools()
 
-    print("=� All these tools are now exposed and ready to use!")
+    kb_tools = {k: v for k, v in available_tools.items() if k.startswith('structural_kb_')}
+
+    for tool_name, description in kb_tools.items():
+        print(f"\n   {tool_name}")
+        print(f"      {description}")
+
+    print(f"\n✅ Total KB tools available: {len(kb_tools)}")
 
 
 if __name__ == "__main__":
-    """
-    Run all basic examples
-    """
-    print("\n" + "="*80)
-    print("CodeFusion Basic Usage Examples")
-    print("="*80)
-
-    print("\n�  NOTE: Update repo_path in examples before running!")
-    print("\nExamples:")
-    print("  1. Quick start with default setup")
-    print("  2. Register custom knowledge agent")
-    print("  3. Per-tool metrics tracking")
-    print("  4. Multi-turn conversations with LlmTask")
-    print("  5. Langfuse tracing integration")
-    print("  6. All available KB query tools")
-
-    # Uncomment to run:
-    # example_1_quick_start()
-    # example_2_custom_agent()
-    # example_3_metrics_tracking()
-    # example_4_llm_task()
-    # example_5_langfuse_tracing()
+    # Run examples (comment out those that require actual repo/KB)
+    example_1_quick_start()
+    example_2_custom_agent()
+    example_3_metrics_tracking()
+    example_4_llm_task_multi_turn()
+    # example_5_langfuse_integration()  # Requires Langfuse credentials
     example_6_all_kb_tools()
+
+    print("\n" + "="*80)
+    print("✨ All examples completed!")
+    print("="*80)
