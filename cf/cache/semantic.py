@@ -45,8 +45,8 @@ class SemanticCache:
         }
         
         # Cache version for invalidation
-        self.cache_version = '1.0.0
-        
+        self.cache_version = '1.0.0'
+
         # Initialize
         if self.enabled:
             self.cache_dir.mkdir(exist_ok=True)
@@ -204,9 +204,19 @@ class SemanticCache:
             if self.cache_file.exists():
                 with open(self.cache_file, 'r') as f:
                     data = json.load(f)
+
+                    # Check cache version for invalidation
+                    cached_version = data.get('version', '1.0.0')
+                    if cached_version != self.cache_version:
+                        print(f"⚠️ Cache version mismatch ({cached_version} != {self.cache_version}), invalidating cache")
+                        self.cache_data = {}
+                        self._save_cache()
+                        return
+
                     self.cache_data = data.get('entries', {})
         except Exception as e:
             # If cache file is corrupted, start fresh
+            print(f"⚠️ Cache load error: {e}, starting fresh")
             self.cache_data = {}
     
     def _save_cache(self):
@@ -214,14 +224,16 @@ class SemanticCache:
         try:
             cache_export = {
                 'agent_name': self.agent_name,
+                'version': self.cache_version,
                 'created': time.time(),
                 'entries': self.cache_data
             }
-            
+
             with open(self.cache_file, 'w') as f:
                 json.dump(cache_export, f, indent=2)
-        except Exception:
+        except Exception as e:
             # Fail silently - caching is not critical
+            print(f"⚠️ Cache save error: {e}")
             pass
     
     def clear(self):
@@ -229,6 +241,54 @@ class SemanticCache:
         self.cache_data = {}
         if self.cache_file.exists():
             self.cache_file.unlink()
+        print(f"✅ Cache cleared for {self.agent_name}")
+
+    def invalidate_by_pattern(self, pattern: str):
+        """
+        Invalidate cache entries matching a pattern.
+
+        Args:
+            pattern: Pattern to match (substring in key or semantic_key)
+        """
+        if not self.enabled:
+            return
+
+        pattern_lower = pattern.lower()
+        keys_to_remove = []
+
+        for key, entry in self.cache_data.items():
+            if (pattern_lower in key.lower() or
+                pattern_lower in entry.get('semantic_key', '').lower()):
+                keys_to_remove.append(key)
+
+        for key in keys_to_remove:
+            del self.cache_data[key]
+
+        if keys_to_remove:
+            self._save_cache()
+            print(f"✅ Invalidated {len(keys_to_remove)} cache entries matching '{pattern}'")
+
+    def invalidate_repo(self, repo_path: str):
+        """
+        Invalidate all cache entries for a specific repository.
+
+        Args:
+            repo_path: Repository path
+        """
+        if not self.enabled:
+            return
+
+        keys_to_remove = [
+            key for key, entry in self.cache_data.items()
+            if entry.get('metadata', {}).get('repo_path', '') == repo_path
+        ]
+
+        for key in keys_to_remove:
+            del self.cache_data[key]
+
+        if keys_to_remove:
+            self._save_cache()
+            print(f"✅ Invalidated {len(keys_to_remove)} cache entries for repo '{repo_path}'")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics with detailed metrics"""
