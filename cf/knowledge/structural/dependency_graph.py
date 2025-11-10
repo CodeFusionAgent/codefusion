@@ -422,3 +422,219 @@ class DependencyGraphBuilder:
             f.write("}\n")
 
         print(f"✅ Call graph exported to {output_file}")
+
+    # ========== Layer 3: Extended Dependency Graphs ==========
+
+    def build_dependency_graph(self, repo_path: str) -> Dict[str, List[str]]:
+        """
+        Build dependency graph from build configuration files.
+
+        Analyzes:
+        - requirements.txt / pyproject.toml (Python)
+        - package.json (JavaScript/Node)
+        - Makefile
+        - setup.py
+
+        Args:
+            repo_path: Path to repository root
+
+        Returns:
+            Dictionary mapping dependency files to their dependencies
+        """
+        import os
+        from pathlib import Path
+
+        build_deps = {}
+
+        repo_root = Path(repo_path)
+
+        # Python: requirements.txt
+        req_file = repo_root / "requirements.txt"
+        if req_file.exists():
+            with open(req_file) as f:
+                deps = []
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        # Extract package name (before ==, >=, etc.)
+                        pkg = line.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].strip()
+                        deps.append(pkg)
+                build_deps['requirements.txt'] = deps
+
+        # Python: pyproject.toml
+        pyproject = repo_root / "pyproject.toml"
+        if pyproject.exists():
+            try:
+                import toml
+                data = toml.load(pyproject)
+                deps = []
+
+                # Poetry dependencies
+                if 'tool' in data and 'poetry' in data['tool']:
+                    poetry_deps = data['tool']['poetry'].get('dependencies', {})
+                    deps.extend([pkg for pkg in poetry_deps.keys() if pkg != 'python'])
+
+                # PEP 621 dependencies
+                if 'project' in data:
+                    project_deps = data['project'].get('dependencies', [])
+                    deps.extend([dep.split()[0] for dep in project_deps])
+
+                if deps:
+                    build_deps['pyproject.toml'] = deps
+            except ImportError:
+                pass  # toml not available
+            except Exception as e:
+                print(f"⚠️ Error parsing pyproject.toml: {e}")
+
+        # Python: setup.py (basic parsing - look for install_requires)
+        setup_py = repo_root / "setup.py"
+        if setup_py.exists():
+            try:
+                with open(setup_py) as f:
+                    content = f.read()
+                    # Simple regex to find install_requires
+                    import re
+                    match = re.search(r'install_requires\s*=\s*\[(.*?)\]', content, re.DOTALL)
+                    if match:
+                        deps_str = match.group(1)
+                        deps = [
+                            dep.strip().strip('"').strip("'").split('==')[0].split('>=')[0]
+                            for dep in deps_str.split(',')
+                            if dep.strip()
+                        ]
+                        build_deps['setup.py'] = deps
+            except Exception as e:
+                print(f"⚠️ Error parsing setup.py: {e}")
+
+        # JavaScript: package.json
+        package_json = repo_root / "package.json"
+        if package_json.exists():
+            try:
+                import json
+                with open(package_json) as f:
+                    data = json.load(f)
+                    deps = []
+                    deps.extend(data.get('dependencies', {}).keys())
+                    deps.extend(data.get('devDependencies', {}).keys())
+                    if deps:
+                        build_deps['package.json'] = deps
+            except Exception as e:
+                print(f"⚠️ Error parsing package.json: {e}")
+
+        return build_deps
+
+    def detect_runtime_dependencies(self) -> Dict[str, List[str]]:
+        """
+        Detect runtime dependencies (dynamic imports, plugin systems).
+
+        Looks for:
+        - importlib.import_module() calls
+        - __import__() calls
+        - Plugin registration patterns
+
+        Returns:
+            Dictionary mapping source to runtime dependencies
+        """
+        runtime_deps = defaultdict(list)
+
+        # Look for dynamic import patterns in function bodies
+        for func_name, func_node in self.function_table.items():
+            # Check metadata for dynamic imports (would need AST parser to add this)
+            if hasattr(func_node, 'metadata') and func_node.metadata:
+                dynamic_imports = func_node.metadata.get('dynamic_imports', [])
+                if dynamic_imports:
+                    runtime_deps[func_name] = dynamic_imports
+
+        return dict(runtime_deps)
+
+    def build_config_dependency_graph(self, repo_path: str) -> Dict[str, List[str]]:
+        """
+        Build configuration dependency graph.
+
+        Analyzes config files and their dependencies:
+        - .env files
+        - config.yaml / config.json
+        - settings.py
+        - Configuration inheritance
+
+        Args:
+            repo_path: Repository root path
+
+        Returns:
+            Configuration dependency mapping
+        """
+        import os
+        import json
+        from pathlib import Path
+
+        config_deps = {}
+        repo_root = Path(repo_path)
+
+        # Look for common config files
+        config_files = [
+            'config.yaml', 'config.yml',
+            'config.json',
+            'settings.py', 'settings.yaml',
+            '.env', '.env.example'
+        ]
+
+        for config_file in config_files:
+            config_path = repo_root / config_file
+            if config_path.exists():
+                deps = []
+
+                # For .env files, extract referenced variables
+                if config_file.endswith('.env'):
+                    with open(config_path) as f:
+                        for line in f:
+                            line = line.strip()
+                            if '=' in line and not line.startswith('#'):
+                                key = line.split('=')[0].strip()
+                                deps.append(key)
+
+                # For YAML files, extract keys (basic)
+                elif config_file.endswith(('.yaml', '.yml')):
+                    try:
+                        import yaml
+                        with open(config_path) as f:
+                            data = yaml.safe_load(f)
+                            if isinstance(data, dict):
+                                deps.extend(data.keys())
+                    except ImportError:
+                        pass
+                    except Exception as e:
+                        print(f"⚠️ Error parsing {config_file}: {e}")
+
+                # For JSON files
+                elif config_file.endswith('.json'):
+                    try:
+                        with open(config_path) as f:
+                            data = json.load(f)
+                            if isinstance(data, dict):
+                                deps.extend(data.keys())
+                    except Exception as e:
+                        print(f"⚠️ Error parsing {config_file}: {e}")
+
+                if deps:
+                    config_deps[config_file] = deps
+
+        return config_deps
+
+    def get_all_dependency_layers(self, repo_path: str) -> Dict[str, Any]:
+        """
+        Get comprehensive dependency information across all layers.
+
+        Returns:
+            Dictionary with all dependency types
+        """
+        return {
+            'code_dependencies': {
+                'call_graph_edges': sum(len(c) for c in self.call_graph.values()),
+                'import_graph_edges': sum(len(i) for i in self.import_graph.values()),
+                'circular_dependencies': len(self.detect_circular_dependencies())
+            },
+            'build_dependencies': self.build_dependency_graph(repo_path),
+            'runtime_dependencies': self.detect_runtime_dependencies(),
+            'config_dependencies': self.build_config_dependency_graph(repo_path),
+            'metrics': self.get_dependency_stats()
+        }

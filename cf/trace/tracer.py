@@ -2,12 +2,14 @@
 CodeFusion Tracer
 
 Clean tracing system with decorators for automatic method tracing.
+Supports pluggable tracer backends (local files, Langfuse, etc.).
 """
 
 import os
 import time
 import json
 import functools
+from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Callable
 from pathlib import Path
 from dataclasses import dataclass
@@ -24,6 +26,37 @@ class TraceEvent:
     success: bool
     error: Optional[str] = None
     metadata: Dict[str, Any] = None
+
+
+class TracerPlugin(ABC):
+    """
+    Base class for tracer plugins.
+
+    Enables pluggable tracing backends:
+    - Local file storage (default)
+    - Langfuse (observability platform)
+    - Custom backends
+    """
+
+    @abstractmethod
+    def start_session(self, session_id: str, metadata: Dict[str, Any] = None):
+        """Start a tracing session"""
+        pass
+
+    @abstractmethod
+    def end_session(self, session_id: str, metadata: Dict[str, Any] = None):
+        """End a tracing session"""
+        pass
+
+    @abstractmethod
+    def log_event(self, event: TraceEvent):
+        """Log a trace event"""
+        pass
+
+    @abstractmethod
+    def flush(self):
+        """Flush pending events"""
+        pass
 
 
 def trace_method(method_type: str):
@@ -61,25 +94,37 @@ def trace_method(method_type: str):
 
 
 class Tracer:
-    """Simple, clean tracer for CodeFusion"""
-    
-    def __init__(self, agent_name: str, trace_config: Dict[str, Any]):
+    """Simple, clean tracer for CodeFusion with plugin support"""
+
+    def __init__(self, agent_name: str, trace_config: Dict[str, Any], plugins: List[TracerPlugin] = None):
         self.agent_name = agent_name
         self.enabled = trace_config.get('enabled', True)
         self.output_dir = Path(trace_config.get('output_dir', 'cf_trace'))
         self.events: List[TraceEvent] = []
-        
+        self.plugins: List[TracerPlugin] = plugins or []
+
         # Create output directory
         if self.enabled:
             self.output_dir.mkdir(exist_ok=True)
+
+    def add_plugin(self, plugin: TracerPlugin):
+        """Add a tracer plugin"""
+        self.plugins.append(plugin)
     
     def start_session(self, session_name: str) -> str:
         """Start a new tracing session"""
         session_id = f"{self.agent_name}_{session_name}_{int(time.time())}"
-        
+
         if self.enabled:
             self.log_event(session_id, "session_start", {"session_name": session_name})
-        
+
+            # Notify plugins
+            for plugin in self.plugins:
+                try:
+                    plugin.start_session(session_id, {"session_name": session_name, "agent": self.agent_name})
+                except Exception as e:
+                    print(f"⚠️ Plugin error in start_session: {e}")
+
         return session_id
     
     def end_session(self, session_id: str):
@@ -87,6 +132,14 @@ class Tracer:
         if self.enabled:
             self.log_event(session_id, "session_end", {})
             self._save_session_trace(session_id)
+
+            # Notify plugins
+            for plugin in self.plugins:
+                try:
+                    plugin.end_session(session_id)
+                    plugin.flush()
+                except Exception as e:
+                    print(f"⚠️ Plugin error in end_session: {e}")
     
     def log_method_call(self, session_id: str, method_name: str, method_type: str,
                        args: tuple, kwargs: Dict[str, Any], result: Any,
@@ -94,7 +147,7 @@ class Tracer:
         """Log a method call"""
         if not self.enabled:
             return
-            
+
         event = TraceEvent(
             session_id=session_id,
             timestamp=time.time(),
@@ -110,12 +163,19 @@ class Tracer:
             }
         )
         self.events.append(event)
+
+        # Notify plugins
+        for plugin in self.plugins:
+            try:
+                plugin.log_event(event)
+            except Exception as e:
+                print(f"⚠️ Plugin error in log_method_call: {e}")
     
     def log_event(self, session_id: str, event_type: str, metadata: Dict[str, Any]):
         """Log a general event"""
         if not self.enabled:
             return
-            
+
         event = TraceEvent(
             session_id=session_id,
             timestamp=time.time(),
@@ -126,6 +186,13 @@ class Tracer:
             metadata=metadata
         )
         self.events.append(event)
+
+        # Notify plugins
+        for plugin in self.plugins:
+            try:
+                plugin.log_event(event)
+            except Exception as e:
+                print(f"⚠️ Plugin error in log_event: {e}")
     
     def _save_session_trace(self, session_id: str):
         """Save session trace to file"""

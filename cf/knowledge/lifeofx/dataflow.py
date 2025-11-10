@@ -329,3 +329,257 @@ class DataFlowAnalyzer:
         print(f"\n   Edge types:")
         for edge_type, count in sorted(stats['edge_types'].items()):
             print(f"     - {edge_type}: {count}")
+
+    # ========== Advanced Data Flow Analysis (Reaching Definitions, Use-Def, Def-Use) ==========
+
+    def compute_reaching_definitions(
+        self,
+        function_id: str
+    ) -> Dict[str, Set[str]]:
+        """
+        Compute reaching definitions for a function.
+
+        Reaching definitions: For each program point, which variable definitions
+        can reach that point (i.e., the definition has not been overwritten).
+
+        Args:
+            function_id: Function to analyze
+
+        Returns:
+            Dictionary mapping variable names to sets of definition points
+        """
+        reaching_defs = defaultdict(set)
+
+        # Get all data flow paths that reach this function
+        sources = self.find_data_sources(function_id)
+
+        for source in sources:
+            # Extract variable name from source
+            # Format: "module.func.var" or "module.func.return"
+            parts = source.split('.')
+            if len(parts) >= 2:
+                var_name = parts[-1]
+
+                # Add this definition to reaching definitions
+                reaching_defs[var_name].add(source)
+
+        # Transitively find all reaching definitions
+        for var_name in list(reaching_defs.keys()):
+            defs = set(reaching_defs[var_name])
+            for def_point in list(defs):
+                # Find definitions that reach this definition
+                transitive_sources = self.find_data_sources(def_point)
+                for t_source in transitive_sources:
+                    t_parts = t_source.split('.')
+                    if len(t_parts) >= 2:
+                        t_var = t_parts[-1]
+                        if t_var == var_name:
+                            reaching_defs[var_name].add(t_source)
+
+        return {var: defs for var, defs in reaching_defs.items()}
+
+    def build_use_def_chains(
+        self,
+        function_id: str
+    ) -> Dict[str, List[str]]:
+        """
+        Build use-def chains for a function.
+
+        Use-def chain: For each use of a variable, which definitions can reach it.
+        Maps each variable USE to the DEFINITIONS that can reach it.
+
+        Args:
+            function_id: Function to analyze
+
+        Returns:
+            Dictionary mapping use points to definition points
+        """
+        use_def_chains = {}
+
+        # Find all uses of variables in this function
+        # A "use" is when a function receives data (parameter flow)
+        for edge in self.flow_graph.get(function_id, []):
+            if edge.flow_type in ["parameter", "call"]:
+                use_point = edge.target
+
+                # Find definitions that reach this use
+                reaching_defs = self.compute_reaching_definitions(use_point)
+
+                # For each variable used
+                for var_name, defs in reaching_defs.items():
+                    use_key = f"{use_point}.use.{var_name}"
+                    use_def_chains[use_key] = list(defs)
+
+        return use_def_chains
+
+    def build_def_use_chains(
+        self,
+        function_id: str
+    ) -> Dict[str, List[str]]:
+        """
+        Build def-use chains for a function.
+
+        Def-use chain: For each definition of a variable, where is it used.
+        Maps each variable DEFINITION to the USES of that variable.
+
+        Args:
+            function_id: Function to analyze
+
+        Returns:
+            Dictionary mapping definition points to use points
+        """
+        def_use_chains = defaultdict(list)
+
+        # Find all definitions in this function
+        # Parameters are definitions
+        func_node = self.dep_graph.function_table.get(function_id)
+        if func_node:
+            for param in func_node.parameters:
+                def_point = f"{function_id}.{param}"
+
+                # Find all uses of this definition
+                uses = self.find_data_sinks(def_point)
+
+                if uses:
+                    def_use_chains[def_point] = uses
+
+        # Return values are also definitions
+        return_id = f"{function_id}.return"
+        if return_id in self.flow_graph:
+            uses = self.find_data_sinks(return_id)
+            if uses:
+                def_use_chains[return_id] = uses
+
+        return dict(def_use_chains)
+
+    def analyze_variable_lifetime(
+        self,
+        variable_id: str
+    ) -> Dict[str, Any]:
+        """
+        Analyze the lifetime of a variable through the program.
+
+        Tracks:
+        - Where variable is defined
+        - All uses of the variable
+        - Last use
+        - Scope of lifetime
+
+        Args:
+            variable_id: Variable identifier (e.g., "module.func.var")
+
+        Returns:
+            Dictionary with lifetime information
+        """
+        # Find definition point
+        definition = variable_id
+
+        # Find all uses (sinks)
+        uses = self.find_data_sinks(variable_id)
+
+        # Trace through all uses
+        all_downstream_uses = set(uses)
+        for use in uses:
+            # Transitively find uses
+            transitive_uses = self.find_data_sinks(use)
+            all_downstream_uses.update(transitive_uses)
+
+        # Estimate lifetime scope
+        parts = variable_id.split('.')
+        scope = parts[-2] if len(parts) >= 2 else "global"
+
+        return {
+            'variable_id': variable_id,
+            'definition_point': definition,
+            'direct_uses': uses,
+            'all_downstream_uses': list(all_downstream_uses),
+            'use_count': len(all_downstream_uses),
+            'scope': scope,
+            'is_used': len(all_downstream_uses) > 0
+        }
+
+    def detect_unused_variables(
+        self,
+        function_id: str
+    ) -> List[str]:
+        """
+        Detect unused variables in a function.
+
+        A variable is unused if it has no uses in its def-use chain.
+
+        Args:
+            function_id: Function to analyze
+
+        Returns:
+            List of unused variable IDs
+        """
+        unused = []
+
+        # Build def-use chains
+        def_use_chains = self.build_def_use_chains(function_id)
+
+        # Find definitions with no uses
+        for def_point, uses in def_use_chains.items():
+            if not uses:
+                unused.append(def_point)
+
+        return unused
+
+    def detect_undefined_uses(
+        self,
+        function_id: str
+    ) -> List[str]:
+        """
+        Detect uses of undefined variables.
+
+        A use is undefined if it has no reaching definitions.
+
+        Args:
+            function_id: Function to analyze
+
+        Returns:
+            List of undefined use points
+        """
+        undefined = []
+
+        # Build use-def chains
+        use_def_chains = self.build_use_def_chains(function_id)
+
+        # Find uses with no reaching definitions
+        for use_point, defs in use_def_chains.items():
+            if not defs:
+                undefined.append(use_point)
+
+        return undefined
+
+    def get_advanced_flow_analysis(
+        self,
+        function_id: str
+    ) -> Dict[str, Any]:
+        """
+        Get comprehensive data flow analysis for a function.
+
+        Includes:
+        - Reaching definitions
+        - Use-def chains
+        - Def-use chains
+        - Unused variables
+        - Undefined uses
+
+        Args:
+            function_id: Function to analyze
+
+        Returns:
+            Complete analysis dictionary
+        """
+        return {
+            'function_id': function_id,
+            'reaching_definitions': {
+                var: list(defs)
+                for var, defs in self.compute_reaching_definitions(function_id).items()
+            },
+            'use_def_chains': self.build_use_def_chains(function_id),
+            'def_use_chains': self.build_def_use_chains(function_id),
+            'unused_variables': self.detect_unused_variables(function_id),
+            'undefined_uses': self.detect_undefined_uses(function_id)
+        }
