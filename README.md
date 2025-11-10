@@ -1,319 +1,564 @@
-# CodeFusion
+# CodeFusion - AI-Powered Codebase Analysis
 
-A code understanding tool designed to help senior developers quickly ramp up on large, unfamiliar codebases through agentic exploration and automated knowledge base creation.
+An **intelligent multi-agent system** for deep codebase exploration and analysis. CodeFusion uses LLM-driven function calling and verbose logging to provide comprehensive technical narratives about how systems work.
 
-## Architecture Overview
+## 🏗️ System Architecture
 
 ```mermaid
 graph TB
-    %% User Interfaces
-    CLI[cmd line]
-    WEB[web interface]
+    %% User Layer
+    User[👤 User<br/>Developer analyzing codebase]
     
-    %% CodeFusion Agentic Kernel (Main Container)
-    subgraph KERNEL ["🧠 CodeFusion Agentic Kernel"]
-        %% Core Agentic Components
-        EXPLORATION[Agentic exploration]
-        INDEXING[Indexing]
-        INSPECTOR[Code Inspector<br/>AST Analysis]
-        
-        %% Knowledge Graph System
-        subgraph CKG ["📊 CKG (Code Knowledge Graph)"]
-            VDB[vdb<br/>Vector Database]
-            ENTITIES[Code Entities]
-            RELATIONS[Relationships]
-        end
-        
-        %% LLM Integration
-        LLM[LLM Proxy<br/>Multi-Provider]
-        TRACER[LLM Tracer]
-        
-        %% Support Systems
-        CONFIG[Configuration<br/>Management]
-        TYPES[Type System]
-        EXCEPTIONS[Exception<br/>Handling]
-        
-        %% Connections within kernel
-        EXPLORATION --> INDEXING
-        EXPLORATION --> INSPECTOR
-        INDEXING --> CKG
-        INSPECTOR --> CKG
-        EXPLORATION --> LLM
-        LLM --> TRACER
-        CONFIG --> EXPLORATION
-        CONFIG --> LLM
-        
-        ENTITIES --> RELATIONS
+    %% Interface Layer
+    CLI[🖥️ Command Line Interface<br/>python -m cf.run.main --verbose ask]
+    
+    %% Core System
+    Supervisor[🤖 SupervisorAgent<br/>Multi-Agent Orchestration]
+    
+    %% Specialized Agents
+    subgraph Agents ["🎯 Intelligent Agents"]
+        CodeAgent[🔍 CodeAgent<br/>Source Code Analysis]
+        DocsAgent[📚 DocsAgent<br/>Documentation Processing]
+        WebAgent[🌐 WebAgent<br/>External Knowledge Search]
     end
     
-    %% Agent Computer Interface
-    ACI[ACI<br/>Agent Computer Interface]
-    
-    %% ACI Components
-    subgraph ACI_COMPONENTS ["🔌 ACI Components"]
-        REPO[Repository<br/>Abstraction]
-        SYSACCESS[System<br/>Access]
-        CODEINSP[Code<br/>Inspector]
-        ENVMGR[Environment<br/>Manager]
+    %% Infrastructure
+    subgraph Infrastructure ["⚙️ Core Infrastructure"]
+        Tools[🛠️ Tool System<br/>Repository & Analysis Tools]
+        LLM[🧠 LLM Integration<br/>GPT-4o Function Calling]
+        Cache[💾 Semantic Cache<br/>Persistent Memory]
     end
     
-    %% External Sources
-    GITHUB[github]
-    REMOTE[remote<br/>cloud] 
-    LOCAL[local<br/>filesystem]
+    %% Output
+    Narrative[📖 Technical Narrative<br/>Life of X Format]
     
-    %% Supporting Infrastructure
-    TESTS[Test Suite<br/>pytest]
-    TRACE[Trace Storage<br/>Trajectories]
-    TOOLS[External Tools<br/>Utilities]
+    %% Flow
+    User --> CLI
+    CLI --> Supervisor
+    Supervisor --> CodeAgent
+    Supervisor --> DocsAgent
+    Supervisor --> WebAgent
     
-    %% User Interface Connections
-    CLI --> KERNEL
-    WEB --> KERNEL
+    CodeAgent --> Tools
+    DocsAgent --> Tools
+    WebAgent --> Tools
     
-    %% ACI Connections
-    KERNEL --> ACI
-    ACI --> ACI_COMPONENTS
-    REPO --> GITHUB
-    REPO --> REMOTE
-    REPO --> LOCAL
+    Tools --> LLM
+    LLM --> Cache
     
-    %% Infrastructure Connections
-    KERNEL --> TRACE
-    TESTS --> KERNEL
-    TOOLS --> KERNEL
+    CodeAgent --> Supervisor
+    DocsAgent --> Supervisor
+    WebAgent --> Supervisor
     
-    %% Balanced Professional Color Styling
-    classDef userInterface fill:#3b4d66,stroke:#2d3748,stroke-width:2px,color:#f7fafc
-    classDef kernel fill:#553c6b,stroke:#44337a,stroke-width:3px,color:#f7fafc
-    classDef coreComponent fill:#744e3a,stroke:#5a3a2a,stroke-width:2px,color:#f7fafc
-    classDef knowledge fill:#2d5a3d,stroke:#1a4d2e,stroke-width:2px,color:#f7fafc
-    classDef external fill:#6b3d5a,stroke:#5a2d4a,stroke-width:2px,color:#f7fafc
-    classDef aci fill:#4a5d3d,stroke:#3a4d2e,stroke-width:2px,color:#f7fafc
-    classDef infrastructure fill:#5a5a5a,stroke:#4a4a4a,stroke-width:2px,color:#f7fafc
-    classDef support fill:#66594a,stroke:#5a4a3a,stroke-width:2px,color:#f7fafc
+    Supervisor --> Narrative
+    Narrative --> CLI
+    CLI --> User
     
-    class CLI,WEB userInterface
-    class KERNEL kernel
-    class EXPLORATION,INDEXING,INSPECTOR,LLM coreComponent
-    class CKG,VDB,ENTITIES,RELATIONS knowledge
-    class GITHUB,REMOTE,LOCAL external
-    class ACI,ACI_COMPONENTS aci
-    class REPO,SYSACCESS,CODEINSP,ENVMGR aci
-    class TESTS,TRACE,TOOLS infrastructure
-    class CONFIG,TYPES,EXCEPTIONS,TRACER support
+    %% Clean styling with good contrast
+    classDef user fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
+    classDef interface fill:#388e3c,stroke:#1b5e20,stroke-width:2px,color:#fff
+    classDef core fill:#7b1fa2,stroke:#4a148c,stroke-width:3px,color:#fff
+    classDef agents fill:#d32f2f,stroke:#b71c1c,stroke-width:2px,color:#fff
+    classDef infra fill:#f57c00,stroke:#e65100,stroke-width:2px,color:#fff
+    classDef output fill:#c2185b,stroke:#880e4f,stroke-width:3px,color:#fff
+    
+    class User user
+    class CLI interface
+    class Supervisor core
+    class CodeAgent,DocsAgent,WebAgent agents
+    class Tools,LLM,Cache infra
+    class Narrative output
 ```
 
-### 🏗️ **System Architecture**
+> **📋 For detailed workflow diagrams and system execution flow, see [Architecture Documentation](docs/dev/architecture.md#system-workflow-overview)**
 
-The CodeFusion architecture follows a **kernel-based design** with clear separation of concerns:
+## 🎯 Current Features
 
-#### 🎯 **User Interfaces**
-- **cmd line**: Command-line interface for developer interaction
-- **web interface**: Browser-based interface for visual exploration
+### ✅ **Multi-Agent Coordination**
+- **SupervisorAgent**: Orchestrates 3 specialized agents and synthesizes responses
+- **CodeAgent**: Deep code analysis using LLM function calling loops
+- **DocsAgent**: Documentation analysis and README parsing
+- **WebAgent**: Web search integration for external knowledge
+- **Response Time Tracking**: Accurate execution time measurement (fixed from 0.0s issue)
 
-#### 🧠 **CodeFusion Agentic Kernel**
-The central processing unit containing:
-- **Agentic exploration**: Multi-strategy code exploration (ReAct, Plan-Act, Sense-Act)
-- **Indexing**: Systematic codebase processing and analysis
-- **Code Inspector**: AST-based code analysis and pattern detection
-- **LLM Proxy**: Multi-provider LLM integration with tracing
-- **Support Systems**: Configuration, type system, and exception handling
+### ✅ **LLM Function Calling System**
+- **Conversation History**: Multi-turn dialogue with context preservation
+- **Dynamic Tool Selection**: LLM intelligently selects tools with parameters
+- **Tool Registry**: Schema-based tool management and dispatch
+- **Available Tools**: `scan_directory`, `read_file`, `search_files`, `analyze_code`, `web_search`
 
-#### 🔌 **ACI (Agent Computer Interface)**
-Unified interface layer between agents and computer system:
-- **Repository Access**: Local/remote repository abstraction
-- **System Interface**: Environment variables, command execution
-- **Code Inspection**: AST-based code analysis and pattern detection
-- **Environment Management**: Search capabilities and resource management
+### ✅ **Verbose Logging System**
+- **Action Planning Phases**: Shows agent reasoning and decision making
+- **Tool Selection Logging**: Displays which tools LLM selects and why
+- **Progress Tracking**: Real-time visibility into agent activity
+- **Dual Logging**: Technical debug logs + user-friendly verbose output
 
-#### 📊 **Code Knowledge Graph (CKG)**
-- **Vector Database (vdb)**: Semantic embeddings for code similarity and search
-- **Code Entities**: Files, classes, functions with metadata
-- **Relationships**: Import dependencies, call graphs, inheritance
-- **C4 Mapping**: Context, Container, Components, Code levels
+### ✅ **Technical Narrative Generation**
+- **Architectural Overview**: Comprehensive technical stories about system components
+- **Life of X Format**: Detailed narratives following features through entire systems
+- **Code Pattern Recognition**: Identifies specific implementations, classes, and methods
+- **Framework Integration**: Understands relationships between technologies (e.g., FastAPI + Starlette)
 
-#### 🏗️ **Supporting Infrastructure**
-- **Test Suite**: Comprehensive pytest-based testing framework
-- **Trace Storage**: Execution trajectories and performance metrics  
-- **External Tools**: Utility scripts and development aids
-- **Type System**: Comprehensive type definitions and protocols
-- **Exception Handling**: Custom exception hierarchy for robust error management
+### ✅ **LLM Integration**
+- **LiteLLM Support**: Multi-provider integration (OpenAI, Anthropic, LLaMA)
+- **Primary Model**: GPT-4o with function calling capabilities
+- **Configuration**: YAML config + environment variable support
+- **API Key Management**: Secure credential handling
 
-## Workflow
+## 🚀 Quick Start
 
-For detailed step-by-step component interactions and workflows, see [Workflow Diagrams](docs/dev/workflow.md).
-
-## Component Overview
-
-### 🎯 **User Interfaces**
-- **RunCli**: Command-line interface for interactive exploration
-- **RunApi**: REST API for programmatic access (future)
-
-### ⚙️ **Core System**
-- **CfConfig**: YAML/JSON configuration management
-- **ACI**: Agent Computer Interface with system access and repository abstraction
-
-### 🧠 **Knowledge Management**
-- **CodeKB**: Knowledge graph for C4 mapping (Context, Container, Components, Code)
-- **Content Analyzer**: Intelligent question answering and content analysis
-- **Relationship Detector**: AST-based relationship detection
-- **Vector Storage**: FAISS-based semantic search
-- **Neo4j**: Graph database for complex relationships
-
-### 🤖 **Agentic Exploration**
-- **CodeIndexer**: Orchestrates exploration strategies
-- **ReAct Agent**: Reasoning + Acting approach with LLM integration
-- **Plan-then-Act**: Strategic planning followed by systematic execution
-- **Sense-then-Act**: Iterative environment sensing and adaptive actions
-
-### 🔗 **LLM Integration**
-- **LlmModel**: Multi-provider model interface via LiteLLM
-- **LlmTracer**: Monitoring and observability
-- **Provider Support**: OpenAI, Anthropic, Cohere, local models
-
-## V0.01 Goals
-
-1. **Index Codebase**: Given a repository path, perform initial exploration
-2. **Build Knowledge Base**: Create structured understanding of code architecture
-3. **Answer Questions**: Respond to queries about code structure and functionality
-
-## Key Features
-
-- 🚀 **Rapid Onboarding**: Quick understanding of large codebases
-- 🔍 **Multi-Strategy Exploration**: ReAct, Plan-Act, Sense-Act approaches
-- 📊 **Technology Detection**: Automatic identification of frameworks and patterns
-- 🌐 **External Integration**: Web search and documentation lookup
-- 📈 **Extensible Architecture**: Plugin-ready for new exploration strategies
-
-## Installation
-
-### Prerequisites
-- Python 3.8 or higher
-- Git
-
-### Setup
+### Installation & Setup
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd codefusion
+# 1. Create and activate virtual environment (REQUIRED)
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install base dependencies
+# 2. Install dependencies
 pip install -e .
 
-# Install optional dependencies (choose what you need)
-pip install -e ".[vector]"    # For vector database and semantic search
-pip install -e ".[llm]"       # For LLM integration
-pip install -e ".[neo4j]"     # For Neo4j graph database
-pip install -e ".[dev]"       # For development tools
-pip install -e ".[all]"       # Install everything
+# 3. Set up API key (choose one method)
+export OPENAI_API_KEY="your-openai-api-key"     # For GPT-4o
+# OR edit cf/configs/config.yaml directly
 
-# Verify installation
-python -m cf --help
+# 4. Verify installation
+python -m cf.run.main --help
 ```
 
-### Dependencies Overview
+### Package Structure
 
-- **Base**: Core functionality with text-based knowledge base
-- **Vector**: Adds FAISS + sentence-transformers for semantic search  
-- **LLM**: LiteLLM integration for multiple AI providers
-- **Neo4j**: Graph database for complex relationship analysis
-- **Dev**: Testing, linting, and development tools
+The clean `cf/` package structure:
 
-## Quick Start
+```
+cf/
+├── __init__.py
+├── agents/           # Multi-agent system
+│   ├── base.py      # Common agent functionality  
+│   ├── supervisor.py # Orchestration & synthesis
+│   ├── code.py      # Code analysis with LLM function calling
+│   ├── docs.py      # Documentation processing
+│   └── web.py       # Web search integration
+├── tools/           # Tool ecosystem
+│   ├── registry.py  # Schema management for LLM function calling
+│   ├── repo_tools.py # File system operations
+│   ├── llm_tools.py  # AI-powered analysis tools
+│   └── web_tools.py  # External search capabilities
+├── llm/             # AI integration
+│   └── client.py    # LiteLLM multi-provider interface
+├── run/             # CLI interface
+│   └── main.py      # Entry point
+├── configs/         # Configuration
+│   ├── config.yaml  # Main configuration file
+│   └── config_mgr.py # Configuration management
+├── cache/           # Persistent caching
+│   └── semantic.py  # Cross-session memory
+├── trace/           # Performance monitoring
+│   └── tracer.py    # Execution tracing
+└── utils/           # Utilities
+    └── logger.py    # Verbose logging system
+```
 
-### CLI Usage
+### Basic Usage
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
+# Analyze a codebase with verbose logging
+python -m cf.run.main --verbose ask /path/to/repo "How does FastAPI routing work?"
 
-# Explore a codebase with text-based knowledge base
-cf explore /path/to/codebase
+# Example output shows:
+# 📝 Processing: How does FastAPI routing work?
+# 🤖 Coordinating multiple specialized agents...
+# 🔍 Running code analysis agent...
+# 🎯 [CodeAgent] ACTION PLANNING PHASE
+# 🎯 [CodeAgent] LLM selected tool: search_files
+# 📚 Running documentation agent...
+# 🌐 Running web search agent...
+# 🤖 Consolidating results with LLM...
+# ⏱️ Response time: 30.4s
 
-# Use vector database for semantic search
-cf explore /path/to/codebase --config vector_config.yaml
-
-# Query the knowledge base
-cf query "What classes are in this codebase?"
-
-# View knowledge base statistics
-cf stats
+# Different repository analysis
+python -m cf.run.main --verbose ask /tmp/fastapi "Explain the relationship between FastAPI and Starlette"
 ```
+
+### Configuration
+
+```yaml
+# cf/configs/config.yaml
+llm:
+  model: "gpt-4o"
+  api_key: "your-openai-api-key"  # Or use OPENAI_API_KEY env var
+  max_tokens: 1000
+  temperature: 0.7
+  provider: "openai"
+```
+
+### Environment Variables
+```bash
+# Alternative to config.yaml
+export OPENAI_API_KEY="your-openai-api-key"
+export CF_LLM_MODEL="gpt-4o"
+export CF_LLM_MAX_TOKENS=1000
+```
+
+## 🔄 ReAct Process Flow
+
+The framework follows a systematic **Reason → Act → Observe** cycle:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Supervisor
+    participant Agent
+    participant LLM
+    participant ToolRegistry
+    participant Tools
+    participant Cache
+
+    User->>Supervisor: python -m cf.run.simple_run analyze /repo --focus=all
+    
+    loop ReAct Loop
+        Note over Agent: 🧠 REASON Phase
+        Agent->>LLM: Context + Current State
+        LLM-->>Agent: Contextual reasoning
+        
+        Note over Agent: 🎯 ACT Phase - LLM Function Calling
+        Agent->>LLM: Available tools + Context
+        Note over LLM: Function Calling
+        LLM->>ToolRegistry: {tool: "scan_directory", args: {...}}
+        ToolRegistry->>Tools: Execute selected tool
+        Tools->>Cache: Check for cached results
+        alt Cache Miss
+            Tools->>LLM: Process/summarize content
+            LLM-->>Tools: Processed results
+            Tools->>Cache: Store results
+        end
+        Cache-->>Tools: Return results
+        Tools-->>ToolRegistry: Tool execution results
+        ToolRegistry-->>Agent: Structured results
+        
+        Note over Agent: 👁️ OBSERVE Phase
+        Agent->>Agent: Process LLM-selected results
+        Agent->>Agent: Update understanding
+        Agent->>Agent: Check goal progress
+    end
+    
+    Agent-->>Supervisor: Analysis complete
+    Supervisor-->>User: Comprehensive insights
+```
+
+## 🛠️ LLM Function Calling Tool Ecosystem
+
+Each ReAct agent uses **LLM Function Calling** where the AI selects tools by generating structured output:
+
+### Core Exploration Tools (LLM-Selected)
+- **🔍 SCAN_DIRECTORY**: Recursive directory structure exploration
+- **📋 LIST_FILES**: Pattern-based file discovery  
+- **📖 READ_FILE**: Intelligent file content analysis
+- **🔎 SEARCH_FILES**: Multi-file pattern searching
+
+### Advanced Analysis Tools (LLM-Selected)
+- **⚙️ ANALYZE_CODE**: Code structure and complexity analysis
+- **📝 GENERATE_SUMMARY**: Intelligent content summarization
+
+### How LLM Function Calling Works
+1. **Context Provision**: Agent provides current state and available tools to LLM
+2. **Tool Selection**: LLM analyzes context and selects optimal tool with parameters
+3. **Structured Output**: LLM generates JSON with tool name and arguments
+4. **Execution**: Tool Registry executes the selected tool with LLM-chosen parameters
+5. **Adaptive Learning**: Results inform future tool selection decisions
+
+```json
+// Example LLM Tool Selection
+{
+  "tool_calls": [
+    {
+      "function_name": "search_files",
+      "arguments": {
+        "pattern": "*.py",
+        "file_types": [".py"],
+        "max_results": 20
+      }
+    }
+  ]
+}
+```
+
+## 🎛️ Configuration & Performance
+
+### Environment Variables
+```bash
+# ReAct Loop Configuration
+CF_REACT_MAX_ITERATIONS=20          # Maximum iterations per agent
+CF_REACT_ITERATION_TIMEOUT=30.0     # Timeout per iteration (seconds)
+CF_REACT_TOTAL_TIMEOUT=600.0        # Total analysis timeout
+
+# Caching Configuration
+CF_REACT_CACHE_ENABLED=true         # Enable persistent caching
+CF_REACT_CACHE_MAX_SIZE=1000        # Maximum cache entries
+CF_REACT_CACHE_TTL=3600             # Cache TTL (seconds)
+
+# Tracing Configuration
+CF_REACT_TRACING_ENABLED=true       # Enable execution tracing
+CF_REACT_TRACE_DIR=./traces         # Trace output directory
+
+# Error Handling
+CF_REACT_ERROR_RECOVERY=true        # Enable error recovery
+CF_REACT_MAX_CONSECUTIVE_ERRORS=3   # Circuit breaker threshold
+```
+
+### Performance Profiles
+```bash
+# Fast Analysis (10 iterations, 15s timeout)
+CF_REACT_MAX_ITERATIONS=10 python -m cf.run.simple_run analyze /repo --focus=all
+
+# Thorough Analysis (50 iterations, 60s timeout)  
+CF_REACT_MAX_ITERATIONS=50 python -m cf.run.simple_run analyze /repo --focus=all
+
+# Custom Configuration
+CF_REACT_MAX_ITERATIONS=30 CF_REACT_CACHE_MAX_SIZE=2000 python -m cf.run.simple_run analyze /repo
+```
+
+## 📊 Example Output
+
+### Actual Working Example
+```bash
+$ python -m cf.run.main --verbose ask /tmp/fastapi "Explain the relationship between FastAPI and Starlette"
+
+🚀 CodeFusion - Ask
+📁 /tmp/fastapi | 🤖 code, docs, web
+==================================================
+📝 [SupervisorAgent] Processing: Explain the relationship between FastAPI and Starlette...
+
+🧠 [SupervisorAgent] Analyzing question and building context...
+🤖 [SupervisorAgent] Coordinating multiple specialized agents...
+🔍 [SupervisorAgent] Running code analysis agent...
+🎯 [CodeAgent] ACTION PLANNING PHASE
+💭 [CodeAgent] Based on reasoning: Since there are no code files found yet, the first step is to identify and explore...
+🔧 [CodeAgent] Using LLM function calling for intelligent tool selection
+📡 [CodeAgent] Calling LLM with function calling enabled...
+🎯 [CodeAgent] LLM selected tool: search_files
+📋 [CodeAgent] Tool arguments: {'pattern': 'FastAPI', 'file_types': ['*.py'], 'max_results': 5}
+✅ [SupervisorAgent] Code analysis completed
+📚 [SupervisorAgent] Running documentation agent...
+🎯 [DocsAgent] ACTION PLANNING PHASE
+💭 [DocsAgent] Based on reasoning: Analyzing documentation files to understand the system architecture...
+✅ [SupervisorAgent] Documentation analysis completed
+🌐 [SupervisorAgent] Running web search agent...
+🎯 [WebAgent] ACTION PLANNING PHASE
+💭 [WebAgent] Based on reasoning: Searching the web for external documentation and related information...
+✅ [SupervisorAgent] Web search completed
+🤖 Consolidating results with LLM...
+============================================================
+✅ [SupervisorAgent] Integrated 6 insights into narrative
+
+🎯 Life of FastAPI: The Role of Starlette
+======================================================================
+
+🏗️ **Architectural Overview:** When a developer decides to use FastAPI for building a web application, 
+the journey begins with FastAPI itself, which is a modern, fast (high-performance), web framework for 
+building APIs with Python 3.6+ based on standard Python type hints. The underlying technology that 
+FastAPI relies on is Starlette, a lightweight ASGI (Asynchronous Server Gateway Interface) framework. 
+Starlette handles several core responsibilities that are critical for the operation of FastAPI. The entry 
+point for handling HTTP requests in FastAPI typically involves the `FastAPI` class, which is defined in 
+a FastAPI-specific file but leverages Starlette's routing and ASGI capabilities. FastAPI uses Starlette's 
+capabilities to manage HTTP requests, responses, WebSocket support, and background tasks. For example, 
+when an HTTP request is made to a FastAPI endpoint, Starlette's built-in routing system directs the 
+request to the appropriate endpoint defined in the FastAPI application.
+
+📊 **Analysis Confidence:** 75.0%
+🤖 **Powered by:** gpt-4o
+🎯 **Agents used:** 3
+💡 This unified narrative traces the complete journey of how your
+   question flows through interconnected system components.
+⏱️  Response time: 30.4s
+```
+
+## 🔧 Advanced Usage
 
 ### Python API
 
 ```python
-from cf import CfConfig
-from cf.aci import LocalCodeRepo, EnvironmentManager
+from cf.core.interactive_session import InteractiveSessionManager
+from cf.aci.repo import LocalCodeRepo
+from cf.config import CfConfig
 
-# Configure the system
-config = CfConfig.from_file("config.yaml")
+# Create interactive session
+repo = LocalCodeRepo("/path/to/repo")
+config = CfConfig()
+session = InteractiveSessionManager(repo, config)
 
-# Initialize repository
-repo = LocalCodeRepo("/path/to/target/codebase")
+# Start interactive session with persistent memory
+session.start_interactive_session()
 
-# Create environment manager
-env = EnvironmentManager(repo, config)
+# Ask questions programmatically
+response = session.ask_question("How does routing work?")
+print(response['narrative'])
 
-# Get repository overview
-overview = env.get_repository_overview()
-print(f"Primary language: {overview['primary_language']}")
+# Follow-up questions remember context
+response2 = session.ask_question("What about async performance?")
+print(response2['comparison_analysis'])
 
-# Get exploration suggestions
-suggestions = env.suggest_exploration_strategy()
-for suggestion in suggestions:
-    print(f"💡 {suggestion}")
+# Access session memory
+memories = session.get_session_memories()
+context = session.get_session_context()
+
+# Multi-agent coordination for complex questions
+from cf.tools import should_consolidate_multi_agent_results, generate_llm_driven_narrative
+
+question = "Explain FastAPI and Starlette relationship"
+if should_consolidate_multi_agent_results(question):
+    # Run all 3 agents: code, docs, web search
+    code_results = session.supervisor.explore_repository(goal=question, focus="code")
+    docs_results = session.supervisor.explore_repository(goal=question, focus="docs") 
+    web_results = session.web_search_agent.search_for_question(question)
+    
+    # Consolidate with LLM
+    unified_response = generate_llm_driven_narrative(question, code_results, docs_results, web_results)
 ```
 
-### Configuration Examples
+### Custom Agent Development
 
-**Basic config (config.yaml):**
-```yaml
-kb_type: "text"
-kb_path: "./kb"
-exploration_strategy: "react"
+```python
+from cf.core.react_agent import ReActAgent, ReActAction, ActionType
+
+class SecurityAnalysisAgent(ReActAgent):
+    def reason(self) -> str:
+        if not self.state.observations:
+            return "Start by scanning for security-related files"
+        return "Search for potential security vulnerabilities"
+    
+    def plan_action(self, reasoning: str) -> ReActAction:
+        if "scan" in reasoning.lower():
+            return ReActAction(
+                action_type=ActionType.SEARCH_FILES,
+                description="Find security-related files",
+                parameters={'pattern': 'auth|security|crypto', 'file_types': ['.py']}
+            )
+        # ... additional action planning
+    
+    def _generate_summary(self) -> str:
+        return f"Security analysis complete: {len(self.state.observations)} findings"
 ```
 
-**Vector database config:**
-```yaml
-kb_type: "vector"
-kb_path: "./kb_vector"
-embedding_model: "all-MiniLM-L6-v2"
-exploration_strategy: "react"
+## 📈 Monitoring & Debugging
+
+### Execution Tracing
+```bash
+# Enable detailed tracing
+CF_REACT_TRACING_ENABLED=true CF_REACT_TRACE_DIR=./traces python -m cf.run.simple_run analyze /repo
+
+# View trace files
+ls -la ./traces/
+cat ./traces/trace_12345_supervisor.json
 ```
 
-## Development Status
+### Performance Monitoring
+```python
+from cf.core.react_tracing import tracer
 
-- ✅ Core architecture implemented
-- ✅ Configuration management (YAML-based)
-- ✅ Repository abstraction (local/remote)
-- ✅ Environment with search capabilities
-- ✅ Knowledge base implementation (text + Neo4j ready)
-- ✅ Agentic indexer (ReAct strategy)
-- ✅ LLM integration (LiteLLM + tracing)
-- ✅ CLI interface (demo, index, query, explore)
-- ✅ Code inspector (AST analysis)
-- ✅ Type system and exception handling
-- ✅ Test framework (pytest)
-- ✅ Python packaging (pyproject.toml)
-- ✅ Vector database integration (FAISS + sentence-transformers)
-- ✅ Advanced relationship detection (AST-based analysis)
-- ✅ Neo4j graph database support (with fallback)
-- ✅ Plan-then-Act and Sense-then-Act strategies
-- ✅ Agent Computer Interface (ACI) with system access
-- ✅ Content analysis and intelligent question answering
-- 🚧 Web interface
+# Get global metrics
+metrics = tracer.get_global_metrics()
+print(f"Total sessions: {metrics['total_sessions']}")
+print(f"Average duration: {metrics['avg_session_duration']:.2f}s")
+print(f"Success rate: {(1 - metrics['total_errors']/metrics['total_sessions']):.2%}")
+```
 
-## Contributing
+### Debug Mode
+```bash
+# Enable verbose debugging
+CF_REACT_LOG_LEVEL=DEBUG CF_REACT_VERBOSE_LOGGING=true python -m cf.run.simple_run analyze /repo
 
-This project is in early development. Architecture feedback and contributions welcome!
+# Disable caching for testing
+CF_REACT_CACHE_ENABLED=false python -m cf.run.simple_run analyze /repo
+```
 
-## License
+## 🆚 Why ReAct Framework?
+
+### Traditional Code Analysis Tools
+- ❌ Static analysis with limited context
+- ❌ One-time indexing without adaptation
+- ❌ No reasoning about findings
+- ❌ Limited multi-perspective analysis
+
+### CodeFusion ReAct Framework
+- ✅ Dynamic, adaptive exploration
+- ✅ AI-powered reasoning and decision making
+- ✅ Multi-agent collaborative analysis
+- ✅ Persistent learning across sessions
+- ✅ Comprehensive error recovery
+- ✅ Configurable depth and focus
+
+## 📚 Documentation
+
+- [**Architecture Guide**](./docs/dev/architecture.md) - Detailed system architecture
+- [**ReAct Framework Documentation**](./docs/react-framework.md) - Complete framework guide
+- [**Configuration Reference**](./docs/usage/configuration.md) - All configuration options
+- [**CLI Usage**](./docs/usage/cli.md) - Command line interface guide
+
+## 🧪 Testing
+
+```bash
+# Run comprehensive test suite
+pytest tests/test_react_framework.py -v
+
+# Test specific components
+pytest tests/test_react_framework.py::TestReActAgent -v
+
+# Run with coverage
+pytest tests/test_react_framework.py --cov=cf.core --cov=cf.agents
+```
+
+## 🤝 Contributing
+
+We welcome contributions that enhance the ReAct framework:
+
+1. **Maintain ReAct Principles**: Preserve the Reason → Act → Observe pattern
+2. **Add Specialized Agents**: Create domain-specific analysis agents
+3. **Extend Tool Ecosystem**: Add new tools for enhanced capabilities
+4. **Improve LLM Integration**: Support additional providers and models
+5. **Enhance Error Recovery**: Strengthen resilience and fault tolerance
+
+## 🆕 Key Interactive Features (v0.2+)
+
+### ✅ **Interactive Session Management**
+- **Persistent Memory**: Remembers previous questions and context across session
+- **Session State**: Maintains conversation history and learned insights
+- **Context Building**: Each question builds upon previous understanding
+
+### ✅ **Multi-Agent Coordination**  
+- **Intelligent Agent Selection**: LLM determines which agents are needed per question
+- **3-Agent System**: Code analysis, documentation analysis, web search agents
+- **Result Consolidation**: LLM weaves together insights from all agents
+
+### ✅ **Adaptive Response Formats**
+- **Smart Format Detection**: LLM analyzes question type and selects optimal format
+- **Journey Format**: For process flows and system architecture (Life of X)
+- **Comparison Format**: For performance analysis and technical trade-offs
+- **Explanation Format**: For conceptual questions and configurations
+
+### ✅ **Web Search Integration**
+- **External Knowledge**: DuckDuckGo API integration for best practices and documentation
+- **Seamless Integration**: Web insights woven into main narrative, not shown separately
+- **LLM-Powered Search Queries**: Intelligent search query generation based on context
+
+## 🔮 Roadmap
+
+### Upcoming Features
+- **Session Persistence**: Save and restore sessions across CLI restarts
+- **Multi-Repository Sessions**: Handle multiple codebases in one session
+- **Advanced Memory**: Semantic similarity-based memory retrieval
+- **Plugin Architecture**: Dynamic agent and tool loading
+- **Parallel Tool Execution**: Concurrent action execution for faster analysis
+
+### LLM Integration Enhancements
+- **Model Switching**: Dynamic model selection based on task complexity
+- **Context Window Management**: Intelligent truncation and summarization
+- **Cost Optimization**: Efficient token usage and provider selection
+- **Streaming Responses**: Real-time response generation for interactive mode"}
+
+## 📜 License
 
 Apache 2.0 License
+
+---
+
+*Built on the ReAct pattern for systematic, intelligent code exploration through reasoning, acting, and observing.*

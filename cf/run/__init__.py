@@ -1,8 +1,2 @@
-"""Run module for CodeFusion CLI and API interfaces."""
+"""Run module for CodeFusion simple CLI interface."""
 
-from .run import CodeFusionCLI, main
-
-__all__ = [
-    "CodeFusionCLI",
-    "main"
-]
