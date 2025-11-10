@@ -1,0 +1,310 @@
+# CodeFusion Configuration
+
+# LLM Settings
+llm:
+  model: "gpt-4o"
+  api_key: ""
+  max_tokens: 2000
+  #temperature: 0.7
+
+  # Multi-Model Tiered Strategy (NEW)
+  # Match task complexity to model capability for optimal cost/performance
+  tiers:
+    fast:
+      model: "claude-3-5-haiku-20241022"  # Fast, cheap for simple tasks
+      use_cases: ["file_summaries", "classification", "coordination"]
+      cost_per_1m: 0.25  # ~$0.25/1M tokens
+    standard:
+      model: "gpt-4o"  # Balanced for most tasks
+      use_cases: ["general_analysis", "moderate_reasoning"]
+      cost_per_1m: 2.50  # ~$2.50/1M tokens
+    advanced:
+      model: "claude-sonnet-4-5"  # Best for complex synthesis
+      use_cases: ["final_synthesis", "deep_reasoning"]
+      cost_per_1m: 3.00  # ~$3.00/1M tokens
+
+# Agent Settings
+agents:
+  max_iterations: 20  # Increased from 10 to support 3 passes with 3 agents (worst case: 13 iterations + margin)
+  timeout: 300  # seconds
+  use_pipeline_architecture: true  # Use new modular pipeline architecture (recommended)
+  max_files_to_analyze: 50  # Maximum files for discovery pipeline
+
+  # Parallel Processing Settings (NEW)
+  # Dramatically improves performance for file analysis
+  parallel_analysis: true  # Enable parallel file analysis (recommended)
+  parallel_workers: 10  # Number of concurrent LLM calls (adjust based on API limits)
+  parallel_min_files: 3  # Minimum files to enable parallel processing
+  max_llm_json_size: 10000  # Maximum JSON response size from LLM (chars)
+
+  # Synthesis configuration
+  synthesis:
+    target_narrative_min: 3000  # Minimum narrative word count
+    target_narrative_max: 5000  # Maximum narrative word count
+    max_key_files_cited: 7      # Maximum files to cite
+    min_key_files_cited: 3      # Minimum files to cite
+
+  # Thresholds for confidence scoring and decision making
+  thresholds:
+    high_confidence: 0.8
+    medium_confidence: 0.7
+    low_confidence: 0.6
+    error_confidence: 0.2
+    partial_confidence: 0.5
+    max_confidence: 0.9
+    min_confidence: 0.3  # Minimum confidence for accepting results
+    min_insights_for_pass: 2  # Minimum insights required before moving to next pass
+    loop_detection_min_actions: 3  # Minimum actions before checking for loops
+
+    # Validation thresholds
+    min_analysis_certainty: 0.7  # Minimum grounding score for validation
+    min_line_coverage: 0.5  # Minimum line number coverage
+    min_path_accuracy: 0.9  # Minimum file path accuracy
+    validation_no_refs_score: 0.3  # Score when no references found
+    validation_refs_base: 0.5  # Base score for grounding calculation
+    validation_refs_increment: 0.05  # Increment per reference
+
+  # Synthesis quality thresholds
+  synthesis_thresholds:
+    word_count_tolerance: 0.8  # Accept if >= 80% of target
+    line_refs_high: 5  # High quality line reference count
+    line_refs_medium: 3  # Medium quality line reference count
+    path_refs_high: 5  # High quality path reference count
+    path_refs_medium: 3  # Medium quality path reference count
+    code_blocks_min: 4  # Minimum code blocks for bonus
+    sections_min: 3  # Minimum sections for structure bonus
+
+# Cache Settings
+cache:
+  enabled: false                 # Set to false to disable caching for debugging
+  cache_dir: "cf_cache"          # Directory to store cache files
+  ttl: 3600                      # Time to live in seconds (1 hour)
+  similarity_threshold: 0.8      # Semantic similarity threshold (0.0-1.0)
+
+# Tracing Settings
+trace:
+  enabled: true
+  output_dir: "cf_trace"
+
+# Logging Settings
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  verbose: false  # Enable detailed agent activity logging
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Repository Settings
+repo:
+  max_files: 1000
+  max_file_size: 1048576  # 1MB
+  max_scan_depth: 5  # Maximum directory depth for repository scanning
+  max_analysis_files: 50  # Maximum files to analyze for performance control
+  # Source code extensions (analyzed by CodeAgent)
+  source_code_extensions:
+    - ".py"
+    - ".js" 
+    - ".ts"
+    - ".jsx"
+    - ".tsx"
+    - ".java"
+    - ".cpp"
+    - ".c"
+    - ".h"
+    - ".hpp"
+    - ".go"
+    - ".rs"
+    - ".rb"
+    - ".php"
+    - ".swift"
+    - ".kt"
+    - ".scala"
+    - ".cs"
+    - ".vb"
+    - ".r"
+    - ".m"
+    - ".mm"
+    - ".cc"
+    - ".cxx"
+    - ".hh"
+    - ".hxx"
+    - ".f90"
+    - ".f95"
+    - ".pl"
+    - ".pm"
+    - ".sh"
+    - ".bash"
+    - ".zsh"
+    - ".fish"
+  
+  # Configuration/schema files (analyzed by CodeAgent)
+  config_extensions:
+    - ".json"
+    - ".yaml"
+    - ".yml"
+    - ".toml"
+    - ".ini"
+    - ".cfg"
+    - ".conf"
+    - ".xml"
+    - ".html"
+    - ".css"
+    - ".sql"
+  
+  # Documentation extensions (handled by DocsAgent)
+  documentation_extensions:
+    - ".md"
+    - ".rst"
+    - ".txt"
+    - ".adoc"
+    - ".org"
+  
+  # All text extensions (for general file operations)
+  text_extensions:
+    - ".py"
+    - ".js" 
+    - ".ts"
+    - ".jsx"
+    - ".tsx"
+    - ".java"
+    - ".cpp"
+    - ".c"
+    - ".h"
+    - ".hpp"
+    - ".go"
+    - ".rs"
+    - ".rb"
+    - ".php"
+    - ".swift"
+    - ".kt"
+    - ".scala"
+    - ".cs"
+    - ".vb"
+    - ".r"
+    - ".m"
+    - ".mm"
+    - ".cc"
+    - ".cxx"
+    - ".hh"
+    - ".hxx"
+    - ".f90"
+    - ".f95"
+    - ".pl"
+    - ".pm"
+    - ".sh"
+    - ".bash"
+    - ".zsh"
+    - ".fish"
+    - ".json"
+    - ".yaml"
+    - ".yml"
+    - ".toml"
+    - ".ini"
+    - ".cfg"
+    - ".conf"
+    - ".xml"
+    - ".html"
+    - ".css"
+    - ".sql"
+    - ".md"
+    - ".rst"
+    - ".txt"
+    - ".adoc"
+    - ".org"
+  excluded_dirs:
+    - ".git"
+    - "__pycache__"
+    - "node_modules"
+    - ".venv"
+    - "venv"
+    - "build"
+    - "dist"
+    - "test"
+    - "tests"
+    - "spec"
+  excluded_extensions:
+    - ".pyc"
+    - ".pyo"
+    - ".so"
+    - ".dll"
+
+# Knowledge Base Settings (Structural Analysis)
+knowledge_base:
+  enabled: true  # Enable persistent knowledge base (recommended for large repos)
+  type: neo4j
+
+  # Neo4j Connection Settings
+  neo4j:
+    uri: "bolt://localhost:7687"
+    user: "neo4j"
+    password: ""  # Set via NEO4J_PASSWORD environment variable
+    database: "codefusion"
+
+  # KB Build Settings
+  build:
+    # Parallel processing for KB construction
+    parallel_workers: 10  # Number of parallel workers for parsing
+    batch_size: 100       # Files per batch
+    progress_interval: 1000  # Log progress every N files
+    max_build_time_seconds: 7200  # Maximum time for KB build (2 hours)
+
+    # Languages to parse (currently only Python supported)
+    languages:
+      - python
+      # Future: javascript, typescript, go, java
+
+    # Build on first analysis
+    auto_build: true  # Automatically build KB if doesn't exist
+
+  # Incremental Update Settings
+  incremental:
+    enabled: true  # Enable incremental updates (dramatically improves performance)
+    check_interval: 300  # Check for file changes every N seconds
+    auto_update: true  # Automatically update KB when files change
+    use_file_hashing: true  # Use MD5 hashing for accurate change detection
+
+  # Query Optimization
+  query:
+    max_graph_depth: 5  # Maximum depth for call chain traversal
+    cache_query_results: true  # Cache graph query results
+    cache_ttl: 3600  # Query cache TTL in seconds
+    max_results: 100  # Maximum results per query
+
+  # Discovery Enhancement
+  discovery:
+    use_kb_queries: true  # Use graph queries for file discovery (much faster)
+    fallback_to_keywords: true  # Fall back to keyword matching if KB query fails
+    prefer_structural_queries: true  # Prefer structural queries over keyword matching
+
+  # Semantic Layer Settings
+  semantic:
+    enabled: true  # Enable semantic search and code similarity
+    embedding_model: "text-embedding-3-small"  # OpenAI model or "all-MiniLM-L6-v2" for local
+    use_local_model: false  # Use local sentence-transformers (free) or OpenAI (paid)
+    cache_embeddings: true  # Cache embeddings to disk
+    cache_file: ".codefusion/embeddings.pkl"
+    similarity_threshold: 0.7  # Minimum similarity for search results
+    default_relevance: 0.7  # Default relevance score if invalid
+
+  # Pattern Recognition Settings
+  patterns:
+    enabled: true  # Enable design pattern and code smell detection
+    detect_design_patterns: true  # Detect design patterns (Factory, Singleton, etc)
+    detect_architectural_patterns: true  # Detect architectural patterns (MVC, Repository, etc)
+    detect_code_smells: true  # Detect code smells (God Class, Long Method, etc)
+    max_classes_to_analyze: 500  # Maximum classes to query for pattern detection
+
+    # Code smell thresholds
+    thresholds:
+      god_class_methods: 20  # Max methods before God Class
+      god_class_lines: 500  # Max lines before God Class
+      long_method_lines: 50  # Max lines before Long Method
+      long_method_complexity: 10  # Max complexity before Long Method
+      long_parameter_list: 5  # Max parameters before Long Parameter List
+      lazy_class_max_methods: 2  # Max methods for Lazy Class
+
+  # Life-of-X Analysis Settings
+  lifeofx:
+    enabled: true  # Enable execution path and data flow analysis
+    max_trace_depth: 20  # Maximum depth for execution traces
+    max_paths: 10  # Maximum execution paths to return
+    detect_long_chains: true  # Detect long call chains
+    min_chain_length: 10  # Minimum chain length to report
