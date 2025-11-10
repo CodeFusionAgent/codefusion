@@ -78,22 +78,34 @@ class TraceViewer:
 
         return sessions
 
-    def visualize_timeline(self, session_id: str):
+    def visualize_timeline(self, session_id: str, show_hierarchy: bool = True):
         """
-        Print ASCII timeline of trace events.
+        Print ASCII timeline of trace events with optional hierarchical view.
 
         Args:
             session_id: Session ID to visualize
+            show_hierarchy: Show hierarchical span tree
         """
         data = self.load_session(session_id)
         if not data:
             return
 
+        # Display header
         print(f"\n{'=' * 80}")
         print(f"Trace Timeline: {data['session_id']}")
         print(f"Agent: {data['agent_name']}")
         print(f"Events: {data['total_events']}")
         print(f"Duration: {data.get('end_time', 0) - data.get('start_time', 0):.2f}s")
+
+        # Display metrics if available
+        metrics = data.get('metrics', {})
+        if metrics:
+            print(f"\n📊 Metrics:")
+            print(f"  Total Tokens: {metrics.get('total_tokens', 0):,}")
+            print(f"  Total Cost: ${metrics.get('total_cost_usd', 0):.4f}")
+            print(f"  LLM Calls: {metrics.get('llm_calls', 0)}")
+            print(f"  Success Rate: {metrics.get('success_rate', 0):.1%}")
+
         print(f"{'=' * 80}\n")
 
         events = data.get('events', [])
@@ -101,10 +113,13 @@ class TraceViewer:
             print("No events found.")
             return
 
-        # Calculate relative timestamps
-        start_time = events[0]['timestamp']
+        if show_hierarchy:
+            self._visualize_hierarchical(events, data.get('start_time', 0))
+        else:
+            self._visualize_flat(events, data.get('start_time', 0))
 
-        # Group events by type for summary
+    def _visualize_flat(self, events: List[Dict[str, Any]], start_time: float):
+        """Visualize events in flat timeline format"""
         event_counts = {}
         total_duration = 0
 
@@ -115,6 +130,9 @@ class TraceViewer:
             duration = event.get('duration', 0)
             success = event.get('success', True)
             error = event.get('error')
+            tokens = event.get('tokens_used', 0)
+            cost = event.get('cost_usd', 0)
+            pass_num = event.get('pass_number', 1)
 
             # Count events
             event_counts[event_type] = event_counts.get(event_type, 0) + 1
@@ -124,7 +142,15 @@ class TraceViewer:
             status_icon = "✓" if success else "✗"
             duration_str = f"{duration*1000:.0f}ms" if duration > 0 else ""
 
-            print(f"[+{rel_time:6.2f}s] {status_icon} {event_type:15s} {method:30s} {duration_str:8s}")
+            # Add pass number for multi-pass tracking
+            pass_str = f"P{pass_num}" if pass_num > 1 else "  "
+
+            print(f"[+{rel_time:6.2f}s] {pass_str} {status_icon} {event_type:15s} {method:30s} {duration_str:8s}", end="")
+
+            # Show tokens/cost for LLM calls
+            if tokens > 0:
+                print(f" ({tokens} tok, ${cost:.4f})", end="")
+            print()
 
             if error:
                 print(f"            └─ Error: {error}")
@@ -135,6 +161,87 @@ class TraceViewer:
         for event_type, count in sorted(event_counts.items()):
             print(f"  {event_type:20s}: {count:3d}")
         print(f"  {'Total Duration':20s}: {total_duration:.2f}s")
+        print(f"{'-' * 80}\n")
+
+    def _visualize_hierarchical(self, events: List[Dict[str, Any]], start_time: float):
+        """Visualize events in hierarchical tree format"""
+        # Build span tree
+        span_map = {}
+        root_spans = []
+
+        for event in events:
+            span_id = event.get('span_id', '')
+            parent_id = event.get('parent_span_id')
+
+            if span_id:
+                span_map[span_id] = event
+
+            if not parent_id:
+                root_spans.append(event)
+
+        # Print hierarchical tree
+        print("Hierarchical Trace:")
+        print()
+
+        def print_span(event: Dict[str, Any], depth: int = 0, start_time: float = start_time):
+            """Recursively print span tree"""
+            indent = "  " * depth
+            connector = "└─" if depth > 0 else ""
+
+            rel_time = event['timestamp'] - start_time
+            event_type = event['event_type']
+            method = event.get('method_name', event_type)
+            duration = event.get('duration', 0)
+            success = event.get('success', True)
+            tokens = event.get('tokens_used', 0)
+            cost = event.get('cost_usd', 0)
+            pass_num = event.get('pass_number', 1)
+            agent = event.get('agent_name', '')
+
+            status_icon = "✓" if success else "✗"
+            duration_str = f"{duration*1000:.0f}ms" if duration > 0 else ""
+
+            # Format output
+            line = f"{indent}{connector} [{pass_num}] {status_icon} {method}"
+            if duration_str:
+                line += f" ({duration_str})"
+            if tokens > 0:
+                line += f" [🔤 {tokens} tok, ${cost:.4f}]"
+            if agent and agent != 'supervisor':
+                line += f" @{agent}"
+
+            print(line)
+
+            # Find and print children
+            span_id = event.get('span_id', '')
+            children = [e for e in events if e.get('parent_span_id') == span_id]
+            for child in sorted(children, key=lambda x: x['timestamp']):
+                print_span(child, depth + 1, start_time)
+
+        # Print each root span
+        for root in sorted(root_spans, key=lambda x: x['timestamp']):
+            print_span(root, 0, start_time)
+
+        # Print aggregated summary
+        print(f"\n{'-' * 80}")
+        print("Pass-by-Pass Summary:")
+
+        # Group by pass
+        pass_groups = {}
+        for event in events:
+            pass_num = event.get('pass_number', 1)
+            if pass_num not in pass_groups:
+                pass_groups[pass_num] = []
+            pass_groups[pass_num].append(event)
+
+        for pass_num in sorted(pass_groups.keys()):
+            pass_events = pass_groups[pass_num]
+            total_tokens = sum(e.get('tokens_used', 0) for e in pass_events)
+            total_cost = sum(e.get('cost_usd', 0) for e in pass_events)
+            total_dur = sum(e.get('duration', 0) for e in pass_events)
+
+            print(f"  Pass {pass_num}: {len(pass_events)} events, {total_dur:.2f}s, {total_tokens} tokens, ${total_cost:.4f}")
+
         print(f"{'-' * 80}\n")
 
     def generate_html_report(self, session_id: str, output_file: Optional[str] = None):
