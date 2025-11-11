@@ -259,14 +259,21 @@ repo:
 # Knowledge Base Settings (Structural Analysis)
 knowledge_base:
   enabled: true  # Enable persistent knowledge base (recommended for large repos)
-  type: neo4j
+  type: sqlite  # Options: "neo4j" (graph DB, best for large codebases) or "sqlite" (file-based, lightweight)
 
-  # Neo4j Connection Settings
+  # Neo4j Connection Settings (when type = "neo4j")
+  # Recommended for: Large codebases (>10K files), complex graph queries, production use
   neo4j:
     uri: "bolt://localhost:7687"
     user: "neo4j"
     password: ""  # Set via NEO4J_PASSWORD environment variable
     database: "codefusion"
+
+  # SQLite Settings (when type = "sqlite")
+  # Recommended for: Small-medium codebases (<10K files), local development, quick setup
+  # No external database server required - stores everything in a single file
+  sqlite:
+    db_path: ".codefusion/knowledge.db"  # Path to SQLite database file
 
   # KB Build Settings
   build:
