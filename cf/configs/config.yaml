@@ -147,15 +147,19 @@ repo:
     - ".html"
     - ".css"
     - ".sql"
-  
-  # Documentation extensions (handled by DocsAgent)
-  documentation_extensions:
-    - ".md"
-    - ".rst"
-    - ".txt"
-    - ".adoc"
-    - ".org"
-  
+
+  # Documentation extensions (DISABLED - building separate documentation KB later)
+  # Currently focusing on CODE-ONLY knowledge base
+  # Will integrate documentation KB after code KB is validated and tested
+  documentation_extensions: []
+  # Future documentation extensions (when documentation KB is ready):
+  # documentation_extensions:
+  #   - ".md"
+  #   - ".rst"
+  #   - ".txt"
+  #   - ".adoc"
+  #   - ".org"
+
   # All text extensions (for general file operations)
   text_extensions:
     - ".py"
@@ -203,11 +207,12 @@ repo:
     - ".html"
     - ".css"
     - ".sql"
-    - ".md"
-    - ".rst"
-    - ".txt"
-    - ".adoc"
-    - ".org"
+    # DOCUMENTATION EXTENSIONS REMOVED - focusing on code-only KB
+    # - ".md"
+    # - ".rst"
+    # - ".txt"
+    # - ".adoc"
+    # - ".org"
   excluded_dirs:
     - ".git"
     - "__pycache__"

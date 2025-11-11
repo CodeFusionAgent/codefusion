@@ -77,32 +77,33 @@ class SupervisorAgent(BaseAgent):
                 from cf.llm.model_tiers import TieredLLMManager
                 tiered_llm = TieredLLMManager(self.config)
             except Exception:
-                # If tiered LLM fails, use all agents as safe fallback
-                self.logger.verbose("Tiered LLM not available - consulting all agents", "⚠️")
-                return ['code', 'docs', 'web']
+                # If tiered LLM fails, use code agent as safe fallback (docs disabled)
+                self.logger.verbose("Tiered LLM not available - using code agent", "⚠️")
+                return ['code']
 
         # Use fast tier model to intelligently route question
         prompt = f"""You are an intelligent agent router for a codebase analysis system.
 
 Available specialist agents:
 - code: Analyzes source code, implementation details, architecture, how things work
-- docs: Analyzes documentation, README files, setup instructions, guides
 - web: Searches web for latest versions, external dependencies, framework updates
+
+NOTE: Documentation analysis is currently DISABLED. Focus on CODE-ONLY knowledge base.
 
 Question: "{question}"
 
 Which agents should handle this question? Consider:
-1. code agent: Use for questions about implementation, algorithms, code flow, architecture
-2. docs agent: Use for questions about documentation, installation, setup, usage
-3. web agent: Use ONLY for questions about latest versions, external packages, or current releases
+1. code agent: Use for questions about implementation, algorithms, code flow, architecture, patterns
+2. web agent: Use ONLY for questions about latest versions, external packages, or current releases
 
 Return JSON with selected agents:
 {{"agents": ["code"], "reasoning": "brief explanation"}}
 
 Important:
-- Select minimum necessary agents (usually 1-2, rarely all 3)
-- Default to just "code" for technical implementation questions
-- Only include "web" if question explicitly asks about versions/updates
+- Select minimum necessary agents (usually just "code")
+- Default to "code" for all technical questions
+- Only include "web" if question explicitly asks about versions/updates or external packages
+- Do NOT include "docs" (documentation KB not yet integrated)
 """
 
         try:
@@ -121,8 +122,8 @@ Important:
             selected_agents = result.get('agents', ['code'])
             reasoning = result.get('reasoning', '')
 
-            # Validate agents
-            valid_agents = ['code', 'docs', 'web']
+            # Validate agents (docs disabled for code-only KB)
+            valid_agents = ['code', 'web']
             selected_agents = [a for a in selected_agents if a in valid_agents]
 
             if not selected_agents:

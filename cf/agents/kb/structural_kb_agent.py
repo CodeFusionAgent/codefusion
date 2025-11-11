@@ -75,6 +75,7 @@ class StructuralKBAgent(KnowledgeAgent):
             tools['search_by_functionality'] = self._search_by_functionality
             tools['find_similar_components'] = self._find_similar_components
             tools['detect_duplicate_code'] = self._detect_duplicate_code
+            tools['search_by_example'] = self._search_by_example
 
         # Pattern Recognition Tools
         if self.patterns_config.get('enabled', False):
@@ -86,6 +87,7 @@ class StructuralKBAgent(KnowledgeAgent):
         tools['get_architecture_overview'] = self._get_architecture_overview
         tools['get_module_boundaries'] = self._get_module_boundaries
         tools['identify_cross_cutting_concerns'] = self._identify_cross_cutting_concerns
+        tools['find_layer_components'] = self._find_layer_components
 
         # Life-of-X Tools
         if self.lifeofx_config.get('enabled', False):
@@ -160,6 +162,21 @@ class StructuralKBAgent(KnowledgeAgent):
                             }
                         }
                     }
+                },
+                {
+                    'type': 'function',
+                    'function': {
+                        'name': self.get_prefixed_tool_name('search_by_example'),
+                        'description': 'Find code similar to a given code snippet using semantic similarity',
+                        'parameters': {
+                            'type': 'object',
+                            'properties': {
+                                'code_snippet': {'type': 'string', 'description': 'Code snippet to use as example'},
+                                'limit': {'type': 'integer', 'description': 'Maximum results to return', 'default': 10}
+                            },
+                            'required': ['code_snippet']
+                        }
+                    }
                 }
             ])
 
@@ -228,6 +245,24 @@ class StructuralKBAgent(KnowledgeAgent):
                     'parameters': {
                         'type': 'object',
                         'properties': {}
+                    }
+                }
+            },
+            {
+                'type': 'function',
+                'function': {
+                    'name': self.get_prefixed_tool_name('find_layer_components'),
+                    'description': 'List all components in an architectural layer (presentation, business, data, infrastructure)',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'layer': {
+                                'type': 'string',
+                                'description': 'Layer name to query',
+                                'enum': ['presentation', 'business', 'data', 'infrastructure']
+                            }
+                        },
+                        'required': ['layer']
                     }
                 }
             }
@@ -345,6 +380,26 @@ class StructuralKBAgent(KnowledgeAgent):
                 'clusters': clusters,
                 'count': len(clusters),
                 'threshold': similarity_threshold
+            }
+        except Exception as e:
+            self._record_call(time_taken=time.time() - start_time, error=True)
+            return {'success': False, 'error': str(e)}
+
+    def _search_by_example(self, code_snippet: str, limit: int = 10) -> Dict[str, Any]:
+        """Find code similar to a given example snippet using semantic search"""
+        start_time = time.time()
+        try:
+            # Use semantic search with the code snippet as query
+            # The embedder will embed the code and find similar code
+            results = self.kb.search_by_natural_language(code_snippet, top_k=limit)
+
+            self._record_call(time_taken=time.time() - start_time, error=False)
+
+            return {
+                'success': True,
+                'results': results,
+                'count': len(results),
+                'snippet': code_snippet[:100] + '...' if len(code_snippet) > 100 else code_snippet
             }
         except Exception as e:
             self._record_call(time_taken=time.time() - start_time, error=True)
@@ -546,6 +601,56 @@ class StructuralKBAgent(KnowledgeAgent):
                 'success': True,
                 'concerns': concerns,
                 'count': len(concerns)
+            }
+        except Exception as e:
+            self._record_call(time_taken=time.time() - start_time, error=True)
+            return {'success': False, 'error': str(e)}
+
+    def _find_layer_components(self, layer: str) -> Dict[str, Any]:
+        """List all components in an architectural layer"""
+        start_time = time.time()
+        try:
+            # Layer patterns matching common architectural patterns
+            layer_patterns = {
+                'presentation': ['ui', 'views', 'controllers', 'handlers', 'routes', 'api'],
+                'business': ['agents', 'services', 'logic', 'domain', 'core', 'orchestrator'],
+                'data': ['repositories', 'dao', 'models', 'persistence', 'storage', 'kb'],
+                'infrastructure': ['utils', 'helpers', 'config', 'tools', 'common']
+            }
+
+            patterns = layer_patterns.get(layer.lower(), [])
+            if not patterns:
+                return {
+                    'success': False,
+                    'error': f'Unknown layer: {layer}. Valid layers: {list(layer_patterns.keys())}'
+                }
+
+            components = []
+            repo_id = getattr(self.kb, 'repo_id', 'default')
+
+            # Search for modules/files matching layer patterns
+            for pattern in patterns:
+                query = """
+                MATCH (m:Module {repo_id: $repo_id})
+                WHERE toLower(m.file_path) CONTAINS toLower($pattern)
+                RETURN m.name as name, m.file_path as path
+                LIMIT 50
+                """
+                result = self.kb.execute_query(query, {
+                    'repo_id': repo_id,
+                    'pattern': pattern
+                })
+                for r in result.nodes:
+                    if {'name': r['name'], 'path': r['path']} not in components:
+                        components.append({'name': r['name'], 'path': r['path']})
+
+            self._record_call(time_taken=time.time() - start_time, error=False)
+
+            return {
+                'success': True,
+                'layer': layer,
+                'components': components,
+                'count': len(components)
             }
         except Exception as e:
             self._record_call(time_taken=time.time() - start_time, error=True)
