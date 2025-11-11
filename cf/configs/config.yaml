@@ -2,35 +2,38 @@
 
 # LLM Settings
 llm:
-  model: "gpt-4o"
-  api_key: ""
+  model: "gpt-4o"  # Default model (not used in tiered approach)
+  api_key: ""  # Optional: Anthropic key here or use ANTHROPIC_API_KEY env var
   max_tokens: 2000
   #temperature: 0.7
 
-  # Azure OpenAI Configuration (optional)
-  # Enable this if you're using Azure OpenAI instead of standard OpenAI
+  # Azure OpenAI Configuration
+  # When enabled: All GPT models (standard tier) will use Azure
+  # When disabled: GPT models will use standard OpenAI API
   azure:
-    enabled: false  # Set to true to use Azure OpenAI
-    endpoint: ""  # Your Azure endpoint: https://your-resource.openai.azure.com
-    api_version: "2024-02-15-preview"  # Azure API version
-    deployment_id: ""  # Your Azure deployment name (e.g., "gpt-4o")
-    api_key: ""  # Azure API key (or set AZURE_OPENAI_API_KEY env var)
+    enabled: true  # ← Set to true to use Azure OpenAI for GPT models
+    endpoint: ""  # ← REQUIRED: https://your-resource.openai.azure.com
+    api_version: "2024-02-15-preview"
+    deployment_id: ""  # ← REQUIRED: Your Azure deployment name (e.g., "gpt-4o")
+    api_key: ""  # ← REQUIRED: Your Azure API key (or set AZURE_OPENAI_API_KEY env var)
 
-  # Multi-Model Tiered Strategy (NEW)
-  # Match task complexity to model capability for optimal cost/performance
+  # Multi-Model Tiered Strategy
+  # FAST tier: Use Claude Haiku (Anthropic) - cheapest, fastest for simple tasks
+  # STANDARD tier: Use GPT-4o (Azure OpenAI) - balanced for most tasks
+  # ADVANCED tier: Use Claude Sonnet (Anthropic) - best quality for complex reasoning
   tiers:
     fast:
-      model: "claude-3-5-haiku-20241022"  # Fast, cheap for simple tasks
+      model: "claude-3-5-haiku-20241022"  # Anthropic - $0.25/1M tokens
       use_cases: ["file_summaries", "classification", "coordination"]
-      cost_per_1m: 0.25  # ~$0.25/1M tokens
+      cost_per_1m: 0.25
     standard:
-      model: "gpt-4o"  # Balanced for most tasks
+      model: "gpt-4o"  # Azure OpenAI (when azure.enabled=true)
       use_cases: ["general_analysis", "moderate_reasoning"]
-      cost_per_1m: 2.50  # ~$2.50/1M tokens
+      cost_per_1m: 2.50
     advanced:
-      model: "claude-sonnet-4-5"  # Best for complex synthesis
+      model: "claude-sonnet-4-5"  # Anthropic - $3.00/1M tokens
       use_cases: ["final_synthesis", "deep_reasoning"]
-      cost_per_1m: 3.00  # ~$3.00/1M tokens
+      cost_per_1m: 3.00
 
 # Agent Settings
 agents:
