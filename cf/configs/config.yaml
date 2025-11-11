@@ -134,6 +134,20 @@ agents:
     min_identifier_match: 0.3  # Minimum % of identifiers that must match
     use_llm_verification: false  # Use LLM for complex verification (costs more)
 
+  # Life-of-X Configuration (NEW)
+  # Execution path tracing for "how does X work?" questions
+  max_execution_trace_depth: 10  # Maximum call chain depth to trace
+  enable_execution_tracing: true  # Enable automatic execution path tracing
+
+  # Semantic Search Configuration (NEW)
+  semantic_search_top_k: 20  # Number of semantically similar files to return
+  min_semantic_similarity: 0.5  # Minimum similarity threshold (0-1)
+
+  # Incremental Context Building (NEW)
+  # Analyze files in phases: core → dependencies → periphery
+  enable_incremental_analysis: false  # Enable phased analysis (experimental)
+  incremental_phase_delay_ms: 100  # Delay between phases for context propagation
+
 # Cache Settings
 cache:
   enabled: false                 # Set to false to disable caching for debugging
