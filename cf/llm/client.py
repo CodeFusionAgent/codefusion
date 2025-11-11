@@ -508,13 +508,13 @@ class LLMClient:
             return False
 
     def get_model_info(self) -> Dict[str, Any]:
-        """Get information about the current model"""
+        """Get information about configured models"""
         return {
-            'model': self.model,
-            'fast_model': self.fast_model,
-            'provider': self.provider,
-            'fast_provider': self.fast_provider,
+            'default_model': self.model,
+            'configured_models': list(self.model_configs.keys()),
             'max_tokens': self.max_tokens,
             'temperature': self.temperature,
-            'available': self.is_available()
+            'max_retries': self.max_retries,
+            'retry_delay': self.retry_delay,
+            'use_exponential_backoff': self.use_exponential_backoff
         }

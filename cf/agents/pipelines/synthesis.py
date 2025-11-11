@@ -5,9 +5,13 @@ Responsible for generating final technical narratives from analyzed data.
 All parameters are config-driven for maximum flexibility.
 """
 
+import json
 import re
-from typing import Dict, List, Any, Optional, Optional
+import time
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+
+from cf.llm.model_tiers import ModelTier
 
 
 @dataclass
@@ -57,7 +61,6 @@ class SynthesisPipeline:
         try:
             print("📝 [SYNTHESIS] Generating narrative...")
 
-            import time
             start_time = time.time()
 
             # Get synthesis parameters from config
@@ -73,7 +76,6 @@ class SynthesisPipeline:
             # Classify question type for appropriate synthesis strategy
             question_type = 'standard'
             if self.tiered_llm:
-                from cf.llm.model_tiers import ModelTier
                 classification = self.tiered_llm.classify_question(question)
                 question_type = classification.get('type', 'standard')
                 print(f"   Question type: {question_type} (confidence: {classification.get('confidence', 0):.2f})")
@@ -90,7 +92,6 @@ class SynthesisPipeline:
 
             # Use tiered LLM for synthesis (advanced tier for quality)
             if self.tiered_llm:
-                from cf.llm.model_tiers import ModelTier
                 narrative = self.tiered_llm.synthesize_answer(
                     question=question,
                     question_type=question_type,
@@ -232,8 +233,6 @@ Generate the narrative now:"""
                                        target_min: int,
                                        target_max: int) -> float:
         """Calculate confidence score for synthesis"""
-        import re
-
         thresholds = self.config.get('agents', {}).get('thresholds', {})
         base_confidence = thresholds.get('base_confidence', 0.6)
         confidence_increment = thresholds.get('confidence_increment', 0.05)
@@ -332,7 +331,6 @@ If >= 0.7, return empty missing_components array."""
 
             if response.get('success'):
                 content = response.get('content', '').strip()
-                import json
                 try:
                     start = content.find('{')
                     end = content.rfind('}') + 1
