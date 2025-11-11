@@ -2,32 +2,23 @@
 
 # LLM Settings
 llm:
-  model: "gpt-4o"  # Default model (not used in tiered approach)
-  api_key: ""  # Optional: Anthropic key here or use ANTHROPIC_API_KEY env var
+  # Global LLM settings (defaults for all models)
   max_tokens: 2000
-  #temperature: 0.7
-
-  # Azure OpenAI Configuration
-  # When enabled: All GPT models (standard tier) will use Azure
-  # When disabled: GPT models will use standard OpenAI API
-  azure:
-    enabled: true  # ← Set to true to use Azure OpenAI for GPT models
-    endpoint: ""  # ← REQUIRED: https://your-resource.openai.azure.com
-    api_version: "2024-02-15-preview"
-    deployment_id: ""  # ← REQUIRED: Your Azure deployment name (e.g., "gpt-4o")
-    api_key: ""  # ← REQUIRED: Your Azure API key (or set AZURE_OPENAI_API_KEY env var)
+  max_retries: 3  # Number of retry attempts for API calls (429, 5xx errors)
+  retry_delay_seconds: 2  # Initial delay between retries
+  use_exponential_backoff: true  # Use exponential backoff (2s, 4s, 8s, ...)
 
   # Multi-Model Tiered Strategy
-  # FAST tier: Use Claude Haiku (Anthropic) - cheapest, fastest for simple tasks
-  # STANDARD tier: Use GPT-4o (Azure OpenAI) - balanced for most tasks
-  # ADVANCED tier: Use Claude Sonnet (Anthropic) - best quality for complex reasoning
+  # FAST tier: Cheapest, fastest for simple tasks (file summaries, classification)
+  # STANDARD tier: Balanced for most tasks (general analysis, moderate reasoning)
+  # ADVANCED tier: Best quality for complex reasoning (final synthesis, deep reasoning)
   tiers:
     fast:
       model: "claude-3-5-haiku-20241022"  # Anthropic - $0.25/1M tokens
       use_cases: ["file_summaries", "classification", "coordination"]
       cost_per_1m: 0.25
     standard:
-      model: "gpt-4o"  # Azure OpenAI (when azure.enabled=true)
+      model: "gpt-4o"  # Azure OpenAI or standard OpenAI
       use_cases: ["general_analysis", "moderate_reasoning"]
       cost_per_1m: 2.50
     advanced:
@@ -35,11 +26,55 @@ llm:
       use_cases: ["final_synthesis", "deep_reasoning"]
       cost_per_1m: 3.00
 
-  # API Retry Configuration (NEW)
-  # Handles rate limiting and transient errors with exponential backoff
-  max_retries: 3  # Number of retry attempts for API calls (429, 5xx errors)
-  retry_delay_seconds: 2  # Initial delay between retries
-  use_exponential_backoff: true  # Use exponential backoff (2s, 4s, 8s, ...)
+  # Per-Model Configurations
+  # Each model can have its own endpoint, API keys, and provider-specific settings
+  models:
+    # Azure OpenAI Models
+    gpt-4o:
+      provider: "azure"
+      endpoint: ""  # e.g., "https://your-resource.openai.azure.com/"
+      deployment: "gpt-4o"  # Your Azure deployment name
+      subscription_key: ""  # Or set AZURE_OPENAI_API_KEY env var
+      api_version: "2024-02-15-preview"
+
+    gpt-5:
+      provider: "azure"
+      endpoint: "https://arune-mfpva4eo-eastus2.cognitiveservices.azure.com/"
+      model_name: "gpt-5"
+      deployment: "gpt-5"
+      subscription_key: ""  # Set via AZURE_OPENAI_API_KEY environment variable
+      api_version: "2025-01-01-preview"
+
+    gpt-4.1:
+      provider: "azure"
+      endpoint: "https://ai-arunesh8579ai720415905130.cognitiveservices.azure.com/"
+      model_name: "gpt-4.1"
+      deployment: "gpt-4.1"
+      subscription_key: ""  # Set via environment variable
+      api_version: "2024-12-01-preview"
+
+    # Anthropic Models
+    claude-3-5-haiku-20241022:
+      provider: "anthropic"
+      api_key: ""  # Or set ANTHROPIC_API_KEY env var
+      base_url: "https://api.anthropic.com/v1/"
+
+    claude-sonnet-4-5:
+      provider: "anthropic"
+      api_key: ""  # Or set ANTHROPIC_API_KEY env var
+      base_url: "https://api.anthropic.com/v1/"
+
+    # Google Gemini Models (via OpenAI-compatible API)
+    gemini-2.5-flash:
+      provider: "gemini"
+      api_key: ""  # Or set GOOGLE_API_KEY env var
+      base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+    # Meta Llama Models (via OpenAI-compatible API)
+    meta-llama/llama-4-maverick-17b-128e-instruct:
+      provider: "openai-compatible"
+      api_key: ""  # Provider-specific API key
+      base_url: ""  # Provider's base URL
 
 # Agent Settings
 agents:
