@@ -11,7 +11,7 @@ Builds higher-level dependency analysis on top of AST parsing:
 This provides more sophisticated analysis than raw AST data.
 """
 
-from typing import Dict, List, Set, Optional, Tuple
+from typing import Dict, List, Set, Optional, Tuple, Any
 from collections import defaultdict, deque
 
 from cf.knowledge.structural.schema import (
