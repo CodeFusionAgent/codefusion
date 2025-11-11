@@ -30,11 +30,12 @@ class SynthesisPipeline:
     Uses LLM to synthesize insights from file summaries.
     """
 
-    def __init__(self, repo_path: str, config: Dict[str, Any], llm_client, tiered_llm=None):
+    def __init__(self, repo_path: str, config: Dict[str, Any], llm_client, tiered_llm=None, kb_client=None):
         self.repo_path = repo_path
         self.config = config
         self.llm = llm_client
         self.tiered_llm = tiered_llm  # Optional tiered LLM manager
+        self.kb = kb_client  # Optional KB for pattern detection
 
         # Compile regex patterns for validation performance (ISSUE #9 fix)
         # Single pass through narrative instead of multiple findall() calls
@@ -46,7 +47,8 @@ class SynthesisPipeline:
             re.IGNORECASE | re.MULTILINE
         )
 
-    def synthesize(self, question: str, file_summaries: Dict[str, Any], insights: List[Dict[str, Any]]) -> SynthesisResult:
+    def synthesize(self, question: str, file_summaries: Dict[str, Any], insights: List[Dict[str, Any]],
+                   architectural_analysis=None) -> SynthesisResult:
         """
         Generate final technical narrative
 
@@ -80,6 +82,9 @@ class SynthesisPipeline:
                 question_type = classification.get('type', 'standard')
                 print(f"   Question type: {question_type} (confidence: {classification.get('confidence', 0):.2f})")
 
+            # Detect patterns from KB (NEW)
+            detected_patterns = self._detect_patterns_from_kb(file_summaries)
+
             # Build synthesis prompt
             prompt = self._build_synthesis_prompt(
                 question,
@@ -87,7 +92,9 @@ class SynthesisPipeline:
                 file_summaries,
                 insights,
                 target_min,
-                target_max
+                target_max,
+                detected_patterns,
+                architectural_analysis
             )
 
             # Use tiered LLM for synthesis (advanced tier for quality)
@@ -161,7 +168,9 @@ class SynthesisPipeline:
                                 file_summaries: Dict[str, Any],
                                 insights: List[Dict[str, Any]],
                                 target_min: int,
-                                target_max: int) -> str:
+                                target_max: int,
+                                detected_patterns: List[Dict[str, Any]] = None,
+                                architectural_analysis=None) -> str:
         """Build prompt for synthesis"""
 
         # Prepare file summaries text
@@ -188,6 +197,24 @@ class SynthesisPipeline:
             if content:
                 insights_text += f"- {content}\n"
 
+        # Prepare patterns text (NEW)
+        patterns_text = ""
+        if detected_patterns:
+            patterns_text = "\n\nDETECTED DESIGN PATTERNS:\n"
+            for pattern in detected_patterns:
+                patterns_text += f"- {pattern.get('name', 'Unknown')}: {pattern.get('description', '')}\n"
+                if pattern.get('files'):
+                    patterns_text += f"  Files: {', '.join(pattern['files'][:3])}\n"
+
+        # Prepare architectural summary (NEW)
+        arch_text = ""
+        if architectural_analysis:
+            arch_text = f"\n\nARCHITECTURAL SUMMARY:\n{architectural_analysis.architectural_summary}\n"
+            if architectural_analysis.entry_points:
+                arch_text += f"\nEntry Points: {', '.join([e.name for e in architectural_analysis.entry_points[:3]])}\n"
+            if architectural_analysis.core_abstractions:
+                arch_text += f"Core Abstractions: {', '.join([a.name for a in architectural_analysis.core_abstractions[:3]])}\n"
+
         prompt = f"""Generate a comprehensive technical narrative answering this question:
 
 QUESTION: "{question}"
@@ -199,6 +226,8 @@ KEY FILES ANALYZED:
 
 INSIGHTS:
 {insights_text}
+{patterns_text}
+{arch_text}
 
 TASK: Write a detailed technical narrative that explains HOW the system works, not just WHAT it does.
 
@@ -220,6 +249,7 @@ CRITICAL REQUIREMENTS:
 - MUST include line number references (e.g., "at line 123")
 - MUST explain HOW code works (algorithms, data flow, patterns)
 - MUST be technically accurate and grounded in analyzed code
+- MUST mention detected design patterns where relevant
 - AVOID generic statements without code references
 - AVOID just listing files without explaining their role
 
@@ -352,3 +382,65 @@ If >= 0.7, return empty missing_components array."""
             'missing_components': [],
             'reasoning': 'Evaluation unavailable'
         }
+
+    def _detect_patterns_from_kb(self, file_summaries: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Detect design patterns using KB (if available) or from file summaries.
+
+        NEW: Integrates pattern detection into synthesis so narratives mention
+        patterns like "The system uses Factory pattern for ..."
+        """
+        patterns = []
+
+        # Try KB pattern detection first
+        if self.kb and hasattr(self.kb, 'detect_patterns'):
+            try:
+                file_paths = list(file_summaries.keys())
+                kb_patterns = self.kb.detect_patterns(file_paths)
+                if kb_patterns:
+                    print(f"   🎨 Detected {len(kb_patterns)} patterns from KB")
+                    return kb_patterns
+            except Exception as e:
+                print(f"   ⚠️ KB pattern detection failed: {e}")
+
+        # Fallback: Detect patterns from file summaries
+        pattern_keywords = {
+            'Singleton Pattern': ['singleton', 'single instance', '_instance = None'],
+            'Factory Pattern': ['factory', 'create_', 'make_', 'builder'],
+            'Observer Pattern': ['observer', 'listener', 'subscribe', 'event'],
+            'Strategy Pattern': ['strategy', 'algorithm', 'policy'],
+            'Decorator Pattern': ['@decorator', 'wrapper', '@wraps'],
+            'Repository Pattern': ['repository', 'data access', 'dao'],
+            'MVC Pattern': ['model', 'view', 'controller'],
+        }
+
+        pattern_files = {}
+        for file_path, summary in file_summaries.items():
+            if not isinstance(summary, dict):
+                continue
+
+            content = summary.get('content', '').lower()
+            features = ' '.join(str(f).lower() for f in summary.get('key_features', []))
+            insights = summary.get('architectural_insights', '').lower()
+            combined = f"{content} {features} {insights}"
+
+            for pattern_name, keywords in pattern_keywords.items():
+                if any(kw in combined for kw in keywords):
+                    if pattern_name not in pattern_files:
+                        pattern_files[pattern_name] = []
+                    pattern_files[pattern_name].append(file_path)
+
+        # Convert to pattern dicts
+        for pattern_name, files in pattern_files.items():
+            if len(files) >= 1:
+                patterns.append({
+                    'name': pattern_name,
+                    'description': f"Detected in {len(files)} file(s)",
+                    'files': files[:3],
+                    'confidence': min(0.5 + len(files) * 0.1, 0.9)
+                })
+
+        if patterns:
+            print(f"   🎨 Detected {len(patterns)} patterns from summaries")
+
+        return patterns

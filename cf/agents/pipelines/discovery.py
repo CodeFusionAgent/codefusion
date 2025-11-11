@@ -6,7 +6,7 @@ Uses multiple strategies: domain detection, keyword matching, grep search, fallb
 """
 
 import json
-from typing import Dict, List, Any, Optional, Optional
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -401,6 +401,78 @@ class GraphQueryStrategy(DiscoveryStrategy):
 
         except Exception as e:
             print(f"⚠️ [GRAPH_QUERY] Failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+
+class SemanticSearchStrategy(DiscoveryStrategy):
+    """
+    Semantic similarity search strategy using code embeddings.
+
+    NEW: Finds files based on semantic similarity rather than just keywords.
+    Example: "authentication" will find "login", "credentials", "session" files.
+    """
+
+    def __init__(self, config: Dict[str, Any], kb_client=None):
+        super().__init__(config)
+        self.kb = kb_client
+
+    def execute(self, question: str, context: Dict[str, Any]) -> List[FileCandidate]:
+        """Find files using semantic similarity search"""
+        try:
+            if not self.kb:
+                print("⚠️ [SEMANTIC_SEARCH] KB not available, skipping")
+                return []
+
+            # Check if KB has semantic search capability
+            if not hasattr(self.kb, 'semantic_search'):
+                print("⚠️ [SEMANTIC_SEARCH] KB does not support semantic search")
+                return []
+
+            print("🔍 [SEMANTIC_SEARCH] Finding semantically similar files...")
+
+            # Perform semantic search
+            top_k = self.config.get('agents', {}).get('semantic_search_top_k', 20)
+            results = self.kb.semantic_search(question, top_k=top_k)
+
+            if not results:
+                print("⚠️ [SEMANTIC_SEARCH] No results found")
+                return []
+
+            # Convert to FileCandidate objects
+            candidates = []
+            thresholds = self.config.get('agents', {}).get('thresholds', {})
+
+            for result in results:
+                # Result format: {'file_path': str, 'similarity': float, 'snippet': str}
+                file_path = result.get('file_path', '')
+                similarity = result.get('similarity', 0.0)
+
+                if not file_path:
+                    continue
+
+                # Map similarity (0-1) to relevance score (0-100)
+                relevance = similarity * 100
+
+                # Only include if above minimum threshold
+                min_similarity = self.config.get('agents', {}).get('min_semantic_similarity', 0.5)
+                if similarity >= min_similarity:
+                    candidates.append(FileCandidate(
+                        path=file_path,
+                        relevance_score=relevance,
+                        discovery_method="semantic_search",
+                        metadata={
+                            'similarity': similarity,
+                            'snippet': result.get('snippet', '')[:200]
+                        }
+                    ))
+
+            print(f"✅ [SEMANTIC_SEARCH] Found {len(candidates)} semantically similar files")
+            return candidates
+
+        except Exception as e:
+            print(f"⚠️ [SEMANTIC_SEARCH] Failed: {e}")
             import traceback
             traceback.print_exc()
             return []
