@@ -85,6 +85,11 @@ class SynthesisPipeline:
             # Detect patterns from KB (NEW)
             detected_patterns = self._detect_patterns_from_kb(file_summaries)
 
+            # Trace execution paths for "how" questions (NEW)
+            execution_paths = None
+            if question_type in ['how_it_works', 'explain', 'flow']:
+                execution_paths = self._trace_execution_paths(question, file_summaries, architectural_analysis)
+
             # Build synthesis prompt
             prompt = self._build_synthesis_prompt(
                 question,
@@ -94,7 +99,8 @@ class SynthesisPipeline:
                 target_min,
                 target_max,
                 detected_patterns,
-                architectural_analysis
+                architectural_analysis,
+                execution_paths
             )
 
             # Use tiered LLM for synthesis (advanced tier for quality)
@@ -170,7 +176,8 @@ class SynthesisPipeline:
                                 target_min: int,
                                 target_max: int,
                                 detected_patterns: List[Dict[str, Any]] = None,
-                                architectural_analysis=None) -> str:
+                                architectural_analysis=None,
+                                execution_paths: List[Dict[str, Any]] = None) -> str:
         """Build prompt for synthesis"""
 
         # Prepare file summaries text
@@ -215,6 +222,18 @@ class SynthesisPipeline:
             if architectural_analysis.core_abstractions:
                 arch_text += f"Core Abstractions: {', '.join([a.name for a in architectural_analysis.core_abstractions[:3]])}\n"
 
+        # Prepare execution paths (NEW - Life-of-X integration)
+        paths_text = ""
+        if execution_paths:
+            paths_text = "\n\nEXECUTION PATHS TRACED:\n"
+            for i, path in enumerate(execution_paths[:3], 1):  # Limit to 3 paths
+                paths_text += f"\nPath {i}: {path.get('name', 'Unknown flow')}\n"
+                steps = path.get('steps', [])
+                for step in steps[:10]:  # Limit to 10 steps per path
+                    paths_text += f"  → {step.get('function', 'unknown')} ({step.get('file', '')}:{step.get('line', '?')})\n"
+                if len(steps) > 10:
+                    paths_text += f"  ... ({len(steps) - 10} more steps)\n"
+
         prompt = f"""Generate a comprehensive technical narrative answering this question:
 
 QUESTION: "{question}"
@@ -228,6 +247,7 @@ INSIGHTS:
 {insights_text}
 {patterns_text}
 {arch_text}
+{paths_text}
 
 TASK: Write a detailed technical narrative that explains HOW the system works, not just WHAT it does.
 
@@ -250,6 +270,7 @@ CRITICAL REQUIREMENTS:
 - MUST explain HOW code works (algorithms, data flow, patterns)
 - MUST be technically accurate and grounded in analyzed code
 - MUST mention detected design patterns where relevant
+- If execution paths are provided, MUST trace the flow step-by-step
 - AVOID generic statements without code references
 - AVOID just listing files without explaining their role
 
@@ -444,3 +465,145 @@ If >= 0.7, return empty missing_components array."""
             print(f"   🎨 Detected {len(patterns)} patterns from summaries")
 
         return patterns
+
+    def _trace_execution_paths(self,
+                               question: str,
+                               file_summaries: Dict[str, Any],
+                               architectural_analysis=None) -> List[Dict[str, Any]]:
+        """
+        Trace execution paths for "how does X work?" questions.
+
+        NEW: Uses KB's Life-of-X layer to trace call chains and data flow,
+        providing step-by-step execution paths in narratives.
+        """
+        paths = []
+
+        # Try KB execution path tracing first
+        if self.kb and hasattr(self.kb, 'trace_execution_path'):
+            try:
+                print("   🔄 Tracing execution paths from KB...")
+
+                # Extract potential entry function names from question and architectural analysis
+                entry_functions = self._extract_entry_functions(question, architectural_analysis)
+
+                for entry_func in entry_functions[:3]:  # Limit to 3 entry points
+                    try:
+                        # Trace execution path from entry function
+                        max_depth = self.config.get('agents', {}).get('max_execution_trace_depth', 10)
+                        traced_path = self.kb.trace_execution_path(
+                            entry_point=entry_func,
+                            max_depth=max_depth
+                        )
+
+                        if traced_path and traced_path.get('steps'):
+                            paths.append({
+                                'name': f"Flow from {entry_func}",
+                                'entry_point': entry_func,
+                                'steps': traced_path.get('steps', []),
+                                'depth': len(traced_path.get('steps', []))
+                            })
+                    except Exception as e:
+                        print(f"   ⚠️ Failed to trace path from {entry_func}: {e}")
+
+                if paths:
+                    print(f"   ✅ Traced {len(paths)} execution paths")
+                    return paths
+
+            except Exception as e:
+                print(f"   ⚠️ KB execution path tracing failed: {e}")
+
+        # Fallback: Extract call sequences from file summaries
+        print("   🔄 Extracting call sequences from summaries...")
+        paths = self._extract_call_sequences_from_summaries(question, file_summaries)
+
+        if paths:
+            print(f"   ✅ Extracted {len(paths)} call sequences from code")
+
+        return paths
+
+    def _extract_entry_functions(self, question: str, architectural_analysis=None) -> List[str]:
+        """Extract potential entry function names from question and architecture"""
+        entry_functions = []
+
+        # From architectural analysis
+        if architectural_analysis and architectural_analysis.entry_points:
+            for entry_point in architectural_analysis.entry_points:
+                # Extract function names from details
+                if 'functions' in entry_point.details:
+                    entry_functions.extend(entry_point.details['functions'][:2])
+
+        # From question keywords
+        import re
+        # Look for function-like words in question
+        words = re.findall(r'\b[a-z_][a-z0-9_]*\b', question.lower())
+        relevant_words = [w for w in words if len(w) > 4 and w not in ['does', 'work', 'what', 'where', 'when', 'which']]
+
+        # Common entry point patterns
+        entry_patterns = ['main', 'run', 'execute', 'start', 'init', 'handle', 'process']
+        for word in relevant_words:
+            for pattern in entry_patterns:
+                if pattern in word:
+                    entry_functions.append(word)
+
+        return list(set(entry_functions))[:5]  # Deduplicate and limit
+
+    def _extract_call_sequences_from_summaries(self,
+                                               question: str,
+                                               file_summaries: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Fallback: Extract call sequences by analyzing function calls in code.
+
+        This is less accurate than KB tracing but provides some flow information.
+        """
+        sequences = []
+
+        # Look for function call patterns in code
+        import re
+        call_pattern = re.compile(r'(\w+)\s*\([^)]*\)')  # function_name(args)
+
+        for file_path, summary in file_summaries.items():
+            if not isinstance(summary, dict):
+                continue
+
+            content = summary.get('content', '')
+            functions = summary.get('functions', [])
+
+            # For each function, extract its call sequence
+            for func_info in functions[:3]:  # Limit to 3 functions per file
+                if not isinstance(func_info, dict):
+                    continue
+
+                func_name = func_info.get('name', '')
+                if not func_name:
+                    continue
+
+                # Find function calls within this function (simplified)
+                # In real implementation, would need to parse function body
+                called_functions = call_pattern.findall(content)
+                if called_functions:
+                    steps = [
+                        {
+                            'function': func_name,
+                            'file': file_path,
+                            'line': func_info.get('line', 0)
+                        }
+                    ]
+
+                    # Add called functions (up to 5)
+                    for called_func in called_functions[:5]:
+                        if called_func != func_name:  # Avoid self-references
+                            steps.append({
+                                'function': called_func,
+                                'file': file_path,  # Simplified - might be in different file
+                                'line': '?'
+                            })
+
+                    if len(steps) > 1:  # At least 2 steps (caller + callee)
+                        sequences.append({
+                            'name': f"Calls from {func_name}",
+                            'entry_point': func_name,
+                            'steps': steps,
+                            'depth': len(steps)
+                        })
+
+        return sequences[:3]  # Limit to 3 sequences
