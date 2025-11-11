@@ -77,7 +77,7 @@ class SupervisorAgent(BaseAgent):
                 from cf.llm.model_tiers import TieredLLMManager
                 tiered_llm = TieredLLMManager(self.config)
             except Exception:
-                # If tiered LLM fails, use code agent as safe fallback (docs disabled)
+                # If tiered LLM fails, use code agent as safe fallback (docs and web disabled)
                 self.logger.verbose("Tiered LLM not available - using code agent", "⚠️")
                 return ['code']
 
@@ -86,24 +86,22 @@ class SupervisorAgent(BaseAgent):
 
 Available specialist agents:
 - code: Analyzes source code, implementation details, architecture, how things work
-- web: Searches web for latest versions, external dependencies, framework updates
 
-NOTE: Documentation analysis is currently DISABLED. Focus on CODE-ONLY knowledge base.
+NOTE: Currently in CODE-ONLY mode:
+- Documentation analysis: DISABLED (will integrate later)
+- Web search: DISABLED (focusing on codebase analysis only)
 
 Question: "{question}"
 
-Which agents should handle this question? Consider:
-1. code agent: Use for questions about implementation, algorithms, code flow, architecture, patterns
-2. web agent: Use ONLY for questions about latest versions, external packages, or current releases
+The code agent will handle this question using the 6-layer knowledge base:
+1. Structural layer (AST, graph analysis)
+2. Semantic layer (embeddings, similarity search)
+3. Dependency layer (call graphs, imports)
+4. Patterns layer (design patterns, code smells)
+5. Life-of-X layer (execution tracing, data flow)
 
-Return JSON with selected agents:
-{{"agents": ["code"], "reasoning": "brief explanation"}}
-
-Important:
-- Select minimum necessary agents (usually just "code")
-- Default to "code" for all technical questions
-- Only include "web" if question explicitly asks about versions/updates or external packages
-- Do NOT include "docs" (documentation KB not yet integrated)
+Return JSON confirming code agent will handle this:
+{{"agents": ["code"], "reasoning": "Code agent will analyze using multi-layer KB"}}
 """
 
         try:
@@ -122,8 +120,8 @@ Important:
             selected_agents = result.get('agents', ['code'])
             reasoning = result.get('reasoning', '')
 
-            # Validate agents (docs disabled for code-only KB)
-            valid_agents = ['code', 'web']
+            # Validate agents (docs and web disabled for code-only KB focus)
+            valid_agents = ['code']
             selected_agents = [a for a in selected_agents if a in valid_agents]
 
             if not selected_agents:
