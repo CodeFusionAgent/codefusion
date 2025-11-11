@@ -374,7 +374,8 @@ class CodeOrchestrator(BaseAgent):
                 self.validation = ValidationPipeline(
                     self.repo_path,
                     self.config,
-                    self.tools
+                    self.tools,
+                    llm_client=self.llm  # Pass LLM for fact verification
                 )
             if self.synthesis is None:
                 self.synthesis = SynthesisPipeline(
