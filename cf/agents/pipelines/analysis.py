@@ -5,11 +5,14 @@ Responsible for analyzing discovered files and extracting insights.
 Supports parallel file processing and caching.
 """
 
+import json
 import time
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Any, Optional, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+
+from cf.llm.model_tiers import ModelTier
 
 
 @dataclass
@@ -178,7 +181,6 @@ class AnalysisPipeline:
             }
 
             # Collect results as they complete
-            from concurrent.futures import as_completed
             for future in as_completed(future_to_path):
                 try:
                     result = future.result()
@@ -284,7 +286,6 @@ class AnalysisPipeline:
 
             # Use TieredLLMManager if available (fast model for file summaries)
             if self.tiered_llm:
-                from cf.llm.model_tiers import ModelTier
                 response_text = self.tiered_llm.summarize_file(content, file_path, question)
 
                 # Parse response
@@ -376,8 +377,6 @@ Respond in JSON format:
 
     def _parse_summary_response(self, content: str) -> Dict[str, Any]:
         """Parse JSON response from LLM"""
-        import json
-
         try:
             start = content.find('{')
             end = content.rfind('}') + 1
