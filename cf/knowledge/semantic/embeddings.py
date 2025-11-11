@@ -319,6 +319,90 @@ class CodeEmbedder:
                 print(f"❌ Batch local embedding failed: {e}")
                 return [np.zeros(self.embedding_dim, dtype=np.float32) for _ in texts]
 
+    def benchmark_quality(self, test_pairs: List[tuple] = None) -> Dict[str, Any]:
+        """
+        Benchmark embedding quality using test code pairs.
+
+        NEW: Helps detect when semantic search is missing relevant files
+        due to poor embedding quality.
+
+        Args:
+            test_pairs: List of (similar_code1, similar_code2) tuples.
+                       If None, uses default test pairs.
+
+        Returns:
+            Dict with quality metrics:
+            - average_similarity: Mean similarity for similar pairs
+            - quality_score: 0-1 score (higher is better)
+            - recommendation: "good", "acceptable", or "poor"
+        """
+        if test_pairs is None:
+            # Default test pairs: semantically similar code snippets
+            test_pairs = [
+                (
+                    "def calculate_total(items): return sum(item.price for item in items)",
+                    "def compute_sum(elements): return sum(e.value for e in elements)"
+                ),
+                (
+                    "class User: def __init__(self, name): self.name = name",
+                    "class Person: def __init__(self, full_name): self.full_name = full_name"
+                ),
+                (
+                    "async def fetch_data(url): response = await http.get(url); return response.json()",
+                    "async def get_resource(endpoint): result = await client.get(endpoint); return result.data"
+                )
+            ]
+
+        similarities = []
+
+        for code1, code2 in test_pairs:
+            emb1 = self._embed_text(code1)
+            emb2 = self._embed_text(code2)
+
+            # Calculate cosine similarity
+            dot_product = np.dot(emb1, emb2)
+            norm1 = np.linalg.norm(emb1)
+            norm2 = np.linalg.norm(emb2)
+
+            if norm1 > 0 and norm2 > 0:
+                similarity = dot_product / (norm1 * norm2)
+                similarities.append(similarity)
+
+        avg_similarity = np.mean(similarities) if similarities else 0.0
+
+        # Quality scoring
+        # Good embeddings should show >0.7 similarity for similar code
+        # Acceptable: 0.5-0.7
+        # Poor: <0.5
+        if avg_similarity >= 0.7:
+            recommendation = "good"
+            quality_score = min(1.0, avg_similarity / 0.85)
+        elif avg_similarity >= 0.5:
+            recommendation = "acceptable"
+            quality_score = 0.5 + (avg_similarity - 0.5) / 0.4
+        else:
+            recommendation = "poor"
+            quality_score = avg_similarity / 0.5
+
+        return {
+            'model': self.model.value,
+            'backend': self.backend,
+            'average_similarity': float(avg_similarity),
+            'quality_score': float(quality_score),
+            'recommendation': recommendation,
+            'tested_pairs': len(similarities),
+            'message': self._get_quality_message(recommendation, avg_similarity)
+        }
+
+    def _get_quality_message(self, recommendation: str, similarity: float) -> str:
+        """Get human-readable message about embedding quality"""
+        if recommendation == "good":
+            return f"✅ Embedding quality is good (similarity: {similarity:.2f}). Semantic search should work well."
+        elif recommendation == "acceptable":
+            return f"⚠️ Embedding quality is acceptable (similarity: {similarity:.2f}). Consider using OpenAI embeddings for better results."
+        else:
+            return f"❌ Embedding quality is poor (similarity: {similarity:.2f}). Recommend switching to OpenAI embeddings or using a different local model."
+
 
 class EmbeddingCache:
     """

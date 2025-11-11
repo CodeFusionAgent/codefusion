@@ -2,20 +2,21 @@
 Unified LLM Client for CodeFusion
 
 Direct API calls for better performance and reliability.
+Includes retry logic with exponential backoff for rate limiting.
 """
 
 import json
 import os
 import time
 import requests
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable
 import traceback
 
 from cf.trace.tracer import trace_method
 
 
 class LLMClient:
-    """Unified LLM client using direct API calls"""
+    """Unified LLM client using direct API calls with retry logic"""
 
     def __init__(self, llm_config: Dict[str, Any]):
         self.model = llm_config.get('model')
@@ -23,6 +24,11 @@ class LLMClient:
         self.max_tokens = llm_config.get('max_tokens', 2000)
         self.temperature = llm_config.get('temperature', 0.7)
         self.timeout = llm_config.get('timeout', 60)
+
+        # Retry configuration (NEW)
+        self.max_retries = llm_config.get('max_retries', 3)
+        self.retry_delay = llm_config.get('retry_delay_seconds', 2)  # Initial delay
+        self.use_exponential_backoff = llm_config.get('use_exponential_backoff', True)
 
         # Fast model configuration for routine tasks
         self.fast_model = llm_config.get('fast_model', self.model)
@@ -78,6 +84,66 @@ class LLMClient:
         self.tracer = tracer
         self.session_id = session_id
 
+    def _retry_with_backoff(self, api_call: Callable, *args, **kwargs) -> Dict[str, Any]:
+        """
+        Retry API calls with exponential backoff on rate limit errors.
+
+        NEW: Addresses API rate limiting issues with parallel workers.
+
+        Args:
+            api_call: The API call function to retry
+            *args, **kwargs: Arguments to pass to the API call
+
+        Returns:
+            API response dict
+
+        Raises:
+            Last exception if all retries fail
+        """
+        last_exception = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                return api_call(*args, **kwargs)
+
+            except requests.exceptions.HTTPError as e:
+                last_exception = e
+                status_code = e.response.status_code if e.response else None
+
+                # Retry on rate limit (429) or server errors (5xx)
+                if status_code in [429, 500, 502, 503, 504]:
+                    if attempt < self.max_retries:
+                        # Calculate delay with exponential backoff
+                        if self.use_exponential_backoff:
+                            delay = self.retry_delay * (2 ** attempt)  # 2s, 4s, 8s
+                        else:
+                            delay = self.retry_delay
+
+                        print(f"⚠️ API rate limit/error (HTTP {status_code}), retrying in {delay}s (attempt {attempt + 1}/{self.max_retries})...")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        print(f"❌ API call failed after {self.max_retries} retries")
+                        raise
+
+                # Don't retry on other errors (auth, bad request, etc.)
+                raise
+
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                last_exception = e
+                if attempt < self.max_retries:
+                    delay = self.retry_delay if not self.use_exponential_backoff else self.retry_delay * (2 ** attempt)
+                    print(f"⚠️ Network error, retrying in {delay}s (attempt {attempt + 1}/{self.max_retries})...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    print(f"❌ API call failed after {self.max_retries} retries")
+                    raise
+
+        # Should never reach here, but just in case
+        if last_exception:
+            raise last_exception
+
     def _call_anthropic(self, messages: List[Dict], model: str, api_key: str,
                         api_url: str, **kwargs) -> Dict[str, Any]:
         """Direct API call to Anthropic"""
@@ -108,22 +174,24 @@ class LLMClient:
         elif self.temperature is not None:
             payload['temperature'] = self.temperature
 
-        # Make request
+        # Make request with retry logic
         headers = {
             'x-api-key': api_key,
             'anthropic-version': '2023-06-01',
             'content-type': 'application/json'
         }
 
-        response = requests.post(
-            api_url,
-            headers=headers,
-            json=payload,
-            timeout=self.timeout
-        )
+        def make_request():
+            response = requests.post(
+                api_url,
+                headers=headers,
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
 
-        response.raise_for_status()
-        data = response.json()
+        data = self._retry_with_backoff(make_request)
 
         # Parse response
         content = data['content'][0]['text']
@@ -160,15 +228,17 @@ class LLMClient:
             'Content-Type': 'application/json'
         }
 
-        response = requests.post(
-            api_url,
-            headers=headers,
-            json=payload,
-            timeout=self.timeout
-        )
+        def make_request():
+            response = requests.post(
+                api_url,
+                headers=headers,
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
 
-        response.raise_for_status()
-        data = response.json()
+        data = self._retry_with_backoff(make_request)
 
         # Parse response
         choice = data['choices'][0]
@@ -208,15 +278,17 @@ class LLMClient:
             'Content-Type': 'application/json'
         }
 
-        response = requests.post(
-            api_url,
-            headers=headers,
-            json=payload,
-            timeout=self.timeout
-        )
+        def make_request():
+            response = requests.post(
+                api_url,
+                headers=headers,
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
 
-        response.raise_for_status()
-        data = response.json()
+        data = self._retry_with_backoff(make_request)
 
         # Parse response (same format as OpenAI)
         choice = data['choices'][0]

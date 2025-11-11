@@ -35,6 +35,12 @@ llm:
       use_cases: ["final_synthesis", "deep_reasoning"]
       cost_per_1m: 3.00
 
+  # API Retry Configuration (NEW)
+  # Handles rate limiting and transient errors with exponential backoff
+  max_retries: 3  # Number of retry attempts for API calls (429, 5xx errors)
+  retry_delay_seconds: 2  # Initial delay between retries
+  use_exponential_backoff: true  # Use exponential backoff (2s, 4s, 8s, ...)
+
 # Agent Settings
 agents:
   max_iterations: 20  # Increased from 10 to support 3 passes with 3 agents (worst case: 13 iterations + margin)
@@ -47,6 +53,7 @@ agents:
   parallel_workers: 10  # Number of concurrent LLM calls (adjust based on API limits)
   parallel_min_files: 3  # Minimum files to enable parallel processing
   max_llm_json_size: 10000  # Maximum JSON response size from LLM (chars)
+  enable_adaptive_workers: true  # Automatically reduce workers on rate limiting (NEW)
 
   # Synthesis configuration
   synthesis:
