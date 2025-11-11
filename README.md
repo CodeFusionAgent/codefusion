@@ -125,6 +125,107 @@ export OPENAI_API_KEY="your-openai-api-key"     # For GPT-4o
 python -m cf.run.main --help
 ```
 
+### Neo4j Knowledge Base (Required for Full Functionality)
+
+CodeFusion uses a **6-layer knowledge base architecture** that requires Neo4j for structural analysis:
+
+1. **Repository Layer**: File system scanning and metadata
+2. **Structural Layer**: AST-based code parsing (functions, classes, imports)
+3. **Semantic Layer**: Code embeddings for similarity search
+4. **Pattern Layer**: Design pattern and code smell detection
+5. **Life-of-X Layer**: Execution path and data flow tracing
+6. **Validation Layer**: Anti-hallucination fact verification
+
+#### Why Neo4j?
+
+Neo4j enables:
+- **Graph-based code analysis**: Trace function calls, class hierarchies, import chains
+- **Fast structural queries**: Find all classes implementing an interface, all functions calling a method
+- **Pattern detection**: Identify Singleton, Factory, Observer, MVC, Microservices patterns
+- **Life-of-X tracing**: Follow execution paths from entry points through the entire codebase
+
+#### Installing Neo4j
+
+**Option 1: Docker (Recommended)**
+```bash
+# Start Neo4j container
+docker run -d \
+  --name neo4j \
+  -p 7474:7474 -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/your-password \
+  neo4j:latest
+
+# Verify Neo4j is running
+docker logs neo4j
+# Should see "Started" in logs
+
+# Access Neo4j Browser at http://localhost:7474
+# Login with username: neo4j, password: your-password
+```
+
+**Option 2: Native Installation**
+```bash
+# macOS
+brew install neo4j
+neo4j start
+
+# Ubuntu/Debian
+wget -O - https://debian.neo4j.com/neotechnology.gpg.key | sudo apt-key add -
+echo 'deb https://debian.neo4j.com stable latest' | sudo tee /etc/apt/sources.list.d/neo4j.list
+sudo apt-get update
+sudo apt-get install neo4j
+sudo systemctl start neo4j
+
+# Windows: Download from https://neo4j.com/download/
+```
+
+#### Configuring CodeFusion for Neo4j
+
+```bash
+# Set Neo4j password via environment variable (recommended)
+export NEO4J_PASSWORD="your-password"
+
+# OR edit cf/configs/config.yaml
+nano cf/configs/config.yaml
+```
+
+Update `config.yaml`:
+```yaml
+knowledge_base:
+  enabled: true  # Enable persistent knowledge base
+  type: neo4j
+
+  neo4j:
+    uri: "bolt://localhost:7687"
+    user: "neo4j"
+    password: ""  # Set via NEO4J_PASSWORD env var (or paste here)
+    database: "codefusion"
+```
+
+#### Building the Knowledge Base
+
+```bash
+# First run will automatically build KB (can take 5-30 minutes for large repos)
+python -m cf.run.main ask /path/to/repo "How does authentication work?"
+
+# Or build KB explicitly
+python -m cf.knowledge.build --repo /path/to/repo
+
+# Incremental updates (much faster) happen automatically when files change
+```
+
+#### What if I don't have Neo4j?
+
+CodeFusion will **fall back to file-based analysis** if Neo4j is unavailable:
+- ✅ Still works for basic code analysis
+- ✅ Still reads files and extracts insights
+- ❌ Loses graph-based queries (call chains, class hierarchies)
+- ❌ Loses pattern detection (design patterns, code smells)
+- ❌ Loses Life-of-X tracing (execution paths)
+- ❌ Reduced accuracy for complex architectural questions
+
+**Recommendation**: Install Neo4j for production use. The graph-based analysis is essential for deep codebase understanding.
+
 ### Package Structure
 
 The clean `cf/` package structure:

@@ -149,28 +149,38 @@ class TieredLLMManager:
         Fast, cheap operation suitable for batch processing.
 
         Args:
-            file_content: File content to summarize
+            file_content: File content to summarize (with or without line numbers)
             file_path: Path to file
             question: User question for context
 
         Returns:
-            File summary
+            File summary with line number references
         """
+        # Add line numbers if not already present
+        if not file_content.startswith('    1'):
+            lines = file_content.split('\n')
+            numbered_content = '\n'.join(f'{i+1:5d}  {line}' for i, line in enumerate(lines))
+        else:
+            numbered_content = file_content
+
         prompt = f"""Analyze this file in context of the question: "{question}"
 
 File: {file_path}
 
 ```
-{file_content}
+{numbered_content}
 ```
 
 Provide a concise summary covering:
 1. Purpose and functionality
-2. Key classes/functions relevant to the question
+2. Key classes/functions relevant to the question **WITH LINE NUMBERS** (e.g., "MyClass at line 45")
 3. Important dependencies or relationships
 4. Relevance to the user's question (1-10 scale)
 
-Keep summary under 200 words."""
+CRITICAL: When mentioning functions, classes, or code elements, ALWAYS include their line numbers.
+Format: "FunctionName (line X)" or "ClassName at line Y"
+
+Keep summary under 250 words."""
 
         return self.generate(
             prompt=prompt,

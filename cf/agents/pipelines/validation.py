@@ -217,6 +217,7 @@ class ValidationPipeline:
         2. Read actual code at those lines
         3. Verify claims match code reality
         4. Cross-check with file summaries
+        5. Verify architectural/pattern claims without line refs (NEW)
         """
         issues = []
 
@@ -230,12 +231,26 @@ class ValidationPipeline:
 
         print("🔍 [VALIDATION] Verifying facts against actual code...")
 
+        # Verify claims WITH line references
+        line_ref_issues = self._verify_line_referenced_claims(answer, file_summaries, max_claims_to_verify)
+        issues.extend(line_ref_issues)
+
+        # Verify architectural/pattern claims WITHOUT line references (NEW)
+        arch_issues = self._verify_architectural_claims(answer, file_summaries)
+        issues.extend(arch_issues)
+
+        return issues
+
+    def _verify_line_referenced_claims(self, answer: str, file_summaries: Dict[str, Any], max_claims: int) -> List[ValidationIssue]:
+        """Verify claims that have line references"""
+        issues = []
+
         # Extract claims with line references (format: "text mentioning line X")
         claim_pattern = r'([^.!?]+(?:line[s]?\s+\d+|L\d+|at\s+line\s+\d+)[^.!?]*[.!?])'
         claims_with_lines = re.findall(claim_pattern, answer, re.IGNORECASE)
 
         # Limit claims to verify (performance consideration)
-        claims_to_verify = claims_with_lines[:max_claims_to_verify]
+        claims_to_verify = claims_with_lines[:max_claims]
 
         verified_count = 0
         failed_count = 0
@@ -296,6 +311,112 @@ class ValidationPipeline:
             print(f"   ✅ Verified {verified_count} claims against actual code")
         if failed_count > 0:
             print(f"   ⚠️  {failed_count} claims failed verification")
+
+        return issues
+
+    def _verify_architectural_claims(self, answer: str, file_summaries: Dict[str, Any]) -> List[ValidationIssue]:
+        """
+        Verify architectural and pattern claims WITHOUT line references.
+
+        NEW: Addresses limitation where claims like "The system uses singleton pattern"
+        weren't verified because they lack line numbers.
+
+        Strategy:
+        1. Extract architectural claims (patterns, design, architecture)
+        2. Verify against file summaries (architectural_insights)
+        3. Cross-check with known patterns from code
+        """
+        issues = []
+
+        # Architectural claim patterns
+        arch_patterns = [
+            r'(system|architecture|design|codebase)[^.!?]*(?:uses?|implements?|follows?|employs?)[^.!?]*[.!?]',
+            r'(?:uses?|implements?|follows?|employs?)[^.!?]*(?:pattern|principle|architecture)[^.!?]*[.!?]',
+            r'(?:singleton|factory|observer|strategy|decorator|adapter|mvc|microservice)[^.!?]*[.!?]'
+        ]
+
+        arch_claims = []
+        for pattern in arch_patterns:
+            matches = re.findall(pattern, answer, re.IGNORECASE)
+            arch_claims.extend(matches)
+
+        # Remove duplicates
+        arch_claims = list(set(arch_claims))[:10]  # Limit to 10 architectural claims
+
+        if not arch_claims:
+            return issues
+
+        print(f"   🏗️  Verifying {len(arch_claims)} architectural claims...")
+
+        # Collect all architectural insights from file summaries
+        all_insights = []
+        all_patterns = set()
+
+        for file_path, summary in file_summaries.items():
+            if isinstance(summary, dict):
+                # Get architectural insights
+                insights = summary.get('architectural_insights', '')
+                if insights:
+                    all_insights.append(insights.lower())
+
+                # Get key features that might mention patterns
+                features = summary.get('key_features', [])
+                if isinstance(features, list):
+                    all_insights.extend([f.lower() for f in features if isinstance(f, str)])
+
+        # Common pattern keywords to detect
+        pattern_keywords = {
+            'singleton': ['singleton', 'single instance', 'global instance'],
+            'factory': ['factory', 'creates', 'builder', 'constructor'],
+            'observer': ['observer', 'listener', 'subscriber', 'event', 'callback'],
+            'strategy': ['strategy', 'algorithm', 'policy'],
+            'decorator': ['decorator', 'wrapper', 'enhance'],
+            'adapter': ['adapter', 'wrapper', 'interface'],
+            'mvc': ['model', 'view', 'controller', 'mvc'],
+            'microservice': ['microservice', 'service', 'api'],
+            'repository': ['repository', 'data access', 'dao'],
+            'dependency injection': ['injection', 'dependency', 'inject']
+        }
+
+        # Detect patterns mentioned in summaries
+        insights_text = ' '.join(all_insights)
+        for pattern_name, keywords in pattern_keywords.items():
+            if any(keyword in insights_text for keyword in keywords):
+                all_patterns.add(pattern_name)
+
+        # Verify each architectural claim
+        verified = 0
+        failed = 0
+
+        for claim in arch_claims:
+            claim_lower = claim.lower()
+
+            # Check if claim mentions a pattern
+            mentioned_patterns = [p for p in pattern_keywords.keys() if p in claim_lower]
+
+            if not mentioned_patterns:
+                # Not a pattern claim, skip
+                continue
+
+            # Verify if mentioned patterns are actually detected in code
+            verified_patterns = [p for p in mentioned_patterns if p in all_patterns]
+            unverified_patterns = [p for p in mentioned_patterns if p not in all_patterns]
+
+            if unverified_patterns:
+                # Claim mentions patterns not found in code
+                issues.append(ValidationIssue(
+                    severity='warning',
+                    issue_type='unverified_architectural_claim',
+                    message=f'Architectural claim not verified in summaries: "{claim[:100]}..." (patterns: {unverified_patterns})'
+                ))
+                failed += 1
+            else:
+                verified += 1
+
+        if verified > 0:
+            print(f"   ✅ Verified {verified} architectural claims")
+        if failed > 0:
+            print(f"   ⚠️  {failed} architectural claims couldn't be verified")
 
         return issues
 

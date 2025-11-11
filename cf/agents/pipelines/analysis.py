@@ -54,10 +54,42 @@ class AnalysisPipeline:
 
         # Parallel processing config
         self.max_workers = config.get('agents', {}).get('parallel_workers', 10)
+        self.initial_max_workers = self.max_workers  # Store initial value
         self.use_parallel = config.get('agents', {}).get('parallel_analysis', True)
+
+        # Adaptive worker count (NEW)
+        self.enable_adaptive_workers = config.get('agents', {}).get('enable_adaptive_workers', True)
+        self.rate_limit_detections = 0  # Track consecutive rate limit errors
+        self.min_workers = 1  # Minimum workers to use
 
         # Metrics tracking
         self.file_analysis_metrics = []
+
+    def _adjust_workers_for_rate_limit(self):
+        """
+        Reduce worker count when rate limiting is detected.
+
+        NEW: Adaptive worker count to prevent API throttling.
+        """
+        if not self.enable_adaptive_workers:
+            return
+
+        self.rate_limit_detections += 1
+
+        if self.rate_limit_detections >= 2 and self.max_workers > self.min_workers:
+            # Reduce workers by 50%
+            new_workers = max(self.min_workers, self.max_workers // 2)
+            print(f"⚠️ [ANALYSIS] Rate limiting detected, reducing workers: {self.max_workers} → {new_workers}")
+            self.max_workers = new_workers
+
+    def _reset_rate_limit_tracking(self):
+        """Reset rate limit tracking after successful batch"""
+        if self.rate_limit_detections > 0:
+            self.rate_limit_detections = 0
+            # Gradually increase workers back (by 1 each time)
+            if self.max_workers < self.initial_max_workers:
+                self.max_workers = min(self.initial_max_workers, self.max_workers + 1)
+                print(f"✅ [ANALYSIS] No rate limiting, increasing workers to {self.max_workers}")
 
     def analyze(self, file_paths: List[str], question: str) -> AnalysisResult:
         """
@@ -160,6 +192,14 @@ class AnalysisPipeline:
                 except Exception as e:
                     path = future_to_path[future]
                     print(f"❌ [ANALYSIS] Error analyzing {path}: {e}")
+
+                    # Check if it's a rate limit error (NEW)
+                    error_str = str(e).lower()
+                    if 'rate limit' in error_str or '429' in error_str or 'too many requests' in error_str:
+                        self._adjust_workers_for_rate_limit()
+
+        # Reset rate limit tracking if no issues detected (NEW)
+        self._reset_rate_limit_tracking()
 
         return AnalysisResult(
             file_summaries=file_summaries,
