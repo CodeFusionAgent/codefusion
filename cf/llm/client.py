@@ -28,11 +28,22 @@ class LLMClient:
         self.fast_model = llm_config.get('fast_model', self.model)
         self.fast_model_api_key = llm_config.get('fast_model_api_key', self.api_key)
 
+        # Azure OpenAI configuration
+        self.azure_config = llm_config.get('azure', {})
+        self.use_azure = self.azure_config.get('enabled', False)
+
+        if self.use_azure:
+            self.azure_endpoint = self.azure_config.get('endpoint', '')
+            self.azure_api_version = self.azure_config.get('api_version', '2024-02-15-preview')
+            self.azure_deployment = self.azure_config.get('deployment_id', self.model)
+            # For Azure, api_key can come from azure config or fallback to main api_key
+            self.api_key = self.azure_config.get('api_key') or self.api_key
+
         # Initialize tracer if available
         self.tracer = None
         self.session_id = None
 
-        # Determine provider from model name
+        # Determine provider from model name or config
         self.provider = self._detect_provider(self.model)
         self.fast_provider = self._detect_provider(self.fast_model)
 
@@ -175,6 +186,54 @@ class LLMClient:
             'model': model
         }
 
+    def _call_azure_openai(self, messages: List[Dict], model: str, api_key: str, **kwargs) -> Dict[str, Any]:
+        """Direct API call to Azure OpenAI"""
+        # Build Azure-specific URL
+        api_url = f"{self.azure_endpoint}/openai/deployments/{self.azure_deployment}/chat/completions?api-version={self.azure_api_version}"
+
+        payload = {
+            'messages': messages,
+            'max_tokens': kwargs.get('max_tokens', self.max_tokens),
+        }
+
+        # Add temperature if specified
+        if 'temperature' in kwargs and kwargs['temperature'] is not None:
+            payload['temperature'] = kwargs['temperature']
+        elif self.temperature is not None:
+            payload['temperature'] = self.temperature
+
+        # Azure uses api-key header instead of Authorization
+        headers = {
+            'api-key': api_key,
+            'Content-Type': 'application/json'
+        }
+
+        response = requests.post(
+            api_url,
+            headers=headers,
+            json=payload,
+            timeout=self.timeout
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        # Parse response (same format as OpenAI)
+        choice = data['choices'][0]
+        content = choice['message']['content']
+        usage = data.get('usage', {})
+
+        return {
+            'content': content,
+            'usage': {
+                'prompt_tokens': usage.get('prompt_tokens', 0),
+                'completion_tokens': usage.get('completion_tokens', 0),
+                'total_tokens': usage.get('total_tokens', 0)
+            },
+            'finish_reason': choice.get('finish_reason', 'stop'),
+            'model': self.azure_deployment  # Return deployment name
+        }
+
     @trace_method("llm_call")
     def generate(self, prompt: str, system_prompt: str = "", **kwargs) -> Dict[str, Any]:
         """Generate text response using direct API"""
@@ -194,9 +253,15 @@ class LLMClient:
                     messages, self.model, self.api_key, self.api_url, **kwargs
                 )
             elif self.provider == 'openai':
-                response_data = self._call_openai(
-                    messages, self.model, self.api_key, self.api_url, **kwargs
-                )
+                # Check if using Azure OpenAI
+                if self.use_azure:
+                    response_data = self._call_azure_openai(
+                        messages, self.model, self.api_key, **kwargs
+                    )
+                else:
+                    response_data = self._call_openai(
+                        messages, self.model, self.api_key, self.api_url, **kwargs
+                    )
             else:
                 raise ValueError(f"Unsupported provider: {self.provider}")
 
@@ -273,10 +338,16 @@ class LLMClient:
                     self.fast_api_url, **kwargs
                 )
             elif self.fast_provider == 'openai':
-                response_data = self._call_openai(
-                    messages, self.fast_model, self.fast_model_api_key,
-                    self.fast_api_url, **kwargs
-                )
+                # Check if using Azure OpenAI
+                if self.use_azure:
+                    response_data = self._call_azure_openai(
+                        messages, self.fast_model, self.fast_model_api_key, **kwargs
+                    )
+                else:
+                    response_data = self._call_openai(
+                        messages, self.fast_model, self.fast_model_api_key,
+                        self.fast_api_url, **kwargs
+                    )
             else:
                 raise ValueError(f"Unsupported fast provider: {self.fast_provider}")
 

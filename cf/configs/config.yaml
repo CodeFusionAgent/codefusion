@@ -7,6 +7,15 @@ llm:
   max_tokens: 2000
   #temperature: 0.7
 
+  # Azure OpenAI Configuration (optional)
+  # Enable this if you're using Azure OpenAI instead of standard OpenAI
+  azure:
+    enabled: false  # Set to true to use Azure OpenAI
+    endpoint: ""  # Your Azure endpoint: https://your-resource.openai.azure.com
+    api_version: "2024-02-15-preview"  # Azure API version
+    deployment_id: ""  # Your Azure deployment name (e.g., "gpt-4o")
+    api_key: ""  # Azure API key (or set AZURE_OPENAI_API_KEY env var)
+
   # Multi-Model Tiered Strategy (NEW)
   # Match task complexity to model capability for optimal cost/performance
   tiers:
