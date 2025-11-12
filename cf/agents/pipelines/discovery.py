@@ -364,10 +364,29 @@ class GraphQueryStrategy(DiscoveryStrategy):
             # Extract LLM question classification from supervisor (if available)
             question_context = context.get('question_context', {})
 
-            # Use tool registry to call KB discovery tool
-            # Tool name: structural_kb_find_files_for_question (prefixed by registry)
+            # Resolve KB tool name dynamically (agent tools are prefixed with agent name)
+            kb_tool_name = None
+            try:
+                available = list(getattr(self.tool_registry, 'tools', {}).keys())
+                # Preferred exact suffix
+                candidates = [n for n in available if n.endswith('_find_files_for_question')]
+                # Common variants
+                if not candidates:
+                    candidates = [n for n in available if 'find_files' in n and 'question' in n]
+                if not candidates:
+                    candidates = [n for n in available if 'kb' in n and 'find' in n and 'files' in n]
+                kb_tool_name = candidates[0] if candidates else None
+            except Exception:
+                kb_tool_name = None
+
+            if not kb_tool_name:
+                available = list(getattr(self.tool_registry, 'tools', {}).keys())
+                print(f"⚠️ [GRAPH_QUERY] KB tool not registered. Available tools: {available[:30]}")
+                return []
+
+            # Use resolved tool name
             result = self.tool_registry.execute(
-                'structural_kb_find_files_for_question',
+                kb_tool_name,
                 question=question,
                 max_results=100,
                 question_context=question_context  # Pass LLM classification

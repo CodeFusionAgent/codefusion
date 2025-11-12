@@ -13,6 +13,9 @@ Uses state-based flow for adaptive analysis.
 
 from typing import Dict, List, Any
 from enum import Enum
+from collections import Counter
+from pathlib import Path
+import traceback
 
 # CodeFusion imports - all at top per PEP 8
 from cf.agents.base import BaseAgent
@@ -23,6 +26,9 @@ from cf.agents.pipelines.synthesis import SynthesisPipeline
 from cf.agents.pipelines.structural import StructuralPipeline
 from cf.agents.pipelines.test_analysis import TestFileAnalyzer
 from cf.llm.model_tiers import TieredLLMManager
+from cf.agents.kb.structural_kb_agent import StructuralKBAgent
+from cf.agents.registry import AgentRegistry
+from cf.tools.registry import ToolRegistry
 
 
 class AnalysisState(Enum):
@@ -325,8 +331,46 @@ class CodeOrchestrator(BaseAgent):
                 self.structural = StructuralPipeline(self.repo_path, self.config)
 
                 # Register KB agent with tool registry (tool-first pattern)
-                kb_agent = StructuralKBAgent(kb=self.structural, config=self.config)
-                self.agent_registry.register(kb_agent)
+                # Reuse existing agent if already registered
+                existing_kb_agent = None
+                try:
+                    existing_kb_agent = self.agent_registry.get_agent('structural_kb')
+                except Exception:
+                    existing_kb_agent = None
+
+                if existing_kb_agent is not None:
+                    kb_agent = existing_kb_agent
+                    print("ℹ️ [ORCHESTRATOR] Reusing already-registered StructuralKBAgent")
+                else:
+                    kb_agent = StructuralKBAgent(kb=self.structural, config=self.config)
+                    # Initialize agent so it can register tools properly
+                    if hasattr(kb_agent, 'initialize'):
+                        try:
+                            kb_agent.initialize()
+                        except Exception as e:
+                            print(f"⚠️ [ORCHESTRATOR] KB agent initialize() failed: {e}")
+                    self.agent_registry.register(kb_agent)
+                # Ensure tools from the agent are exposed via ToolRegistry
+                if hasattr(self, 'tool_registry') and self.tool_registry:
+                    # Refresh tool registry from current AgentRegistry state
+                    try:
+                        self.tool_registry._register_agent_tools()
+                    except Exception as e:
+                        print(f"⚠️ [ORCHESTRATOR] Failed to refresh agent tools: {e}")
+                    # Back-compat alias: some callers expect 'structural_kb_find_files_for_question'
+                    try:
+                        available_tools = getattr(self.tool_registry, 'tools', {})
+                        # Find any agent-prefixed tool that ends with the expected suffix
+                        suffix = '_find_files_for_question'
+                        kb_tool_name = next((name for name in available_tools.keys() if name.endswith(suffix)), None)
+                        if kb_tool_name and 'structural_kb_find_files_for_question' not in available_tools:
+                            available_tools['structural_kb_find_files_for_question'] = available_tools[kb_tool_name]
+                            print(f"✅ [ORCHESTRATOR] Aliased KB tool '{kb_tool_name}' -> 'structural_kb_find_files_for_question'")
+                        # Debug: show a snapshot of registered tools
+                        sample = list(available_tools.keys())[:30]
+                        print(f"🔧 [ORCHESTRATOR] ToolRegistry now has {len(available_tools)} tools. Sample: {sample}")
+                    except Exception as _:
+                        pass
                 print("✅ [ORCHESTRATOR] Registered StructuralKBAgent with tool registry")
 
                 if self.structural.is_kb_available():

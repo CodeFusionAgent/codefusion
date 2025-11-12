@@ -54,7 +54,7 @@ class CodeEmbedder:
     for semantic similarity search.
     """
 
-    def __init__(self, model: EmbeddingModel = EmbeddingModel.OPENAI_SMALL, config: Dict[str, Any] = None):
+    def __init__(self, model: EmbeddingModel = EmbeddingModel.OPENAI_SMALL, config: Dict[str, Any] = None, llm_client: Any = None):
         """
         Initialize code embedder.
 
@@ -64,13 +64,25 @@ class CodeEmbedder:
         """
         self.model = model
         self.config = config or {}
+        self.llm_client = llm_client
         self.embedding_dim = self._get_embedding_dim()
 
-        # Initialize backend based on model
-        if model in (EmbeddingModel.OPENAI_SMALL, EmbeddingModel.OPENAI_LARGE):
-            self._init_openai()
+        # Backend selection precedence:
+        # 1) Explicit LLM client if requested via config (use_llm_client: true)
+        # 2) Local embeddings (default)
+        # 3) OpenAI via LiteLLM only if explicitly requested
+        if self.config.get('use_llm_client', False) and self.llm_client is not None:
+            self.backend = "llm_client"
+            print("✅ Initialized embeddings via LLMClient backend")
         else:
-            self._init_local()
+            # Prefer local embeddings by default unless explicitly disabled
+            use_local = self.config.get('use_local_model', True)
+
+            if use_local or model in (EmbeddingModel.LOCAL_MINILM, EmbeddingModel.LOCAL_MPNET):
+                self._init_local()
+            else:
+                # Only initialize OpenAI path if explicitly requested
+                self._init_openai()
 
     def _get_embedding_dim(self) -> int:
         """Get embedding dimension for the model"""
@@ -251,10 +263,26 @@ class CodeEmbedder:
         Returns:
             Embedding vector as numpy array
         """
-        if self.backend == "openai":
+        if self.backend == "llm_client":
+            return self._embed_with_llm_client(text)
+        elif self.backend == "openai":
             return self._embed_with_openai(text)
         else:
             return self._embed_with_local(text)
+
+    def _embed_with_llm_client(self, text: str) -> np.ndarray:
+        """Generate embedding using provided LLMClient (provider/model defined in config)."""
+        try:
+            # Allow config to specify embedding model name to pass through
+            model_override = self.config.get('embedding_model', None)
+            resp = self.llm_client.embed_text(text, model=model_override)
+            if isinstance(resp, dict) and resp.get('success') and isinstance(resp.get('embedding'), list):
+                return np.array(resp['embedding'], dtype=np.float32)
+            # Fallback to zero vector on failure
+            return np.zeros(self.embedding_dim, dtype=np.float32)
+        except Exception as e:
+            print(f"❌ LLMClient embedding failed: {e}")
+            return np.zeros(self.embedding_dim, dtype=np.float32)
 
     def _embed_with_openai(self, text: str) -> np.ndarray:
         """Generate embedding using OpenAI via LiteLLM"""
