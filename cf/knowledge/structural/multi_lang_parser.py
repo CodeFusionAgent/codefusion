@@ -319,6 +319,11 @@ class MultiLanguageParser:
                     if module_name:
                         imports.append(module_name)
 
+        # Extract function calls for execution tracing
+        relationships = self._extract_function_calls(
+            content, functions, classes, rel_path, language
+        )
+
         # Create file node
         file_node = FileNode(
             path=rel_path,
@@ -335,6 +340,86 @@ class MultiLanguageParser:
             classes=classes,
             variables=[],  # Simplified - not extracting variables
             modules=[],
-            relationships=[],
+            relationships=relationships,
             imports=imports
         )
+
+    def _extract_function_calls(
+        self,
+        content: str,
+        functions: List[FunctionNode],
+        classes: List[ClassNode],
+        file_path: str,
+        language: str
+    ) -> List[Relationship]:
+        """
+        Extract function calls to build execution trace relationships.
+
+        This enables execution path tracing for non-Python languages.
+
+        Args:
+            content: Source file content
+            functions: Extracted functions
+            classes: Extracted classes
+            file_path: Relative file path
+            language: Programming language
+
+        Returns:
+            List of CALLS relationships
+        """
+        relationships = []
+
+        # Common function call pattern (works for most C-style languages)
+        # Matches: functionName(args), object.method(args), module.function(args)
+        call_pattern = re.compile(
+            r'\b([a-zA-Z_][\w]*(?:\.[\w]+)?)\s*\('
+        )
+
+        # Build set of known function/method names from this file
+        known_functions = {f.name for f in functions}
+        known_classes = {c.name for c in classes}
+
+        # Extract method names from classes
+        known_methods = set()
+        for cls in classes:
+            for method in cls.methods:
+                if isinstance(method, dict):
+                    known_methods.add(method.get('name', ''))
+                elif hasattr(method, 'name'):
+                    known_methods.add(method.name)
+
+        # For each function, find what it calls
+        for func in functions:
+            # Simple heuristic: look for function calls in the content
+            # We can't perfectly parse without AST, but we can find likely calls
+
+            func_calls_seen = set()
+
+            for match in call_pattern.finditer(content):
+                called_name = match.group(1)
+
+                # Skip if it's the function itself or already processed
+                if called_name == func.name or called_name in func_calls_seen:
+                    continue
+
+                # Extract base name if it's a method call (obj.method → method)
+                base_name = called_name.split('.')[-1]
+
+                # Check if this is a known function, method, or class constructor
+                is_internal_call = (
+                    base_name in known_functions or
+                    base_name in known_methods or
+                    base_name in known_classes
+                )
+
+                # Create relationship for known internal calls
+                if is_internal_call:
+                    relationships.append(Relationship(
+                        from_node=func.qualified_name,
+                        to_node=f"{file_path}::{base_name}",
+                        relationship_type=RelationType.CALLS,
+                        repo_id=self.repo_id
+                    ))
+                    func_calls_seen.add(called_name)
+
+        return relationships

@@ -6,6 +6,7 @@ Uses multiple strategies: domain detection, keyword matching, grep search, fallb
 """
 
 import json
+import traceback
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
@@ -401,7 +402,6 @@ class GraphQueryStrategy(DiscoveryStrategy):
 
         except Exception as e:
             print(f"⚠️ [GRAPH_QUERY] Failed: {e}")
-            import traceback
             traceback.print_exc()
             return []
 
@@ -473,7 +473,6 @@ class SemanticSearchStrategy(DiscoveryStrategy):
 
         except Exception as e:
             print(f"⚠️ [SEMANTIC_SEARCH] Failed: {e}")
-            import traceback
             traceback.print_exc()
             return []
 
