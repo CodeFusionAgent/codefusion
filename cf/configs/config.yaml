@@ -143,6 +143,28 @@ agents:
     min_identifier_match: 0.2  # Minimum % of identifiers that must match (lowered from 0.3 to reduce false negatives)
     use_llm_verification: false  # Use LLM for complex verification (costs more)
 
+    # File path patterns for validation (configurable for different repo structures)
+    file_path_prefixes:  # Common source code directory prefixes
+      - apps
+      - src
+      - lib
+      - test
+      - tests
+      - cf
+      - backend
+      - frontend
+      - server
+      - client
+      - pkg
+      - internal
+      - cmd
+      - api
+      - core
+      - services
+      - components
+      - modules
+    max_file_line_gap_chars: 100  # Max chars between file path and line number (reduced from 500 to prevent cross-paragraph pairing)
+
   # Life-of-X Configuration (NEW)
   # Execution path tracing for "how does X work?" questions
   max_execution_trace_depth: 10  # Maximum call chain depth to trace

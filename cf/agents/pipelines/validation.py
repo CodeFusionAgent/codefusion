@@ -42,6 +42,25 @@ class ValidationPipeline:
         self.repo_tools = repo_tools
         self.llm = llm_client  # Optional LLM for claim verification
 
+    def _get_file_path_pattern(self) -> str:
+        """
+        Build file path pattern from config (configurable for different repo structures).
+        Returns regex pattern for matching source file paths.
+        """
+        validation_config = self.config.get('agents', {}).get('validation', {})
+        prefixes = validation_config.get('file_path_prefixes', [
+            'apps', 'src', 'lib', 'test', 'tests', 'cf', 'backend', 'frontend',
+            'server', 'client', 'pkg', 'internal', 'cmd', 'api', 'core', 'services', 'components', 'modules'
+        ])
+        # Build pattern: (?:apps|src|lib|...)
+        prefix_pattern = '|'.join(re.escape(p) for p in prefixes)
+        return f'(?:{prefix_pattern})'
+
+    def _get_max_file_line_gap(self) -> int:
+        """Get max characters allowed between file path and line number reference."""
+        validation_config = self.config.get('agents', {}).get('validation', {})
+        return validation_config.get('max_file_line_gap_chars', 100)
+
     def validate(self, answer: str, file_summaries: Dict[str, Any]) -> ValidationResult:
         """
         Validate generated answer for grounding and accuracy
@@ -150,8 +169,10 @@ class ValidationPipeline:
 
         # Extract file path + line number pairs from the narrative
         # Pattern matches: "apps/foo/bar.py ... line 123" (can span multiple lines/paragraphs)
-        # Allow up to 500 chars between file path and line number (including newlines)
-        file_line_pattern = r'((?:apps|src|lib|tests?|cf)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)).{0,500}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        # Gap length configured to prevent cross-paragraph pairing
+        path_pattern = self._get_file_path_pattern()
+        max_gap = self._get_max_file_line_gap()
+        file_line_pattern = rf'({path_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)).{{0,{max_gap}}}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
 
         file_line_refs = re.findall(file_line_pattern, answer, re.IGNORECASE | re.DOTALL)
 
@@ -211,7 +232,8 @@ class ValidationPipeline:
 
         # Extract file paths from answer - more restrictive pattern to avoid false positives
         # Only match paths that look like actual file paths (start with directory, end with extension)
-        path_pattern = r'\b(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
+        prefix_pattern = self._get_file_path_pattern()
+        path_pattern = rf'\b{prefix_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
         potential_paths = re.findall(path_pattern, answer)
 
         print(f"\n🔍 [DEBUG FILE_PATHS] Validating {len(potential_paths)} potential paths")
@@ -721,7 +743,9 @@ Response:"""
 
         # Find all file+line pairs in the entire answer (may span sentences due to markdown formatting)
         # Use same pattern as validation for consistency
-        file_line_pattern = r'(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt).{0,500}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        path_pattern = self._get_file_path_pattern()
+        max_gap = self._get_max_file_line_gap()
+        file_line_pattern = rf'{path_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt).{{0,{max_gap}}}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
         file_line_matches = list(re.finditer(file_line_pattern, answer, re.IGNORECASE | re.DOTALL))
 
         if not file_line_matches:
@@ -751,7 +775,8 @@ Response:"""
     def _calculate_path_accuracy(self, answer: str, file_summaries: Dict[str, Any]) -> float:
         """Calculate accuracy of file path references"""
         # Extract paths from answer - use restrictive pattern to avoid false positives
-        path_pattern = r'\b(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
+        prefix_pattern = self._get_file_path_pattern()
+        path_pattern = rf'\b{prefix_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
         mentioned_paths = re.findall(path_pattern, answer)
 
         # DEBUG: Show extracted paths
