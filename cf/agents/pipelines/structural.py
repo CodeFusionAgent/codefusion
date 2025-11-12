@@ -517,19 +517,35 @@ class StructuralPipeline:
                 entry_point = intent.get('entry_point', '')
                 if entry_point and self.lifeofx_config.get('enabled', False):
                     paths = self.trace_execution_path(entry_point, max_depth=10, max_paths=5)
+                    print(f"✅ [KB_LIFEOFX] Found {len(paths)} execution paths")
+
+                    files_extracted = 0
                     for path_info in paths:
-                        for step in path_info.get('steps', []):
+                        steps = path_info.get('steps', [])
+                        print(f"   [DEBUG] Path has {len(steps)} steps")
+
+                        for step in steps:
                             # Extract file_path from qualified_name (format: "path/to/file.py::function")
                             qualified_name = step.get('qualified_name', '')
+                            print(f"   [DEBUG] Step qualified_name: {qualified_name}")
+
                             if '::' in qualified_name:
                                 file_path = qualified_name.split('::')[0]
                                 if file_path:
                                     # High relevance for execution flow files
                                     file_scores[file_path] = max(file_scores.get(file_path, 0), 0.9)
                                     file_paths.append(file_path)
-                    print(f"✅ [KB_LIFEOFX] Found {len(paths)} execution paths")
+                                    files_extracted += 1
+                                    print(f"   [DEBUG] Extracted file: {file_path}")
+                            else:
+                                print(f"   [DEBUG] No '::' separator in qualified_name")
+
+                    print(f"   [DEBUG] Total files extracted from life-of-x: {files_extracted}")
             except Exception as e:
                 print(f"⚠️ [KB_LIFEOFX] Execution tracing failed: {e}")
+                import traceback
+                traceback.print_exc()
+
 
         # Dependency queries
         elif intent.get('type') == 'dependency':
