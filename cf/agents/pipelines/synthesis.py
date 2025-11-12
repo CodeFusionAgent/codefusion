@@ -197,6 +197,23 @@ class SynthesisPipeline:
                 if classes:
                     summaries_text += f"Classes: {', '.join([c.get('name', '') for c in classes[:5]])}\n"
 
+                # Include test information if available (test-aware analysis)
+                test_info = summary.get('test_info', {})
+                if test_info.get('has_tests'):
+                    summaries_text += f"\nTest Coverage: {test_info.get('test_count', 0)} tests\n"
+
+                    usage_examples = test_info.get('usage_examples', [])
+                    if usage_examples:
+                        summaries_text += "Usage Examples:\n"
+                        for ex in usage_examples[:3]:
+                            summaries_text += f"  - {ex}\n"
+
+                    edge_cases = test_info.get('edge_cases', [])
+                    if edge_cases:
+                        summaries_text += "Edge Cases Tested:\n"
+                        for ec in edge_cases[:3]:
+                            summaries_text += f"  - {ec}\n"
+
         # Prepare insights text
         insights_text = ""
         for insight in insights[:20]:  # Limit insights
@@ -533,7 +550,6 @@ If >= 0.7, return empty missing_components array."""
                     entry_functions.extend(entry_point.details['functions'][:2])
 
         # From question keywords
-        import re
         # Look for function-like words in question
         words = re.findall(r'\b[a-z_][a-z0-9_]*\b', question.lower())
         relevant_words = [w for w in words if len(w) > 4 and w not in ['does', 'work', 'what', 'where', 'when', 'which']]
@@ -558,7 +574,6 @@ If >= 0.7, return empty missing_components array."""
         sequences = []
 
         # Look for function call patterns in code
-        import re
         call_pattern = re.compile(r'(\w+)\s*\([^)]*\)')  # function_name(args)
 
         for file_path, summary in file_summaries.items():
