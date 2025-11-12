@@ -516,31 +516,40 @@ class StructuralPipeline:
             try:
                 entry_point = intent.get('entry_point', '')
                 if entry_point and self.lifeofx_config.get('enabled', False):
-                    paths = self.trace_execution_path(entry_point, max_depth=10, max_paths=5)
-                    print(f"✅ [KB_LIFEOFX] Found {len(paths)} execution paths")
+                    # Resolve entry point to actual function names in KB
+                    resolved_entry_points = self._resolve_entry_point(entry_point)
 
-                    files_extracted = 0
-                    for path_info in paths:
-                        steps = path_info.get('steps', [])
-                        print(f"   [DEBUG] Path has {len(steps)} steps")
+                    if not resolved_entry_points:
+                        print(f"⚠️ [KB_LIFEOFX] Could not resolve entry point: {entry_point}")
+                    else:
+                        print(f"✅ [KB_LIFEOFX] Resolved entry point '{entry_point}' to {len(resolved_entry_points)} function(s)")
 
-                        for step in steps:
-                            # Extract file_path from qualified_name (format: "path/to/file.py::function")
-                            qualified_name = step.get('qualified_name', '')
-                            print(f"   [DEBUG] Step qualified_name: {qualified_name}")
+                        all_paths = []
+                        for resolved_ep in resolved_entry_points[:3]:  # Limit to 3 entry points
+                            paths = self.trace_execution_path(resolved_ep, max_depth=10, max_paths=5)
+                            all_paths.extend(paths)
 
-                            if '::' in qualified_name:
-                                file_path = qualified_name.split('::')[0]
-                                if file_path:
-                                    # High relevance for execution flow files
-                                    file_scores[file_path] = max(file_scores.get(file_path, 0), 0.9)
-                                    file_paths.append(file_path)
-                                    files_extracted += 1
-                                    print(f"   [DEBUG] Extracted file: {file_path}")
-                            else:
-                                print(f"   [DEBUG] No '::' separator in qualified_name")
+                        print(f"✅ [KB_LIFEOFX] Found {len(all_paths)} execution paths")
 
-                    print(f"   [DEBUG] Total files extracted from life-of-x: {files_extracted}")
+                        files_extracted = 0
+                        for path_info in all_paths:
+                            steps = path_info.get('steps', [])
+
+                            for step in steps:
+                                # Extract file_path from qualified_name (format: "path/to/file.py::function")
+                                qualified_name = step.get('qualified_name', '')
+
+                                if '::' in qualified_name:
+                                    file_path = qualified_name.split('::')[0]
+                                    if file_path:
+                                        # High relevance for execution flow files
+                                        file_scores[file_path] = max(file_scores.get(file_path, 0), 0.9)
+                                        file_paths.append(file_path)
+                                        files_extracted += 1
+
+                        if files_extracted > 0:
+                            print(f"✅ [KB_LIFEOFX] Extracted {files_extracted} files from execution paths")
+
             except Exception as e:
                 print(f"⚠️ [KB_LIFEOFX] Execution tracing failed: {e}")
                 import traceback
@@ -669,6 +678,60 @@ class StructuralPipeline:
         ranked_files = sorted(unique_files, key=lambda f: file_scores.get(f, 0.5), reverse=True)
 
         return ranked_files[:max_results]
+
+    def _resolve_entry_point(self, entry_point: str) -> List[str]:
+        """
+        Resolve a high-level entry point name to actual qualified function names in KB.
+
+        Args:
+            entry_point: User-provided entry point (e.g., "student application", "user login")
+
+        Returns:
+            List of qualified function names found in KB
+        """
+        if not self.is_kb_available():
+            return []
+
+        resolved = []
+
+        # Split entry point into keywords for searching
+        keywords = entry_point.lower().split()
+
+        try:
+            # Search for matching functions
+            for keyword in keywords:
+                result = self.kb.search_by_name(keyword, self.repo_id, node_type='Function')
+                for node in result.nodes:
+                    qualified_name = node.get('qualified_name')
+                    if qualified_name and qualified_name not in resolved:
+                        resolved.append(qualified_name)
+
+            # Also search for matching classes (entry points might be classes)
+            for keyword in keywords:
+                result = self.kb.search_by_name(keyword, self.repo_id, node_type='Class')
+                for node in result.nodes:
+                    qualified_name = node.get('qualified_name')
+                    if qualified_name and qualified_name not in resolved:
+                        resolved.append(qualified_name)
+
+            # Sort by relevance - prefer exact matches
+            def relevance_score(qname):
+                name_lower = qname.lower()
+                score = 0
+                # Exact match in any part
+                if any(kw in name_lower for kw in keywords):
+                    score += 10
+                # All keywords present
+                if all(kw in name_lower for kw in keywords):
+                    score += 20
+                return score
+
+            resolved.sort(key=relevance_score, reverse=True)
+
+        except Exception as e:
+            print(f"⚠️ [KB_LIFEOFX] Entry point resolution failed: {e}")
+
+        return resolved[:10]  # Return top 10 matches
 
     def _analyze_question(self, question: str, llm_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
