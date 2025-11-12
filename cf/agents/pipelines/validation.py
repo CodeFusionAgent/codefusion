@@ -42,6 +42,25 @@ class ValidationPipeline:
         self.repo_tools = repo_tools
         self.llm = llm_client  # Optional LLM for claim verification
 
+    def _get_file_path_pattern(self) -> str:
+        """
+        Build file path pattern from config (configurable for different repo structures).
+        Returns regex pattern for matching source file paths.
+        """
+        validation_config = self.config.get('agents', {}).get('validation', {})
+        prefixes = validation_config.get('file_path_prefixes', [
+            'apps', 'src', 'lib', 'test', 'tests', 'cf', 'backend', 'frontend',
+            'server', 'client', 'pkg', 'internal', 'cmd', 'api', 'core', 'services', 'components', 'modules'
+        ])
+        # Build pattern: (?:apps|src|lib|...)
+        prefix_pattern = '|'.join(re.escape(p) for p in prefixes)
+        return f'(?:{prefix_pattern})'
+
+    def _get_max_file_line_gap(self) -> int:
+        """Get max characters allowed between file path and line number reference."""
+        validation_config = self.config.get('agents', {}).get('validation', {})
+        return validation_config.get('max_file_line_gap_chars', 100)
+
     def validate(self, answer: str, file_summaries: Dict[str, Any]) -> ValidationResult:
         """
         Validate generated answer for grounding and accuracy
@@ -150,8 +169,10 @@ class ValidationPipeline:
 
         # Extract file path + line number pairs from the narrative
         # Pattern matches: "apps/foo/bar.py ... line 123" (can span multiple lines/paragraphs)
-        # Allow up to 500 chars between file path and line number (including newlines)
-        file_line_pattern = r'((?:apps|src|lib|tests?|cf)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)).{0,500}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        # Gap length configured to prevent cross-paragraph pairing
+        path_pattern = self._get_file_path_pattern()
+        max_gap = self._get_max_file_line_gap()
+        file_line_pattern = rf'({path_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)).{{0,{max_gap}}}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
 
         file_line_refs = re.findall(file_line_pattern, answer, re.IGNORECASE | re.DOTALL)
 
@@ -211,7 +232,8 @@ class ValidationPipeline:
 
         # Extract file paths from answer - more restrictive pattern to avoid false positives
         # Only match paths that look like actual file paths (start with directory, end with extension)
-        path_pattern = r'\b(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
+        prefix_pattern = self._get_file_path_pattern()
+        path_pattern = rf'\b{prefix_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
         potential_paths = re.findall(path_pattern, answer)
 
         print(f"\n🔍 [DEBUG FILE_PATHS] Validating {len(potential_paths)} potential paths")
@@ -400,7 +422,7 @@ class ValidationPipeline:
             line_num = int(line_match.group(1))
 
             # Read actual code at that line (with context)
-            code_context = self._read_code_at_line(file_path, line_num, context_lines=3)
+            code_context = self._read_code_at_line(file_path, line_num, context_lines=5)
 
             if not code_context:
                 issues.append(ValidationIssue(
@@ -579,7 +601,23 @@ class ValidationPipeline:
         code_words = code_context.lower().split()
 
         # If claim mentions specific identifiers, they should exist in code
-        identifiers_in_claim = [w.strip('`"\'()') for w in words if w and w[0].isupper() or '_' in w]
+        # Filter out markdown artifacts, common words, and keep only code-like identifiers
+        common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from',
+                        'this', 'that', 'these', 'those', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+                        'key', 'similar', 'after', 'finally', 'starting', 'three', 'model', 'pattern',
+                        'url', 'ui', 'orm', 'mvc', 'component', 'interactions', 'detailed', 'together'}
+        identifiers_in_claim = []
+        for w in words:
+            # Strip markdown and punctuation
+            cleaned = w.strip('`"\'()*_#[]')
+            # Only keep if it looks like a code identifier and is not a common word
+            if cleaned and len(cleaned) >= 2:
+                cleaned_lower = cleaned.lower()
+                # Keep if: has underscore (snake_case), or mixed case (camelCase/PascalCase), or longer proper names
+                if ('_' in cleaned or  # snake_case
+                    (any(c.isupper() for c in cleaned[1:]) and any(c.islower() for c in cleaned)) or  # camelCase/PascalCase
+                    (cleaned[0].isupper() and len(cleaned) > 3 and cleaned_lower not in common_words)):  # Longer proper names
+                    identifiers_in_claim.append(cleaned)
 
         if identifiers_in_claim:
             # Check if at least some identifiers are in the code
@@ -705,7 +743,9 @@ Response:"""
 
         # Find all file+line pairs in the entire answer (may span sentences due to markdown formatting)
         # Use same pattern as validation for consistency
-        file_line_pattern = r'(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt).{0,500}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        path_pattern = self._get_file_path_pattern()
+        max_gap = self._get_max_file_line_gap()
+        file_line_pattern = rf'{path_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt).{{0,{max_gap}}}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
         file_line_matches = list(re.finditer(file_line_pattern, answer, re.IGNORECASE | re.DOTALL))
 
         if not file_line_matches:
@@ -735,7 +775,8 @@ Response:"""
     def _calculate_path_accuracy(self, answer: str, file_summaries: Dict[str, Any]) -> float:
         """Calculate accuracy of file path references"""
         # Extract paths from answer - use restrictive pattern to avoid false positives
-        path_pattern = r'\b(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
+        prefix_pattern = self._get_file_path_pattern()
+        path_pattern = rf'\b{prefix_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
         mentioned_paths = re.findall(path_pattern, answer)
 
         # DEBUG: Show extracted paths
