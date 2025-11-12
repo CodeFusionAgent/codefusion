@@ -212,16 +212,23 @@ class SynthesisPipeline:
                 summaries_text += f"Architecture: {summary.get('architectural_insights', '')}\n"
 
                 # Include function/class info with line numbers
+                # IMPORTANT: Make it crystal clear which file these line numbers belong to
                 functions = summary.get('functions', [])
                 classes = summary.get('classes', [])
                 if functions:
-                    func_refs = [f"{f.get('name', '')} (line {f.get('line', '?')})" for f in functions[:5]]
-                    summaries_text += f"Functions: {', '.join(func_refs)}\n"
-                    print(f"   [DEBUG SYNTHESIS]   Generated func_refs: {func_refs}")
+                    summaries_text += f"Functions in {file_path}:\n"
+                    for f in functions[:5]:
+                        func_name = f.get('name', 'unknown')
+                        func_line = f.get('line', '?')
+                        summaries_text += f"  - {func_name} at line {func_line}\n"
+                    print(f"   [DEBUG SYNTHESIS]   Generated {len(functions[:5])} function refs for {file_path}")
                 if classes:
-                    class_refs = [f"{c.get('name', '')} (line {c.get('line', '?')})" for c in classes[:5]]
-                    summaries_text += f"Classes: {', '.join(class_refs)}\n"
-                    print(f"   [DEBUG SYNTHESIS]   Generated class_refs: {class_refs}")
+                    summaries_text += f"Classes in {file_path}:\n"
+                    for c in classes[:5]:
+                        class_name = c.get('name', 'unknown')
+                        class_line = c.get('line', '?')
+                        summaries_text += f"  - {class_name} at line {class_line}\n"
+                    print(f"   [DEBUG SYNTHESIS]   Generated {len(classes[:5])} class refs for {file_path}")
 
                 # Include test information if available (test-aware analysis)
                 test_info = summary.get('test_info', {})
@@ -328,13 +335,20 @@ CRITICAL REQUIREMENTS:
 - AVOID generic statements without code references
 - AVOID just listing files without explaining their role
 
+⚠️  CRITICAL: When mentioning line numbers, ALWAYS include the file path in the SAME sentence.
+    - Line numbers without file paths are INVALID and will fail validation
+    - Use format: "file_path line NUMBER" or "file_path at line NUMBER"
+
 REQUIRED FORMAT EXAMPLES:
 ✅ GOOD: "The authentication flow starts in cf/auth/login.py at line 45 where the login() function validates credentials."
-✅ GOOD: "The UserModel class (cf/models/user.py, line 23) defines the data schema with fields for username and email."
-❌ BAD: "The authentication flow handles user login."
-❌ BAD: "The UserModel class defines the user data structure."
+✅ GOOD: "The UserModel class is defined in cf/models/user.py at line 23 with fields for username and email."
+✅ GOOD: "In apps/enrollment/managers.py, the ApplicationManager class (line 4) filters active applications."
+❌ BAD: "The authentication flow handles user login." (no file path, no line number)
+❌ BAD: "The UserModel class at line 23 defines the user data structure." (no file path)
+❌ BAD: "Line 45 validates credentials." (no file path)
 
-Every major statement about code MUST reference the specific file path and line number where that code exists.
+Every major statement about code MUST reference the specific file path AND line number where that code exists.
+File paths MUST appear in or near the same sentence as the line numbers they reference.
 
 Generate the narrative now:"""
 
