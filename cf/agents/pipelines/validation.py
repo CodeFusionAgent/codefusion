@@ -144,40 +144,60 @@ class ValidationPipeline:
         """Validate line number references in answer"""
         issues = []
 
-        # Extract line number references (e.g., "line 123", "lines 45-67", "L123")
-        line_patterns = [
-            r'line[s]?\s+(\d+)',
-            r'L(\d+)',
-            r'lines?\s+(\d+)-(\d+)',
-            r'at\s+line\s+(\d+)'
-        ]
+        # Extract file path + line number pairs from the narrative
+        # Pattern matches: "apps/foo/bar.py ... line 123" or "apps/foo/bar.py:123"
+        # We need to find line references that are associated with specific files
+        file_line_pattern = r'((?:apps|src|lib|tests?|cf)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt))[^\n]{0,200}?(?:line[s]?\s+|L|:)(\d+)'
 
-        line_refs = []
-        for pattern in line_patterns:
-            matches = re.finditer(pattern, answer, re.IGNORECASE)
-            for match in matches:
-                if match.group(1):
-                    line_refs.append(int(match.group(1)))
+        file_line_refs = re.findall(file_line_pattern, answer, re.IGNORECASE)
 
-        if not line_refs:
-            issues.append(ValidationIssue(
-                severity='warning',
-                issue_type='missing_line_numbers',
-                message='Answer contains no line number references for grounding'
-            ))
+        print(f"\n🔍 [DEBUG LINE_VALIDATION] Found {len(file_line_refs)} file+line references")
+        if file_line_refs:
+            print(f"   First 5 references: {file_line_refs[:5]}")
 
-        # Check if line numbers are within valid ranges
-        for file_path, summary in file_summaries.items():
-            max_lines = summary.get('line_count', 0)
-            for line_num in line_refs:
-                if line_num > max_lines:
+        if not file_line_refs:
+            # Fall back to checking if there are ANY line references (even without files)
+            line_pattern = r'line[s]?\s+\d+|L\d+|at\s+line\s+\d+'
+            if not re.search(line_pattern, answer, re.IGNORECASE):
+                issues.append(ValidationIssue(
+                    severity='warning',
+                    issue_type='missing_line_numbers',
+                    message='Answer contains no line number references for grounding'
+                ))
+            return issues
+
+        # Check if line numbers are within valid ranges for their specific files
+        invalid_count = 0
+        for file_path, line_num_str in file_line_refs:
+            line_num = int(line_num_str)
+
+            # Find the matching file in summaries (exact or partial match)
+            matching_file = None
+            if file_path in file_summaries:
+                matching_file = file_path
+            else:
+                # Try partial match
+                for summary_path in file_summaries.keys():
+                    if file_path in summary_path or summary_path in file_path:
+                        matching_file = summary_path
+                        break
+
+            if matching_file:
+                summary = file_summaries[matching_file]
+                max_lines = summary.get('line_count', 0)
+
+                if max_lines > 0 and line_num > max_lines:
                     issues.append(ValidationIssue(
                         severity='error',
                         issue_type='invalid_line_number',
                         message=f'Line {line_num} exceeds file length ({max_lines} lines)',
-                        file_path=file_path,
+                        file_path=matching_file,
                         line_number=line_num
                     ))
+                    invalid_count += 1
+
+        if invalid_count > 0:
+            print(f"   ❌ Found {invalid_count} invalid line numbers")
 
         return issues
 
@@ -185,11 +205,13 @@ class ValidationPipeline:
         """Validate file path references in answer"""
         issues = []
 
-        # Extract file paths from answer (basic pattern matching)
-        path_pattern = r'[\w/.-]+\.\w+'
+        # Extract file paths from answer - more restrictive pattern to avoid false positives
+        # Only match paths that look like actual file paths (start with directory, end with extension)
+        path_pattern = r'\b(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
         potential_paths = re.findall(path_pattern, answer)
 
         print(f"\n🔍 [DEBUG FILE_PATHS] Validating {len(potential_paths)} potential paths")
+        print(f"   Extracted paths: {potential_paths[:5]}{'...' if len(potential_paths) > 5 else ''}")
 
         valid_paths = set(file_summaries.keys())
 
@@ -632,8 +654,8 @@ Response:"""
 
     def _calculate_path_accuracy(self, answer: str, file_summaries: Dict[str, Any]) -> float:
         """Calculate accuracy of file path references"""
-        # Extract paths from answer
-        path_pattern = r'[\w/.-]+\.\w+'
+        # Extract paths from answer - use restrictive pattern to avoid false positives
+        path_pattern = r'\b(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
         mentioned_paths = re.findall(path_pattern, answer)
 
         # DEBUG: Show extracted paths
