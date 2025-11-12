@@ -113,7 +113,8 @@ class SynthesisPipeline:
                         'file_summaries': file_summaries,
                         'key_files': key_files
                     }
-                ).strip()
+                )
+                narrative = str(narrative).strip()
                 word_count = len(narrative.split())
             else:
                 # Fallback to old method
@@ -150,7 +151,9 @@ class SynthesisPipeline:
             )
 
         except Exception as e:
+            import traceback
             print(f"❌ [SYNTHESIS] Failed: {e}")
+            print(traceback.format_exc())
 
         # Return fallback result
         thresholds = self.config.get('agents', {}).get('thresholds', {})
