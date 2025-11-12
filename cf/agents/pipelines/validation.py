@@ -75,7 +75,11 @@ class ValidationPipeline:
             grounding_issues = self._validate_grounding(answer, file_summaries)
             issues.extend(grounding_issues)
 
-            # 4. Verify facts against actual code (anti-hallucination)
+            # 4. Check word count (narrative length)
+            word_count_issues = self._validate_word_count(answer)
+            issues.extend(word_count_issues)
+
+            # 5. Verify facts against actual code (anti-hallucination)
             fact_issues = self._verify_facts(answer, file_summaries)
             issues.extend(fact_issues)
 
@@ -145,11 +149,11 @@ class ValidationPipeline:
         issues = []
 
         # Extract file path + line number pairs from the narrative
-        # Pattern matches: "apps/foo/bar.py ... line 123" or "apps/foo/bar.py:123"
-        # We need to find line references that are associated with specific files
-        file_line_pattern = r'((?:apps|src|lib|tests?|cf)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt))[^\n]{0,200}?(?:line[s]?\s+|L|:)(\d+)'
+        # Pattern matches: "apps/foo/bar.py ... line 123" (can span multiple lines/paragraphs)
+        # Allow up to 500 chars between file path and line number (including newlines)
+        file_line_pattern = r'((?:apps|src|lib|tests?|cf)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)).{0,500}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
 
-        file_line_refs = re.findall(file_line_pattern, answer, re.IGNORECASE)
+        file_line_refs = re.findall(file_line_pattern, answer, re.IGNORECASE | re.DOTALL)
 
         print(f"\n🔍 [DEBUG LINE_VALIDATION] Found {len(file_line_refs)} file+line references")
         if file_line_refs:
@@ -259,6 +263,37 @@ class ValidationPipeline:
 
         return issues
 
+    def _validate_word_count(self, answer: str) -> List[ValidationIssue]:
+        """Validate narrative meets minimum word count requirement"""
+        issues = []
+
+        # Get synthesis config for target word count
+        synthesis_config = self.config.get('agents', {}).get('synthesis', {})
+        target_min = synthesis_config.get('target_narrative_min', 3000)
+
+        # Count words
+        word_count = len(answer.split())
+
+        # Require at least 83% of minimum target (2500 words for 3000 target)
+        min_acceptable = int(target_min * 0.83)
+
+        if word_count < min_acceptable:
+            issues.append(ValidationIssue(
+                severity='error',
+                issue_type='insufficient_word_count',
+                message=f'Narrative too short: {word_count} words (minimum: {min_acceptable}, target: {target_min})'
+            ))
+            print(f"\n⚠️  [VALIDATION] Word count below minimum: {word_count} < {min_acceptable}")
+        elif word_count < target_min:
+            # Warning if below target but above minimum threshold
+            issues.append(ValidationIssue(
+                severity='warning',
+                issue_type='below_target_word_count',
+                message=f'Narrative shorter than target: {word_count} words (target: {target_min})'
+            ))
+
+        return issues
+
     def _verify_facts(self, answer: str, file_summaries: Dict[str, Any]) -> List[ValidationIssue]:
         """
         Verify claims in the answer against actual code (anti-hallucination).
@@ -320,6 +355,15 @@ class ValidationPipeline:
         for claim in claims_to_verify:
             # Extract file path from claim (if present)
             path_match = re.search(r'([\w/.-]+\.py)', claim)
+
+            # If no file path in claim, look in context (previous 200 chars)
+            if not path_match:
+                claim_start = answer.find(claim)
+                if claim_start > 0:
+                    context_start = max(0, claim_start - 200)
+                    context = answer[context_start:claim_start]
+                    path_match = re.search(r'([\w/.-]+\.py)', context)
+
             if not path_match:
                 skipped_count += 1
                 continue
@@ -646,11 +690,18 @@ Response:"""
         if not sentences:
             return 0.0
 
-        # Count sentences with line references
-        line_pattern = r'line[s]?\s+\d+|L\d+|lines?\s+\d+-\d+'
-        sentences_with_lines = sum(1 for s in sentences if re.search(line_pattern, s, re.IGNORECASE))
+        # Count sentences with file+line pairs (not just "line 5" alone)
+        # This ensures proper grounding - line numbers must be associated with file paths
+        # Use a tighter window (200 chars) within sentence boundaries for better accuracy
+        file_line_pattern = r'(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt).{0,200}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
 
-        return sentences_with_lines / len(sentences)
+        sentences_with_grounded_lines = 0
+        for sentence in sentences:
+            # Check if this sentence contains a file+line pair
+            if re.search(file_line_pattern, sentence, re.IGNORECASE | re.DOTALL):
+                sentences_with_grounded_lines += 1
+
+        return sentences_with_grounded_lines / len(sentences)
 
     def _calculate_path_accuracy(self, answer: str, file_summaries: Dict[str, Any]) -> float:
         """Calculate accuracy of file path references"""
