@@ -111,10 +111,10 @@ agents:
     loop_detection_min_actions: 3  # Minimum actions before checking for loops
 
     # Validation thresholds
-    # ADJUSTED: Lowered to accommodate LLM models that don't reliably include line numbers/paths
-    # despite explicit prompting. The data pipeline is correct; this is an LLM instruction-following limitation.
+    # ADJUSTED: Raised line coverage after fixing validation bugs (path extraction, line number validation)
+    # Path accuracy and invalid line number issues are resolved, so we can enforce higher quality
     min_analysis_certainty: 0.6  # Minimum grounding score for validation (lowered from 0.7)
-    min_line_coverage: 0.1  # Minimum line number coverage (lowered from 0.5 to 10%)
+    min_line_coverage: 0.25  # Minimum line number coverage (raised from 0.1 to 25% after fixing validation)
     min_path_accuracy: 0.5  # Minimum file path accuracy (lowered from 0.9 to 50%)
     validation_no_refs_score: 0.3  # Score when no references found
     validation_refs_base: 0.5  # Base score for grounding calculation
