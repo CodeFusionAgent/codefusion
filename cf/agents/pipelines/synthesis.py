@@ -49,7 +49,7 @@ class SynthesisPipeline:
         )
 
     def synthesize(self, question: str, file_summaries: Dict[str, Any], insights: List[Dict[str, Any]],
-                   architectural_analysis=None) -> SynthesisResult:
+                   architectural_analysis=None, validation_issues: List[Dict[str, Any]] = None) -> SynthesisResult:
         """
         Generate final technical narrative
 
@@ -57,24 +57,46 @@ class SynthesisPipeline:
             question: User's question
             file_summaries: Analyzed file summaries
             insights: List of insights collected during analysis
+            architectural_analysis: Optional architectural analysis
+            validation_issues: Optional list of validation issues from previous attempt (for retry)
 
         Returns:
             SynthesisResult with narrative and metadata
         """
         try:
-            print("📝 [SYNTHESIS] Generating narrative...")
+            if validation_issues:
+                print(f"📝 [SYNTHESIS] Generating narrative (RETRY with {len(validation_issues)} validation issues)...")
+            else:
+                print("📝 [SYNTHESIS] Generating narrative...")
 
             start_time = time.time()
 
             # Get synthesis parameters from config
             synthesis_config = self.config.get('agents', {}).get('synthesis', {})
-            target_min = synthesis_config.get('target_narrative_min', 3000)
-            target_max = synthesis_config.get('target_narrative_max', 5000)
             max_files = synthesis_config.get('max_key_files_cited', 7)
             min_files = synthesis_config.get('min_key_files_cited', 3)
 
             # Select key files to cite (highest relevance)
             key_files = self._select_key_files(file_summaries, max_files)
+
+            # Calculate word count targets proportional to file count (NEW)
+            file_count = len(key_files)
+            words_per_file_min = synthesis_config.get('words_per_file_min', 400)
+            words_per_file_max = synthesis_config.get('words_per_file_max', 700)
+
+            # Proportional calculation
+            calculated_min = file_count * words_per_file_min
+            calculated_max = file_count * words_per_file_max
+
+            # Apply absolute limits
+            absolute_min = synthesis_config.get('target_narrative_min', 1200)
+            absolute_max = synthesis_config.get('target_narrative_max', 5000)
+
+            target_min = max(absolute_min, min(calculated_min, absolute_max))
+            target_max = min(absolute_max, max(calculated_max, absolute_min))
+
+            print(f"   Target word count: {target_min}-{target_max} words (for {file_count} files)")
+            print(f"   ({words_per_file_min}-{words_per_file_max} words per file)")
 
             # Classify question type for appropriate synthesis strategy
             question_type = 'standard'
@@ -82,6 +104,9 @@ class SynthesisPipeline:
                 classification = self.tiered_llm.classify_question(question)
                 question_type = classification.get('type', 'standard')
                 print(f"   Question type: {question_type} (confidence: {classification.get('confidence', 0):.2f})")
+
+            # Analyze cross-file relationships (NEW)
+            cross_file_relationships = self._analyze_cross_file_relationships(file_summaries)
 
             # Detect patterns from KB (NEW)
             detected_patterns = self._detect_patterns_from_kb(file_summaries)
@@ -101,7 +126,9 @@ class SynthesisPipeline:
                 target_max,
                 detected_patterns,
                 architectural_analysis,
-                execution_paths
+                execution_paths,
+                validation_issues,
+                cross_file_relationships
             )
 
             # Use tiered LLM for synthesis (advanced tier for quality)
@@ -183,7 +210,9 @@ class SynthesisPipeline:
                                 target_max: int,
                                 detected_patterns: List[Dict[str, Any]] = None,
                                 architectural_analysis=None,
-                                execution_paths: List[Dict[str, Any]] = None) -> str:
+                                execution_paths: List[Dict[str, Any]] = None,
+                                validation_issues: List[Dict[str, Any]] = None,
+                                cross_file_relationships: Dict[str, Any] = None) -> str:
         """Build prompt for synthesis"""
 
         # Prepare file summaries text
@@ -284,6 +313,36 @@ class SynthesisPipeline:
                 if len(steps) > 10:
                     paths_text += f"  ... ({len(steps) - 10} more steps)\n"
 
+        # Prepare cross-file relationships (NEW - Architectural context)
+        relationships_text = ""
+        if cross_file_relationships:
+            relationships_text = "\n\nCROSS-FILE ARCHITECTURE:\n"
+
+            shared = cross_file_relationships.get('shared_abstractions', [])
+            if shared:
+                relationships_text += "\nShared Abstractions (used across files):\n"
+                for abstraction in shared[:5]:
+                    name = abstraction.get('name', 'unknown')
+                    files = abstraction.get('files', [])
+                    relationships_text += f"  - {name}: used in {', '.join(files[:2])}\n"
+
+            deps = cross_file_relationships.get('dependencies', [])
+            if deps:
+                relationships_text += "\nComponent Dependencies:\n"
+                for dep in deps[:5]:
+                    from_file = dep.get('from', '')
+                    to_file = dep.get('to', '')
+                    rel_type = dep.get('relationship', '')
+                    relationships_text += f"  - {from_file} → {to_file} ({rel_type})\n"
+
+            flows = cross_file_relationships.get('data_flow', [])
+            if flows:
+                relationships_text += "\nData Flow Roles:\n"
+                for flow in flows[:5]:
+                    file = flow.get('file', '')
+                    role = flow.get('role', '')
+                    relationships_text += f"  - {file}: {role}\n"
+
         # Build list of valid file paths for the LLM to reference
         file_paths_list = "\n".join([f"  - {fp}" for fp in key_files])
 
@@ -291,6 +350,29 @@ class SynthesisPipeline:
         print(f"   [DEBUG SYNTHESIS] summaries_text snippet (first 500 chars):")
         print(f"   {summaries_text[:500]}")
         print(f"   [DEBUG SYNTHESIS] Total summaries_text length: {len(summaries_text)} chars")
+
+        # Prepare validation feedback (if this is a retry)
+        feedback_text = ""
+        if validation_issues:
+            feedback_text = "\n\n🚨 VALIDATION FEEDBACK FROM PREVIOUS ATTEMPT:\n"
+            feedback_text += "Your previous narrative had the following issues that MUST be fixed:\n\n"
+
+            # Group issues by type for clarity
+            errors = [issue for issue in validation_issues if issue.get('severity') == 'error']
+            warnings = [issue for issue in validation_issues if issue.get('severity') == 'warning']
+
+            if errors:
+                feedback_text += "CRITICAL ERRORS (must fix):\n"
+                for i, issue in enumerate(errors[:5], 1):  # Limit to 5 most important
+                    feedback_text += f"  {i}. {issue.get('message', 'Unknown error')}\n"
+
+            if warnings:
+                feedback_text += "\nWARNINGS (should fix):\n"
+                for i, issue in enumerate(warnings[:5], 1):
+                    feedback_text += f"  {i}. {issue.get('message', 'Unknown warning')}\n"
+
+            feedback_text += "\n⚠️  IMPORTANT: Address ALL errors above in your new narrative.\n"
+            feedback_text += "Pay special attention to word count and line number coverage requirements.\n\n"
 
         prompt = f"""Generate a comprehensive technical narrative answering this question:
 
@@ -309,7 +391,8 @@ INSIGHTS:
 {patterns_text}
 {arch_text}
 {paths_text}
-
+{relationships_text}
+{feedback_text}
 TASK: Write a detailed technical narrative that explains HOW the system works, not just WHAT it does.
 
 REQUIREMENTS:
@@ -331,9 +414,11 @@ CRITICAL REQUIREMENTS:
 - MUST explain HOW code works (algorithms, data flow, patterns)
 - MUST be technically accurate and grounded in analyzed code
 - MUST mention detected design patterns where relevant
+- MUST explain how files work TOGETHER (use Cross-File Architecture section above)
 - If execution paths are provided, MUST trace the flow step-by-step
 - AVOID generic statements without code references
 - AVOID just listing files without explaining their role
+- AVOID analyzing files in isolation - explain their relationships and interactions
 
 ⚠️  CRITICAL: When mentioning line numbers, ALWAYS include the file path in the SAME sentence.
     - Line numbers without file paths are INVALID and will fail validation
@@ -479,6 +564,152 @@ If >= 0.7, return empty missing_components array."""
             'missing_components': [],
             'reasoning': 'Evaluation unavailable'
         }
+
+    def _analyze_cross_file_relationships(self, file_summaries: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze relationships and data flow between files.
+
+        NEW: Provides architectural context beyond individual file analysis.
+        Identifies:
+        - Shared abstractions (classes/functions used across files)
+        - Dependencies and imports between files
+        - Data flow patterns
+        - Component interactions
+
+        This addresses the gap where individual file analysis misses the bigger picture.
+        """
+        if len(file_summaries) < 2:
+            return {}  # Need at least 2 files for cross-file analysis
+
+        relationships = {
+            'shared_abstractions': [],
+            'dependencies': [],
+            'data_flow': [],
+            'component_interactions': []
+        }
+
+        # Extract all entities (classes, functions) from all files
+        all_entities = {}
+        for file_path, summary in file_summaries.items():
+            if not isinstance(summary, dict):
+                continue
+
+            entities = []
+            # Collect classes
+            for cls in summary.get('classes', []):
+                if isinstance(cls, dict):
+                    entities.append({'type': 'class', 'name': cls.get('name', ''), 'file': file_path})
+
+            # Collect functions
+            for func in summary.get('functions', []):
+                if isinstance(func, dict):
+                    entities.append({'type': 'function', 'name': func.get('name', ''), 'file': file_path})
+
+            all_entities[file_path] = entities
+
+        # Identify shared abstractions (entities with similar names across files)
+        entity_names = {}
+        for file_path, entities in all_entities.items():
+            for entity in entities:
+                name = entity['name']
+                if name not in entity_names:
+                    entity_names[name] = []
+                entity_names[name].append({'file': file_path, 'type': entity['type']})
+
+        # Find entities referenced in multiple files (likely shared abstractions)
+        for name, references in entity_names.items():
+            if len(references) >= 2 or name.lower() in ['manager', 'service', 'controller', 'model', 'view', 'helper', 'utils']:
+                relationships['shared_abstractions'].append({
+                    'name': name,
+                    'occurrences': len(references),
+                    'files': [ref['file'] for ref in references[:3]]  # Limit to 3
+                })
+
+        # Infer dependencies based on file structure and naming patterns
+        file_paths = list(file_summaries.keys())
+        for i, file1 in enumerate(file_paths):
+            for file2 in file_paths[i+1:]:
+                # Check if files are in related directories (e.g., models and views, services and controllers)
+                if self._are_files_related(file1, file2):
+                    relationships['dependencies'].append({
+                        'from': file1,
+                        'to': file2,
+                        'relationship': self._infer_relationship_type(file1, file2)
+                    })
+
+        # Infer data flow based on common patterns
+        for file_path, summary in file_summaries.items():
+            if not isinstance(summary, dict):
+                continue
+
+            features = summary.get('key_features', [])
+            arch_insights = summary.get('architectural_insights', '')
+
+            # Look for data flow indicators
+            if any(keyword in str(features).lower() + arch_insights.lower()
+                   for keyword in ['processes', 'transforms', 'validates', 'filters', 'handles']):
+                relationships['data_flow'].append({
+                    'file': file_path,
+                    'role': self._infer_data_flow_role(features, arch_insights),
+                    'description': arch_insights[:150] if arch_insights else ''
+                })
+
+        print(f"   🔗 [SYNTHESIS] Cross-file analysis:")
+        print(f"      Shared abstractions: {len(relationships['shared_abstractions'])}")
+        print(f"      Dependencies: {len(relationships['dependencies'])}")
+        print(f"      Data flow nodes: {len(relationships['data_flow'])}")
+
+        return relationships
+
+    def _are_files_related(self, file1: str, file2: str) -> bool:
+        """Check if two files are likely related based on directory structure"""
+        # Common related patterns
+        patterns = [
+            ('model', 'view'), ('model', 'controller'),
+            ('service', 'controller'), ('repository', 'service'),
+            ('manager', 'model'), ('utils', 'helper'),
+            ('api', 'service'), ('handler', 'service')
+        ]
+
+        f1_lower = file1.lower()
+        f2_lower = file2.lower()
+
+        for pattern1, pattern2 in patterns:
+            if (pattern1 in f1_lower and pattern2 in f2_lower) or \
+               (pattern2 in f1_lower and pattern1 in f2_lower):
+                return True
+
+        return False
+
+    def _infer_relationship_type(self, file1: str, file2: str) -> str:
+        """Infer the type of relationship between two files"""
+        if 'model' in file1.lower() and 'view' in file2.lower():
+            return 'data-presentation'
+        elif 'service' in file1.lower() and 'controller' in file2.lower():
+            return 'business-logic-to-api'
+        elif 'repository' in file1.lower() and 'service' in file2.lower():
+            return 'data-access-to-service'
+        elif 'manager' in file1.lower():
+            return 'management-layer'
+        else:
+            return 'component-interaction'
+
+    def _infer_data_flow_role(self, features: List[str], arch_insights: str) -> str:
+        """Infer the role of a file in data flow"""
+        text = (str(features) + ' ' + arch_insights).lower()
+
+        if 'validates' in text or 'validation' in text:
+            return 'validation'
+        elif 'processes' in text or 'processing' in text:
+            return 'processing'
+        elif 'transforms' in text or 'transformation' in text:
+            return 'transformation'
+        elif 'filters' in text or 'filtering' in text:
+            return 'filtering'
+        elif 'manages' in text or 'management' in text:
+            return 'management'
+        else:
+            return 'data-handler'
 
     def _detect_patterns_from_kb(self, file_summaries: Dict[str, Any]) -> List[Dict[str, Any]]:
         """

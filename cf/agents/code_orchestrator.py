@@ -90,6 +90,7 @@ class CodeOrchestrator(BaseAgent):
         # Quality feedback loop config
         self.synthesis_retry_count = 0
         self.max_synthesis_retries = 2  # Max retries if validation fails
+        self.last_validation_issues = None  # Store validation issues for retry feedback
 
         # Question context from supervisor (LLM classification)
         self.question_context = {}  # Stores analysis_type and other metadata
@@ -129,6 +130,7 @@ class CodeOrchestrator(BaseAgent):
         self.actions_taken = []
         self.discovery_attempt = 0
         self.synthesis_retry_count = 0
+        self.last_validation_issues = None
 
         # Note: self.iteration is reset by BaseAgent.analyze()
         # Note: self.structural, self.path_map, and pipelines are preserved
@@ -632,10 +634,19 @@ class CodeOrchestrator(BaseAgent):
                 return "insufficient_data"
 
             # Generate narrative using synthesis pipeline
+            # Pass validation issues from previous attempt if this is a retry
+            validation_issues_for_llm = None
+            if self.last_validation_issues:
+                validation_issues_for_llm = [
+                    {'severity': i.severity, 'type': i.issue_type, 'message': i.message}
+                    for i in self.last_validation_issues
+                ]
+
             synthesis_result = self.synthesis.synthesize(
                 question,
                 self.file_summaries,
-                self.insights
+                self.insights,
+                validation_issues=validation_issues_for_llm
             )
 
             # Validate result
@@ -650,6 +661,9 @@ class CodeOrchestrator(BaseAgent):
                 print(f"⚠️ [ORCHESTRATOR] Validation failed (grounding: {validation_result.grounding_score:.1%})")
                 print(f"   Retrying synthesis (attempt {self.synthesis_retry_count + 1}/{self.max_synthesis_retries + 1})...")
                 print(f"   Issues: {len(validation_result.issues)} problems detected")
+
+                # Store validation issues for next retry attempt
+                self.last_validation_issues = validation_result.issues
 
                 # Clear previous results and retry
                 self.results = {}
