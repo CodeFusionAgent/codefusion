@@ -591,7 +591,27 @@ Response:"""
 
         valid_paths = set(file_summaries.keys())
 
-        # Count correct paths
-        correct = sum(1 for p in mentioned_paths if p in valid_paths)
+        # Count correct paths with fuzzy matching
+        correct = 0
+        for mentioned_path in mentioned_paths:
+            # Normalize path (remove leading ./ and normalize separators)
+            normalized_mention = mentioned_path.lstrip('./')
+
+            # Check exact match first
+            if normalized_mention in valid_paths:
+                correct += 1
+                continue
+
+            # Check if mentioned path is a suffix of any valid path
+            # (handles cases where LLM omits repo prefix)
+            if any(vp.endswith(normalized_mention) for vp in valid_paths):
+                correct += 1
+                continue
+
+            # Check if any valid path is a suffix of mentioned path
+            # (handles cases where LLM adds extra prefix)
+            if any(normalized_mention.endswith(vp) for vp in valid_paths):
+                correct += 1
+                continue
 
         return correct / len(mentioned_paths)
