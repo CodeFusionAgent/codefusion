@@ -8,6 +8,7 @@ All parameters are config-driven for maximum flexibility.
 import json
 import re
 import time
+import traceback
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
@@ -151,7 +152,6 @@ class SynthesisPipeline:
             )
 
         except Exception as e:
-            import traceback
             print(f"❌ [SYNTHESIS] Failed: {e}")
             print(traceback.format_exc())
 
