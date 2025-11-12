@@ -519,11 +519,14 @@ class StructuralPipeline:
                     paths = self.trace_execution_path(entry_point, max_depth=10, max_paths=5)
                     for path_info in paths:
                         for step in path_info.get('steps', []):
-                            file_path = step.get('metadata', {}).get('file_path')
-                            if file_path:
-                                # High relevance for execution flow files
-                                file_scores[file_path] = max(file_scores.get(file_path, 0), 0.9)
-                                file_paths.append(file_path)
+                            # Extract file_path from qualified_name (format: "path/to/file.py::function")
+                            qualified_name = step.get('qualified_name', '')
+                            if '::' in qualified_name:
+                                file_path = qualified_name.split('::')[0]
+                                if file_path:
+                                    # High relevance for execution flow files
+                                    file_scores[file_path] = max(file_scores.get(file_path, 0), 0.9)
+                                    file_paths.append(file_path)
                     print(f"✅ [KB_LIFEOFX] Found {len(paths)} execution paths")
             except Exception as e:
                 print(f"⚠️ [KB_LIFEOFX] Execution tracing failed: {e}")
