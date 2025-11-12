@@ -2,9 +2,10 @@
 """
 CodeFusion Evaluation Script
 
-Compares CodeFusion responses against reference answers using LLM as judge.
+Compares CodeFusion responses against reference answers using OpenAI as judge.
 """
 
+import openai
 import sys
 import yaml
 import json
@@ -12,7 +13,6 @@ import re
 from datetime import datetime
 
 from cf.configs.config_mgr import ConfigManager
-from cf.llm.client import LLMClient
 from langfuse import get_client
 
 langfuse = get_client()
@@ -20,7 +20,7 @@ langfuse = get_client()
 
 generationStartTime = datetime.now()
 
-# Function to evaluate using LLM (Judge)
+# Function to evaluate using OpenAI (Judge)
 def ask_openai_evaluation(question, reference_answer, response):
     # Set the evaluation prompt based on the tier and the response
     evaluation_prompt = f"""
@@ -42,11 +42,11 @@ def ask_openai_evaluation(question, reference_answer, response):
     4. **Grounding Score**: How factual and accurate is the response? Does it align with the reference answer if available and not N/A? (Score 0-5)
 
     Provide a detailed evaluation based on these criteria, and include the feedback and justification for each score. Be very strict in your evaluation. A high score needs to be backed by strong justification. Give your answer in the following JSON format (note: all scores should be integers, not strings):
-
+    
     {{
         "architecture_reasoning": {{
-            "score": "int",
-            "feedback": "Detailed feedback about architecture reasoning"
+            "score": "int", 
+            "feedback": "Detailed feedback about architecture reasoning" 
         }},
         "reasoning_consistency": {{
             "score": "int",
@@ -65,30 +65,25 @@ def ask_openai_evaluation(question, reference_answer, response):
     """
     config_mgr = ConfigManager("cf/configs/config.yaml")
     config = config_mgr.get_config()
-
-    # Use LLMClient with provider APIs instead of direct OpenAI SDK
-    llm_client = LLMClient(config.get("llm", {}))
-
-    system_prompt = "You are a senior software engineer with 10 years of experience in software development."
-
-    # Get temperature from config
+    # Send the prompt to OpenAI for evaluation
+    openai.api_key=config.get("llm", {}).get("api_key")
+    client = openai.OpenAI()
+    # Prepare parameters for the API call
+    params = {
+        "model": "gpt-4.1",
+        "messages": [
+            {"role": "system", "content": "You are a senior software engineer with 10 years of experience in software development."},
+            {"role": "user", "content": evaluation_prompt}
+        ]
+    }
+    
+    # Only add temperature if it's explicitly set in the config
     temperature = config.get("llm", {}).get("temperature")
-    kwargs = {}
     if temperature is not None:
-        kwargs["temperature"] = temperature
-
-    # Call LLM via provider API
-    result = llm_client.generate(
-        prompt=evaluation_prompt,
-        system_prompt=system_prompt,
-        model="gpt-4.1",
-        **kwargs
-    )
-
-    if not result.get('success'):
-        raise Exception(f"LLM evaluation failed: {result.get('error', 'Unknown error')}")
-
-    return result['content'].strip()
+        params["temperature"] = temperature
+    
+    response = client.chat.completions.create(**params)
+    return response.choices[0].message.content.strip()
 
 # Function to compare responses based on all criteria
 def compare_responses(question, reference_answer, claude_answer, codefusion_answer, claude_sonnet_answer, codewalk_answer=None):
