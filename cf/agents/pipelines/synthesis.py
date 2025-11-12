@@ -256,11 +256,17 @@ class SynthesisPipeline:
                 if len(steps) > 10:
                     paths_text += f"  ... ({len(steps) - 10} more steps)\n"
 
+        # Build list of valid file paths for the LLM to reference
+        file_paths_list = "\n".join([f"  - {fp}" for fp in key_files])
+
         prompt = f"""Generate a comprehensive technical narrative answering this question:
 
 QUESTION: "{question}"
 
 You have analyzed {len(file_summaries)} files and gathered the following insights:
+
+ANALYZED FILE PATHS (use these exact paths in your narrative):
+{file_paths_list}
 
 KEY FILES ANALYZED:
 {summaries_text}
@@ -274,10 +280,10 @@ INSIGHTS:
 TASK: Write a detailed technical narrative that explains HOW the system works, not just WHAT it does.
 
 REQUIREMENTS:
-1. Length: {target_min}-{target_max} words
+1. Length: MINIMUM {target_min} words (aim for {target_max} words for comprehensive coverage)
 2. Format: Markdown with clear sections
 3. Style: Educational "Life of X" narrative format
-4. Grounding: Include specific file paths and line number references
+4. Grounding: Include specific file paths and line number references in EVERY paragraph
 5. Depth: Explain HOW code works, not just WHAT it does
 6. Structure:
    - Start with overview/context
