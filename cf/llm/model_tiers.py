@@ -182,16 +182,20 @@ File: {file_path}
 {numbered_content}
 ```
 
-Provide a concise summary covering:
-1. Purpose and functionality
-2. Key classes/functions relevant to the question **WITH LINE NUMBERS** (e.g., "MyClass at line 45")
-3. Important dependencies or relationships
-4. Relevance to the user's question (1-10 scale)
+Extract key information and return as JSON:
 
-CRITICAL: When mentioning functions, classes, or code elements, ALWAYS include their line numbers.
-Format: "FunctionName (line X)" or "ClassName at line Y"
+{{
+    "key_features": ["feature1", "feature2", "feature3"],
+    "architectural_insights": "How this file fits into the architecture and what patterns it uses",
+    "relevance": "How this file relates to the question"
+}}
 
-Keep summary under 250 words."""
+REQUIREMENTS:
+1. key_features: 3-5 main features/responsibilities of this file
+2. architectural_insights: Brief paragraph about architecture, patterns, and design
+3. relevance: How this file relates to the user's question
+
+Return ONLY valid JSON, no additional text."""
 
         return self.generate(
             prompt=prompt,
