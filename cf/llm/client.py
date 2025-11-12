@@ -292,7 +292,7 @@ class LLMClient:
         params = {
             'model': model,
             'messages': messages,
-            'max_completion_tokens': kwargs.get('max_tokens', self.max_tokens),
+            'max_tokens': kwargs.get('max_tokens', self.max_tokens),
         }
 
         # Add temperature if specified
@@ -353,7 +353,7 @@ class LLMClient:
         params = {
             'model': deployment,  # Azure uses deployment name
             'messages': messages,
-            'max_completion_tokens': kwargs.get('max_tokens', self.max_tokens),
+            'max_tokens': kwargs.get('max_tokens', self.max_tokens),
         }
 
         # Add temperature if specified
