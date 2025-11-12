@@ -251,138 +251,208 @@ class CodeOrchestrator(BaseAgent):
 
         return "unknown_state"
 
+    def _detect_and_validate_language(self) -> tuple[str, bool]:
+        """
+        Detect repository language and check KB compatibility.
+
+        Returns:
+            Tuple of (primary_language, kb_compatible)
+        """
+        primary_language = self._detect_primary_language()
+
+        # Supported languages for KB structural analysis
+        supported_languages = {
+            'Python', 'JavaScript', 'TypeScript', 'Java',
+            'Go', 'Rust', 'C++', 'C#'
+        }
+
+        if primary_language:
+            print(f"🔍 [ORCHESTRATOR] Detected primary language: {primary_language}")
+
+            kb_compatible = primary_language in supported_languages
+
+            if kb_compatible:
+                if primary_language == 'Python':
+                    print(f"✅ [ORCHESTRATOR] KB supports {primary_language} (AST-based analysis)")
+                else:
+                    print(f"✅ [ORCHESTRATOR] KB supports {primary_language} (pattern-based analysis)")
+            else:
+                print(f"⚠️ [ORCHESTRATOR] KB structural analysis doesn't support {primary_language}")
+                print(f"   Will use file-based analysis only")
+
+            return primary_language, kb_compatible
+
+        return primary_language, False
+
+    def _check_kb_incremental_updates(self) -> int:
+        """
+        Check for and apply incremental KB updates.
+
+        Returns:
+            Number of files changed (0 if no updates)
+        """
+        kb_config = self.config.get('knowledge_base', {})
+        if not kb_config.get('incremental', {}).get('enabled', True):
+            return 0
+
+        print("🔄 [ORCHESTRATOR] Checking for file changes...")
+        update_stats = self.structural.update_knowledge_base()
+        changes = update_stats.get('changes', 0)
+
+        if changes > 0:
+            print(f"✅ [ORCHESTRATOR] KB updated: {changes} files changed")
+
+        return changes
+
+    def _initialize_structural_kb(self, kb_enabled: bool, auto_build: bool) -> bool:
+        """
+        Initialize the structural knowledge base pipeline.
+
+        Args:
+            kb_enabled: Whether KB is enabled for this language
+            auto_build: Whether to auto-build KB if it doesn't exist
+
+        Returns:
+            True if KB was successfully initialized
+        """
+        if not kb_enabled:
+            return False
+
+        try:
+            # Only create StructuralPipeline if not already initialized (critical for interactive mode!)
+            if self.structural is None:
+                print("🔍 [ORCHESTRATOR] Initializing structural knowledge base...")
+                self.structural = StructuralPipeline(self.repo_path, self.config)
+
+                # Register KB agent with tool registry (tool-first pattern)
+                kb_agent = StructuralKBAgent(kb=self.structural, config=self.config)
+                self.agent_registry.register(kb_agent)
+                print("✅ [ORCHESTRATOR] Registered StructuralKBAgent with tool registry")
+
+                if self.structural.is_kb_available():
+                    # Check if KB exists
+                    if self.structural.kb_exists():
+                        print("✅ [ORCHESTRATOR] Found existing KB")
+                        self._check_kb_incremental_updates()
+
+                        # Initialize enhanced layers after loading existing KB
+                        print("🔬 [ORCHESTRATOR] Initializing enhanced knowledge layers...")
+                        self.structural._build_enhanced_layers()
+                        return True
+
+                    elif auto_build:
+                        # Build KB for first time
+                        print("🏗️ [ORCHESTRATOR] Building KB for first time (progress bar will show ETA)...")
+                        build_result = self.structural.build_knowledge_base()
+
+                        if build_result.total_files > 0:
+                            print(f"✅ [ORCHESTRATOR] KB built: {build_result.total_files} files")
+                            return True
+                        else:
+                            print("⚠️ [ORCHESTRATOR] KB build returned 0 files")
+                    else:
+                        print("ℹ️ [ORCHESTRATOR] KB doesn't exist and auto_build is disabled")
+            else:
+                # StructuralPipeline already exists, just check for updates
+                print("✅ [ORCHESTRATOR] Using existing structural KB pipeline")
+                if self.structural.is_kb_available() and self.structural.kb_exists():
+                    self._check_kb_incremental_updates()
+                return True
+
+        except Exception as e:
+            print(f"⚠️ [ORCHESTRATOR] KB initialization failed: {e}")
+            print("   Falling back to non-KB mode")
+            self.structural = None
+
+        return False
+
+    def _scan_repository_structure(self) -> bool:
+        """
+        Scan repository structure and build path map.
+
+        Returns:
+            True if scan succeeded
+        """
+        # Scan repository structure (for path_map) - only if not already done
+        if not self.path_map:
+            print("🔍 [ORCHESTRATOR] Scanning repository structure...")
+            max_depth = self.config.get('repo', {}).get('max_scan_depth', 5)
+            scan_result = self.use_tool('scan_directory', max_depth=max_depth)
+
+            if scan_result.get('error'):
+                print(f"❌ [ORCHESTRATOR] Scan failed: {scan_result['error']}")
+                return False
+
+            # Build path map
+            for file_info in scan_result.get('files', []):
+                path = file_info.get('path', '')
+                self.path_map[path] = {
+                    'is_dir': file_info.get('type') == 'directory',
+                    'extension': file_info.get('extension', ''),
+                    'size': file_info.get('size', 0)
+                }
+        else:
+            print("✅ [ORCHESTRATOR] Using existing path map")
+
+        return True
+
+    def _initialize_pipelines(self):
+        """Initialize all analysis pipelines if not already created."""
+        if self.discovery is None:
+            self.discovery = DiscoveryPipeline(
+                self.repo_path,
+                self.config,
+                self.llm,
+                self.tools,
+                self.path_map,
+                tool_registry=self.tool_registry  # UPDATED - Pass tool registry (tool-first pattern)
+            )
+        if self.analysis is None:
+            self.analysis = AnalysisPipeline(
+                self.repo_path,
+                self.config,
+                self.llm,
+                self.tools,
+                self.cache,
+                tiered_llm=self.tiered_llm  # Pass tiered LLM manager
+            )
+        if self.validation is None:
+            self.validation = ValidationPipeline(
+                self.repo_path,
+                self.config,
+                self.tools,
+                llm_client=self.llm  # Pass LLM for fact verification
+            )
+        if self.synthesis is None:
+            self.synthesis = SynthesisPipeline(
+                self.repo_path,
+                self.config,
+                self.llm,
+                tiered_llm=self.tiered_llm  # Pass tiered LLM manager
+            )
+
     def _initialize_repository(self) -> str:
         """Initialize repository scan, path map, and knowledge base"""
         try:
             print("🔍 [ORCHESTRATOR] Initializing repository...")
 
-            # Detect repository language
-            primary_language = self._detect_primary_language()
-            if primary_language:
-                print(f"🔍 [ORCHESTRATOR] Detected primary language: {primary_language}")
-                if primary_language != 'Python':
-                    print(f"⚠️ [ORCHESTRATOR] KB structural analysis currently supports Python only")
-                    print(f"   Will use file-based analysis for {primary_language} code")
+            # Detect repository language and validate KB compatibility
+            primary_language, kb_compatible = self._detect_and_validate_language()
 
             # Check if KB is enabled
             kb_config = self.config.get('knowledge_base', {})
-            kb_enabled = kb_config.get('enabled', False) and primary_language == 'Python'
+            kb_enabled = kb_config.get('enabled', False) and kb_compatible
             auto_build = kb_config.get('build', {}).get('auto_build', True)
 
-            # Initialize structural KB pipeline if enabled
-            if kb_enabled:
-                try:
-                    # Only create StructuralPipeline if not already initialized (critical for interactive mode!)
-                    if self.structural is None:
-                        print("🔍 [ORCHESTRATOR] Initializing structural knowledge base...")
-                        self.structural = StructuralPipeline(self.repo_path, self.config)
+            # Initialize structural KB pipeline
+            self.kb_initialized = self._initialize_structural_kb(kb_enabled, auto_build)
 
-                        # Register KB agent with tool registry (tool-first pattern)
-                        kb_agent = StructuralKBAgent(kb=self.structural, config=self.config)
-                        self.agent_registry.register(kb_agent)
-                        print("✅ [ORCHESTRATOR] Registered StructuralKBAgent with tool registry")
+            # Scan repository structure
+            if not self._scan_repository_structure():
+                return "scan_failed"
 
-                        if self.structural.is_kb_available():
-                            # Check if KB exists
-                            if self.structural.kb_exists():
-                                print("✅ [ORCHESTRATOR] Found existing KB")
-
-                                # Check for incremental updates
-                                if kb_config.get('incremental', {}).get('enabled', True):
-                                    print("🔄 [ORCHESTRATOR] Checking for file changes...")
-                                    update_stats = self.structural.update_knowledge_base()
-
-                                    if update_stats.get('changes', 0) > 0:
-                                        print(f"✅ [ORCHESTRATOR] KB updated: {update_stats.get('changes', 0)} files changed")
-
-                                # Initialize enhanced layers after loading existing KB
-                                print("🔬 [ORCHESTRATOR] Initializing enhanced knowledge layers...")
-                                self.structural._build_enhanced_layers()
-
-                                self.kb_initialized = True
-                            elif auto_build:
-                                # Build KB for first time
-                                print("🏗️ [ORCHESTRATOR] Building KB for first time (this may take 60-90 min for large repos)...")
-                                build_result = self.structural.build_knowledge_base()
-
-                                if build_result.total_files > 0:
-                                    print(f"✅ [ORCHESTRATOR] KB built: {build_result.total_files} files")
-                                    self.kb_initialized = True
-                                else:
-                                    print("⚠️ [ORCHESTRATOR] KB build returned 0 files")
-                            else:
-                                print("ℹ️ [ORCHESTRATOR] KB doesn't exist and auto_build is disabled")
-                    else:
-                        # StructuralPipeline already exists, just check for updates
-                        print("✅ [ORCHESTRATOR] Using existing structural KB pipeline")
-                        if self.structural.is_kb_available() and self.structural.kb_exists():
-                            # Check for incremental updates
-                            if kb_config.get('incremental', {}).get('enabled', True):
-                                print("🔄 [ORCHESTRATOR] Checking for file changes...")
-                                update_stats = self.structural.update_knowledge_base()
-
-                                if update_stats.get('changes', 0) > 0:
-                                    print(f"✅ [ORCHESTRATOR] KB updated: {update_stats.get('changes', 0)} files changed")
-
-                except Exception as e:
-                    print(f"⚠️ [ORCHESTRATOR] KB initialization failed: {e}")
-                    print("   Falling back to non-KB mode")
-                    self.structural = None
-
-            # Scan repository structure (for path_map) - only if not already done
-            if not self.path_map:
-                print("🔍 [ORCHESTRATOR] Scanning repository structure...")
-                max_depth = self.config.get('repo', {}).get('max_scan_depth', 5)
-                scan_result = self.use_tool('scan_directory', max_depth=max_depth)
-
-                if scan_result.get('error'):
-                    print(f"❌ [ORCHESTRATOR] Scan failed: {scan_result['error']}")
-                    return "scan_failed"
-
-                # Build path map
-                for file_info in scan_result.get('files', []):
-                    path = file_info.get('path', '')
-                    self.path_map[path] = {
-                        'is_dir': file_info.get('type') == 'directory',
-                        'extension': file_info.get('extension', ''),
-                        'size': file_info.get('size', 0)
-                    }
-            else:
-                print("✅ [ORCHESTRATOR] Using existing path map")
-
-            # Initialize pipelines now that we have path_map and KB (only if not already created)
-            if self.discovery is None:
-                self.discovery = DiscoveryPipeline(
-                    self.repo_path,
-                    self.config,
-                    self.llm,
-                    self.tools,
-                    self.path_map,
-                    tool_registry=self.tool_registry  # UPDATED - Pass tool registry (tool-first pattern)
-                )
-            if self.analysis is None:
-                self.analysis = AnalysisPipeline(
-                    self.repo_path,
-                    self.config,
-                    self.llm,
-                    self.tools,
-                    self.cache,
-                    tiered_llm=self.tiered_llm  # Pass tiered LLM manager
-                )
-            if self.validation is None:
-                self.validation = ValidationPipeline(
-                    self.repo_path,
-                    self.config,
-                    self.tools,
-                    llm_client=self.llm  # Pass LLM for fact verification
-                )
-            if self.synthesis is None:
-                self.synthesis = SynthesisPipeline(
-                    self.repo_path,
-                    self.config,
-                    self.llm,
-                    tiered_llm=self.tiered_llm  # Pass tiered LLM manager
-                )
+            # Initialize pipelines now that we have path_map and KB
+            self._initialize_pipelines()
 
             print(f"✅ [ORCHESTRATOR] Found {len(self.path_map)} paths")
 
