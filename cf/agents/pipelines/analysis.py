@@ -284,7 +284,17 @@ class AnalysisPipeline:
         """
         try:
             content = file_result.get('content', '')
-            structure = file_result.get('structure', {})
+            structure_analysis = file_result.get('structure_analysis', {})
+
+            # Transform components into functions and classes with line numbers
+            components = structure_analysis.get('components', [])
+            functions = [c for c in components if c.get('type') == 'function']
+            classes = [c for c in components if c.get('type') == 'class']
+            structure = {
+                'functions': functions,
+                'classes': classes,
+                'dependencies': structure_analysis.get('imports', [])
+            }
 
             # Truncate very large files
             max_content_length = self.config.get('agents', {}).get('thresholds', {}).get('max_file_content_length', 3000)

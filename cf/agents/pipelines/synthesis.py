@@ -192,13 +192,15 @@ class SynthesisPipeline:
                 summaries_text += f"Key Features: {', '.join(summary.get('key_features', []))}\n"
                 summaries_text += f"Architecture: {summary.get('architectural_insights', '')}\n"
 
-                # Include function/class info
+                # Include function/class info with line numbers
                 functions = summary.get('functions', [])
                 classes = summary.get('classes', [])
                 if functions:
-                    summaries_text += f"Functions: {', '.join([f.get('name', '') for f in functions[:5]])}\n"
+                    func_refs = [f"{f.get('name', '')} (line {f.get('line', '?')})" for f in functions[:5]]
+                    summaries_text += f"Functions: {', '.join(func_refs)}\n"
                 if classes:
-                    summaries_text += f"Classes: {', '.join([c.get('name', '') for c in classes[:5]])}\n"
+                    class_refs = [f"{c.get('name', '')} (line {c.get('line', '?')})" for c in classes[:5]]
+                    summaries_text += f"Classes: {', '.join(class_refs)}\n"
 
                 # Include test information if available (test-aware analysis)
                 test_info = summary.get('test_info', {})
@@ -286,13 +288,21 @@ REQUIREMENTS:
 
 CRITICAL REQUIREMENTS:
 - MUST include specific file paths (e.g., "src/auth/models.py")
-- MUST include line number references (e.g., "at line 123")
+- MUST include line number references (e.g., "at line 123", "on line 45", "lines 100-150")
 - MUST explain HOW code works (algorithms, data flow, patterns)
 - MUST be technically accurate and grounded in analyzed code
 - MUST mention detected design patterns where relevant
 - If execution paths are provided, MUST trace the flow step-by-step
 - AVOID generic statements without code references
 - AVOID just listing files without explaining their role
+
+REQUIRED FORMAT EXAMPLES:
+✅ GOOD: "The authentication flow starts in cf/auth/login.py at line 45 where the login() function validates credentials."
+✅ GOOD: "The UserModel class (cf/models/user.py, line 23) defines the data schema with fields for username and email."
+❌ BAD: "The authentication flow handles user login."
+❌ BAD: "The UserModel class defines the user data structure."
+
+Every major statement about code MUST reference the specific file path and line number where that code exists.
 
 Generate the narrative now:"""
 
