@@ -136,8 +136,19 @@ class TieredLLMManager:
         self.usage_stats[tier_name]['calls'] += 1
         self.usage_stats[tier_name]['time'] += elapsed
 
-        # Estimate tokens (rough approximation)
-        estimated_tokens = len(prompt.split()) + len(response.split())
+        # Estimate tokens (rough approximation) with safe coercion
+        try:
+            prompt_str = str(prompt)
+            if isinstance(response, dict):
+                # Prefer textual content if available; else serialize
+                resp_raw = response.get('content') if 'content' in response else response
+                response_str = resp_raw if isinstance(resp_raw, str) else str(resp_raw)
+            else:
+                response_str = str(response)
+            estimated_tokens = len(prompt_str.split()) + len(response_str.split())
+        except Exception:
+            estimated_tokens = len(str(prompt).split())
+
         self.usage_stats[tier_name]['tokens'] += estimated_tokens
 
         return response
@@ -227,11 +238,13 @@ Return JSON only:
             max_tokens=200
         )
 
-        # Parse JSON response
+        # Parse JSON response (accept dict or string)
         import json
+        if isinstance(response, dict):
+            return response
         try:
-            return json.loads(response)
-        except json.JSONDecodeError:
+            return json.loads(str(response))
+        except Exception:
             # Fallback classification
             return {
                 'type': 'standard',
@@ -284,11 +297,13 @@ Return JSON only:
             max_tokens=150
         )
 
-        # Parse JSON response
+        # Parse JSON response (accept dict or string)
         import json
+        if isinstance(response, dict):
+            return response
         try:
-            return json.loads(response)
-        except json.JSONDecodeError:
+            return json.loads(str(response))
+        except Exception:
             # Fallback heuristics
             if len(insights) < 2 and pass_num < max_passes:
                 return {'action': 'retry', 'confidence': 0.7, 'reasoning': 'Too few insights'}
@@ -334,12 +349,17 @@ Context:
 
 Provide a comprehensive, well-structured answer that directly addresses the question."""
 
-        return self.generate(
+        response = self.generate(
             prompt=prompt,
             tier=ModelTier.ADVANCED,
             temperature=0.4,
             max_tokens=2000
         )
+        # Coerce to string for downstream usage
+        if isinstance(response, dict):
+            content = response.get('content') if 'content' in response else None
+            return content if isinstance(content, str) else str(response)
+        return str(response)
 
     def _format_insights_summary(self, insights: List[Dict]) -> str:
         """Format insights for coordination decision"""

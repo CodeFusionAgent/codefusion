@@ -514,16 +514,17 @@ class FallbackStrategy(DiscoveryStrategy):
             thresholds = self.config.get('agents', {}).get('thresholds', {})
             minimal_relevance = thresholds.get('minimal_relevance', 0.5)
 
-            # Get source code extensions from config
+            # Get source code extensions from config and normalize (strip leading dot)
             repo_config = self.config.get('repo', {})
-            source_extensions = set(repo_config.get('source_code_extensions', []))
+            cfg_exts = repo_config.get('source_code_extensions', [])
+            source_extensions = set(e.lstrip('.').lower() for e in cfg_exts)
 
             for path, metadata in self.path_map.items():
                 if metadata.get('is_dir'):
                     continue
 
-                # Check if it's a source file
-                ext = path.split('.')[-1] if '.' in path else ''
+                # Check if it's a source file (normalize ext without leading dot)
+                ext = path.rsplit('.', 1)[-1].lower() if '.' in path else ''
                 if ext in source_extensions:
                     candidates.append(FileCandidate(
                         path=path,
