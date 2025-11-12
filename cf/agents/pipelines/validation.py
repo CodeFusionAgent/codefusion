@@ -76,7 +76,7 @@ class ValidationPipeline:
             issues.extend(grounding_issues)
 
             # 4. Check word count (narrative length)
-            word_count_issues = self._validate_word_count(answer)
+            word_count_issues = self._validate_word_count(answer, file_summaries)
             issues.extend(word_count_issues)
 
             # 5. Verify facts against actual code (anti-hallucination)
@@ -263,33 +263,45 @@ class ValidationPipeline:
 
         return issues
 
-    def _validate_word_count(self, answer: str) -> List[ValidationIssue]:
-        """Validate narrative meets minimum word count requirement"""
+    def _validate_word_count(self, answer: str, file_summaries: Dict[str, Any]) -> List[ValidationIssue]:
+        """Validate narrative meets minimum word count requirement (proportional to file count)"""
         issues = []
 
         # Get synthesis config for target word count
         synthesis_config = self.config.get('agents', {}).get('synthesis', {})
-        target_min = synthesis_config.get('target_narrative_min', 3000)
+
+        # Calculate proportional word count based on file count (same logic as synthesis)
+        file_count = len(file_summaries)
+        words_per_file_min = synthesis_config.get('words_per_file_min', 400)
+
+        # Proportional calculation
+        calculated_min = file_count * words_per_file_min
+
+        # Apply absolute limits
+        absolute_min = synthesis_config.get('target_narrative_min', 1200)
+        absolute_max = synthesis_config.get('target_narrative_max', 5000)
+
+        target_min = max(absolute_min, min(calculated_min, absolute_max))
 
         # Count words
         word_count = len(answer.split())
 
-        # Require at least 83% of minimum target (2500 words for 3000 target)
+        # Require at least 83% of minimum target
         min_acceptable = int(target_min * 0.83)
 
         if word_count < min_acceptable:
             issues.append(ValidationIssue(
                 severity='error',
                 issue_type='insufficient_word_count',
-                message=f'Narrative too short: {word_count} words (minimum: {min_acceptable}, target: {target_min})'
+                message=f'Narrative too short: {word_count} words (minimum: {min_acceptable}, target: {target_min} for {file_count} files)'
             ))
-            print(f"\n⚠️  [VALIDATION] Word count below minimum: {word_count} < {min_acceptable}")
+            print(f"\n⚠️  [VALIDATION] Word count below minimum: {word_count} < {min_acceptable} (for {file_count} files)")
         elif word_count < target_min:
             # Warning if below target but above minimum threshold
             issues.append(ValidationIssue(
                 severity='warning',
                 issue_type='below_target_word_count',
-                message=f'Narrative shorter than target: {word_count} words (target: {target_min})'
+                message=f'Narrative shorter than target: {word_count} words (target: {target_min} for {file_count} files)'
             ))
 
         return issues
@@ -537,7 +549,8 @@ class ValidationPipeline:
             # Use repo tools to read file
             result = self.repo_tools.execute('read_file', file_path=file_path)
 
-            if not result.get('success'):
+            # Check for errors or missing content (read_file returns {'content': ..., 'file_path': ...} on success)
+            if 'error' in result or 'content' not in result:
                 return None
 
             content = result.get('content', '')
@@ -690,18 +703,34 @@ Response:"""
         if not sentences:
             return 0.0
 
-        # Count sentences with file+line pairs (not just "line 5" alone)
-        # This ensures proper grounding - line numbers must be associated with file paths
-        # Use a tighter window (200 chars) within sentence boundaries for better accuracy
-        file_line_pattern = r'(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt).{0,200}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        # Find all file+line pairs in the entire answer (may span sentences due to markdown formatting)
+        # Use same pattern as validation for consistency
+        file_line_pattern = r'(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt).{0,500}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        file_line_matches = list(re.finditer(file_line_pattern, answer, re.IGNORECASE | re.DOTALL))
 
-        sentences_with_grounded_lines = 0
+        if not file_line_matches:
+            return 0.0
+
+        # Build sentence boundaries (character positions in answer)
+        sentence_boundaries = []
+        pos = 0
         for sentence in sentences:
-            # Check if this sentence contains a file+line pair
-            if re.search(file_line_pattern, sentence, re.IGNORECASE | re.DOTALL):
-                sentences_with_grounded_lines += 1
+            start = answer.find(sentence, pos)
+            if start != -1:
+                end = start + len(sentence)
+                sentence_boundaries.append((start, end))
+                pos = end
 
-        return sentences_with_grounded_lines / len(sentences)
+        # Count how many sentences contain at least one file+line reference
+        sentences_with_lines = set()
+        for match in file_line_matches:
+            match_pos = match.start()
+            for i, (start, end) in enumerate(sentence_boundaries):
+                if start <= match_pos < end:
+                    sentences_with_lines.add(i)
+                    break
+
+        return len(sentences_with_lines) / len(sentences)
 
     def _calculate_path_accuracy(self, answer: str, file_summaries: Dict[str, Any]) -> float:
         """Calculate accuracy of file path references"""
