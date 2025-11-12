@@ -57,6 +57,20 @@ class SupervisorAgent(BaseAgent):
         # Multi-pass coordinator handles: pass_number, attempts, context_sharing, etc.
         # No need to track these separately anymore
 
+        # Backward-compatibility shim for existing SupervisorAgent logic that still
+        # references pass-related attributes directly (pending full migration to
+        # MultiPassCoordinator). These ensure attributes exist to prevent AttributeError.
+        self.pass_config = {'standard': {'max_passes': 3}, 'summary': {'max_passes': 2}}
+        self.pass_number = 1
+        self.current_pass_attempt = 1
+        self.max_pass_attempts = 3
+        self.agents_completed = []
+        self.specialist_results = {}
+        self.all_insights = []
+        self.pass_results = {}
+        self.all_passes_complete = False
+        self.context_sharing_decision = False
+
         # Cache is already initialized by BaseAgent.__init__()
         # Just track if it's enabled for checking later
         self.cache_enabled = self.config.get('cache', {}).get('enabled', True)

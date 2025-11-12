@@ -11,7 +11,8 @@ import time
 import requests
 from typing import Dict, List, Any, Optional, Callable
 import traceback
-
+import hashlib
+import random
 from cf.trace.tracer import trace_method
 
 
@@ -32,6 +33,9 @@ class LLMClient:
         # Per-model configurations
         self.model_configs = llm_config.get('models', {})
 
+        # Tiered models (fast/standard/advanced) for auto-selection when model is not specified
+        self.tiers = llm_config.get('tiers', {})
+
         # Backward compatibility: support old config format
         self.model = llm_config.get('model')
         self.api_key = llm_config.get('api_key')
@@ -39,6 +43,15 @@ class LLMClient:
         # Initialize tracer if available
         self.tracer = None
         self.session_id = None
+
+    def _get_tier_model(self, tier_name: str) -> Optional[str]:
+        """Get model configured for a given tier (e.g., 'fast', 'standard', 'advanced')."""
+        try:
+            tier_cfg = self.tiers.get(tier_name, {})
+            model = tier_cfg.get('model')
+            return model
+        except Exception:
+            return None
 
     def _get_model_config(self, model_name: str) -> Dict[str, Any]:
         """
@@ -405,7 +418,13 @@ class LLMClient:
             Response dict with content, usage, duration, etc.
         """
         start_time = time.time()
-        model_name = model or self.model
+        # Resolve model: explicit arg > configured default > STANDARD tier > any configured model
+        model_name = model or self.model or self._get_tier_model('standard')
+        if not model_name:
+            # Fallback: pick the first configured model if available
+            model_name = next(iter(self.model_configs.keys()), None)
+        if not model_name:
+            raise ValueError("No model specified and no tier/configured models available. Configure llm.tiers.standard.model or pass model explicitly.")
 
         try:
             messages = []
@@ -487,8 +506,13 @@ class LLMClient:
         Returns:
             Response dict with content, usage, duration, etc.
         """
-        # Use provided model or try to detect fast model from tier config
-        fast_model = model or self.model
+        # Use provided model or FAST tier model by default (do not require llm.model)
+        fast_model = model or self._get_tier_model('fast') or self.model
+        if not fast_model:
+            # As a last resort, try STANDARD tier
+            fast_model = self._get_tier_model('standard') or next(iter(self.model_configs.keys()), None)
+        if not fast_model:
+            raise ValueError("No fast/standard model configured. Set llm.tiers.fast.model or pass model explicitly.")
 
         # Delegate to generate() which handles per-model config
         return self.generate(prompt, system_prompt, model=fast_model, **kwargs)
@@ -518,3 +542,38 @@ class LLMClient:
             'retry_delay': self.retry_delay,
             'use_exponential_backoff': self.use_exponential_backoff
         }
+
+    def embed_text(self, text: str, model: Optional[str] = None) -> Dict[str, Any]:
+        """Return a deterministic local embedding vector for the given text.
+
+        This prevents failures when semantic cache requests embeddings and no
+        external embedding API is configured. It's a lightweight fallback using
+        a hash-seeded pseudo-random generator to produce stable vectors.
+
+        Args:
+            text: Input text to embed
+            model: Optional embedding model name (ignored for local fallback)
+
+        Returns:
+            Dict with 'success' and 'embedding' (list[float])
+        """
+        try:
+
+            # Produce a stable seed from text
+            seed_int = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
+            rng = random.Random(seed_int)
+
+            # Generate a 128-dim vector with values in [-1, 1]
+            dim = 128
+            embedding = [rng.uniform(-1.0, 1.0) for _ in range(dim)]
+
+            return {
+                'success': True,
+                'embedding': embedding,
+                'model': model or 'local-fallback-embedding-128d'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }

@@ -1,5 +1,4 @@
 # CodeFusion Configuration
-
 # LLM Settings
 llm:
   # Global LLM settings (defaults for all models)
@@ -7,25 +6,23 @@ llm:
   max_retries: 3  # Number of retry attempts for API calls (429, 5xx errors)
   retry_delay_seconds: 2  # Initial delay between retries
   use_exponential_backoff: true  # Use exponential backoff (2s, 4s, 8s, ...)
-
   # Multi-Model Tiered Strategy
   # FAST tier: Cheapest, fastest for simple tasks (file summaries, classification)
   # STANDARD tier: Balanced for most tasks (general analysis, moderate reasoning)
   # ADVANCED tier: Best quality for complex reasoning (final synthesis, deep reasoning)
   tiers:
     fast:
-      model: "claude-3-5-haiku-20241022"  # Anthropic - $0.25/1M tokens
+      model: "gpt-4.1-mini"  # Anthropic - $0.25/1M tokens
       use_cases: ["file_summaries", "classification", "coordination"]
       cost_per_1m: 0.25
     standard:
-      model: "gpt-4o"  # Azure OpenAI or standard OpenAI
+      model: "gpt-4.1-mini"  # Azure OpenAI or standard OpenAI
       use_cases: ["general_analysis", "moderate_reasoning"]
       cost_per_1m: 2.50
     advanced:
-      model: "claude-sonnet-4-5"  # Anthropic - $3.00/1M tokens
+      model: "gpt-5"  # Anthropic - $3.00/1M tokens
       use_cases: ["final_synthesis", "deep_reasoning"]
       cost_per_1m: 3.00
-
   # Per-Model Configurations
   # Each model can have its own endpoint, API keys, and provider-specific settings
   models:
@@ -36,7 +33,6 @@ llm:
       deployment: "gpt-4o"  # Your Azure deployment name
       subscription_key: ""  # Or set AZURE_OPENAI_API_KEY env var
       api_version: "2024-02-15-preview"
-
     gpt-5:
       provider: "azure"
       endpoint: "https://arune-mfpva4eo-eastus2.cognitiveservices.azure.com/"
@@ -44,7 +40,6 @@ llm:
       deployment: "gpt-5"
       subscription_key: ""  # Set via AZURE_OPENAI_API_KEY environment variable
       api_version: "2025-01-01-preview"
-
     gpt-4.1:
       provider: "azure"
       endpoint: "https://ai-arunesh8579ai720415905130.cognitiveservices.azure.com/"
@@ -52,7 +47,13 @@ llm:
       deployment: "gpt-4.1"
       subscription_key: ""  # Set via environment variable
       api_version: "2024-12-01-preview"
-
+    gpt-4.1-mini:
+      provider: "azure"
+      endpoint: "https://arune-mfpva4eo-eastus2.openai.azure.com/"
+      subscription_key: ""
+      model_name: "gpt-4.1-mini"
+      deployment: "gpt-4.1-mini"
+      api_version: "2025-01-01-preview"
     # Anthropic Models
     claude-3-5-haiku-20241022:
       provider: "anthropic"
@@ -296,8 +297,6 @@ repo:
     - "venv"
     - "build"
     - "dist"
-    - "test"
-    - "tests"
     - "spec"
   excluded_extensions:
     - ".pyc"
