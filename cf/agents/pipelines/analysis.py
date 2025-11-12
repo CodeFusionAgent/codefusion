@@ -361,6 +361,17 @@ class AnalysisPipeline:
                 cached=False
             )
 
+            # DEBUG: Show what structure data we have
+            print(f"   [DEBUG] {file_path}")
+            print(f"   [DEBUG]   Functions count: {len(structure.get('functions', []))}")
+            if structure.get('functions'):
+                sample_func = structure['functions'][0]
+                print(f"   [DEBUG]   Sample function: {sample_func}")
+            print(f"   [DEBUG]   Classes count: {len(structure.get('classes', []))}")
+            if structure.get('classes'):
+                sample_class = structure['classes'][0]
+                print(f"   [DEBUG]   Sample class: {sample_class}")
+
             return summary, llm_metrics
 
         except Exception as e:
