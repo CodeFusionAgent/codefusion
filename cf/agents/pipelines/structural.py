@@ -747,11 +747,17 @@ class StructuralPipeline:
         keywords = entry_point.lower().split()
 
         try:
-            # Search for matching functions
+            # Search for matching functions (exclude test files)
             for keyword in keywords:
                 result = self.kb.search_by_name(keyword, self.repo_id, node_type='Function')
                 for node in result.nodes:
                     qualified_name = node.get('qualified_name')
+                    file_path = node.get('file_path', '')
+
+                    # Skip test files - prioritize implementation code
+                    if self._is_test_file(file_path):
+                        continue
+
                     if qualified_name and qualified_name not in resolved:
                         resolved.append(qualified_name)
 
@@ -760,8 +766,24 @@ class StructuralPipeline:
                 result = self.kb.search_by_name(keyword, self.repo_id, node_type='Class')
                 for node in result.nodes:
                     qualified_name = node.get('qualified_name')
+                    file_path = node.get('file_path', '')
+
+                    # Skip test files
+                    if self._is_test_file(file_path):
+                        continue
+
                     if qualified_name and qualified_name not in resolved:
                         resolved.append(qualified_name)
+
+            # If no non-test results, fall back to including tests
+            if not resolved:
+                print("   ⚠️ [KB_LIFEOFX] No non-test matches found, including test files")
+                for keyword in keywords:
+                    result = self.kb.search_by_name(keyword, self.repo_id, node_type='Function')
+                    for node in result.nodes:
+                        qualified_name = node.get('qualified_name')
+                        if qualified_name and qualified_name not in resolved:
+                            resolved.append(qualified_name)
 
             # Sort by relevance - prefer exact matches
             def relevance_score(qname):
@@ -781,6 +803,17 @@ class StructuralPipeline:
             print(f"⚠️ [KB_LIFEOFX] Entry point resolution failed: {e}")
 
         return resolved[:10]  # Return top 10 matches
+
+    def _is_test_file(self, file_path: str) -> bool:
+        """Check if a file path is a test file"""
+        if not file_path:
+            return False
+        path_lower = file_path.lower()
+        return ('test' in path_lower or
+                '/tests/' in path_lower or
+                path_lower.startswith('test') or
+                '_test.' in path_lower or
+                '.test.' in path_lower)
 
     def _analyze_question(self, question: str, llm_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
