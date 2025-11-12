@@ -8,8 +8,6 @@ Extracted from SupervisorAgent for better maintainability and testability.
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 
-from cf.utils.llm_parser import LLMResponseParser
-
 
 @dataclass
 class PassState:
@@ -166,6 +164,8 @@ Provide JSON response:
 
         # Get LLM decision
         try:
+            from cf.utils.llm_parser import LLMResponseParser
+
             llm_response = self.llm_callback(prompt, "You are analyzing multi-pass coordination. Return JSON only.")
 
             result = LLMResponseParser.safe_parse_llm_response(
