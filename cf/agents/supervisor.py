@@ -9,11 +9,19 @@ import time
 import json
 import hashlib
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
+# CodeFusion imports - all at top per PEP 8
 from cf.agents.base import BaseAgent
 from cf.agents.multi_pass_coordinator import MultiPassCoordinator
+from cf.agents.registry import AgentRegistry
+from cf.agents.code_orchestrator import CodeOrchestrator
+from cf.agents.docs import DocsAgent
+from cf.agents.web import WebAgent
 from cf.cache.semantic import SemanticCache
+from cf.llm.model_tiers import TieredLLMManager, ModelTier
+from cf.tools.registry import ToolRegistry
 
 
 class SupervisorAgent(BaseAgent):
@@ -24,8 +32,6 @@ class SupervisorAgent(BaseAgent):
     def __init__(self, repo_path: str, config: Dict[str, Any]):
         # Initialize shared tool/agent registry BEFORE calling super().__init__
         # so that supervisor and all specialist agents share the same registry
-        from cf.tools.registry import ToolRegistry
-        from cf.agents.registry import AgentRegistry
         self._agent_registry = AgentRegistry()
         self._shared_tool_registry = ToolRegistry(repo_path, agent_registry=self._agent_registry)
 
@@ -88,7 +94,6 @@ class SupervisorAgent(BaseAgent):
         else:
             # Fallback: initialize tiered LLM if not available
             try:
-                from cf.llm.model_tiers import TieredLLMManager
                 tiered_llm = TieredLLMManager(self.config)
             except Exception:
                 # If tiered LLM fails, use code agent as safe fallback (docs and web disabled)
@@ -119,7 +124,6 @@ Return JSON confirming code agent will handle this:
 """
 
         try:
-            from cf.llm.model_tiers import ModelTier
             response = tiered_llm.generate(
                 prompt=prompt,
                 tier=ModelTier.FAST,
@@ -128,8 +132,6 @@ Return JSON confirming code agent will handle this:
             )
 
             # Parse JSON response
-            from cf.utils.llm_parser import LLMResponseParser
-
             result = LLMResponseParser.extract_json(response, fallback={'agents': ['code']})
             selected_agents = result.get('agents', ['code'])
             reasoning = result.get('reasoning', '')
@@ -244,7 +246,6 @@ Return JSON confirming code agent will handle this:
             if not self._code_agent:
                 # Always use pipeline architecture (CodeOrchestrator)
                 # Pass shared registries for cross-agent tool usage (no duplication!)
-                from cf.agents.code_orchestrator import CodeOrchestrator
                 self._code_agent = CodeOrchestrator(
                     self.repo_path,
                     self.config,
@@ -264,14 +265,12 @@ Return JSON confirming code agent will handle this:
         elif agent_type == 'docs':
             if not self._docs_agent:
                 # Pass shared tool registry for cross-agent tool usage
-                from cf.agents.docs import DocsAgent
                 self._docs_agent = DocsAgent(self.repo_path, self.config,
                                               tool_registry=self._shared_tool_registry)
             return self._docs_agent.analyze(question)
         elif agent_type == 'web':
             if not self._web_agent:
                 # Pass shared tool registry for cross-agent tool usage
-                from cf.agents.web import WebAgent
                 self._web_agent = WebAgent(self.repo_path, self.config,
                                             tool_registry=self._shared_tool_registry)
             return self._web_agent.analyze(question)
@@ -530,7 +529,6 @@ The Architecture & Flow section should be particularly rich - it's the heart of 
                 
                 # Try to parse JSON response
                 try:
-                    from cf.utils.llm_parser import LLMResponseParser
 
                     synthesis = LLMResponseParser.extract_json(content)
                     if synthesis:
@@ -638,7 +636,6 @@ Return JSON format only."""
             llm_response = self.call_llm(prompt, system_prompt)
             
             if llm_response.get('success'):
-                from cf.utils.llm_parser import LLMResponseParser
 
                 result = LLMResponseParser.extract_json_with_validation(
                     llm_response.get('content', ''),
@@ -787,7 +784,6 @@ Return JSON format only."""
             llm_response = self.call_llm(prompt, system_prompt)
             
             if llm_response.get('success'):
-                from cf.utils.llm_parser import LLMResponseParser
 
                 analysis = LLMResponseParser.extract_json(
                     llm_response.get('content', ''),

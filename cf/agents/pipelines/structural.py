@@ -16,12 +16,15 @@ Enables production-scale analysis:
 import os
 import time
 import hashlib
+import json
+import subprocess
 import concurrent.futures
 from typing import Dict, List, Any, Optional, Set
 from pathlib import Path
 
 from cf.knowledge.structural.schema import StructuralData, BuildResult, QueryResult
 from cf.knowledge.structural.ast_parser import PythonASTParser
+from cf.knowledge.structural.multi_lang_parser import MultiLanguageParser
 from cf.knowledge.structural.neo4j_client import Neo4jKnowledgeBase
 from cf.knowledge.structural.dependency_graph import DependencyGraphBuilder
 from cf.knowledge.incremental.file_watcher import FileChangeDetector
@@ -82,8 +85,9 @@ class StructuralPipeline:
         else:
             self.kb = kb
 
-        # Initialize parser
+        # Initialize parsers (Python AST + multi-language regex)
         self.parser = PythonASTParser(repo_path, self.repo_id)
+        self.multi_lang_parser = MultiLanguageParser(repo_path, self.repo_id)
 
         # Initialize dependency graph builder
         self.dep_graph = DependencyGraphBuilder()
@@ -122,7 +126,6 @@ class StructuralPipeline:
         """
         # Try to get git remote
         try:
-            import subprocess
             result = subprocess.run(
                 ['git', 'config', '--get', 'remote.origin.url'],
                 cwd=repo_path,
@@ -181,6 +184,30 @@ class StructuralPipeline:
 
         return self.kb.check_repo_exists(self.repo_id)
 
+    def _parse_file_auto(self, file_path: str) -> Optional[StructuralData]:
+        """
+        Automatically parse file using appropriate parser based on extension.
+
+        Args:
+            file_path: Absolute path to source file
+
+        Returns:
+            StructuralData or None if parsing fails
+        """
+        ext = Path(file_path).suffix.lower()
+
+        # Use Python AST parser for .py files
+        if ext == '.py':
+            return self.parser.parse_file(file_path)
+
+        # Use multi-language parser for other supported languages
+        language = self.multi_lang_parser.detect_language(file_path)
+        if language:
+            return self.multi_lang_parser.parse_file(file_path)
+
+        # Unsupported file type
+        return None
+
     def build_knowledge_base(self, force_rebuild: bool = False) -> BuildResult:
         """
         Build complete knowledge base for repository.
@@ -229,19 +256,24 @@ class StructuralPipeline:
         # Get build configuration
         num_workers = self.build_config.get('parallel_workers', 10)
         batch_size = self.build_config.get('batch_size', 100)
-        progress_interval = self.build_config.get('progress_interval', 1000)
+        progress_interval = self.build_config.get('progress_interval', 100)  # More frequent updates
         max_build_time = self.build_config.get('max_build_time_seconds', 7200)  # 2 hours default
 
         print(f"⚙️ Using {num_workers} parallel workers (timeout: {max_build_time}s)")
+
+        # Estimate total time based on typical parsing rate
+        estimated_seconds = total_files / 20  # ~20 files/sec typical
+        estimated_minutes = estimated_seconds / 60
+        print(f"⏱️  Estimated time: {estimated_minutes:.1f} minutes (for {total_files} files)")
 
         # Track if we hit timeout
         timeout_hit = False
 
         # Process files in parallel
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # Submit all parsing tasks
+            # Submit all parsing tasks with appropriate parser
             future_to_file = {
-                executor.submit(self.parser.parse_file, os.path.join(self.repo_path, file_path)): file_path
+                executor.submit(self._parse_file_auto, os.path.join(self.repo_path, file_path)): file_path
                 for file_path in source_files
             }
 
@@ -289,11 +321,27 @@ class StructuralPipeline:
                     failed_files.append(file_path)
                     errors.append({'file': file_path, 'error': str(e)})
 
-                # Progress logging
+                # Progress logging with percentage and ETA
                 if i % progress_interval == 0 or i == total_files:
                     elapsed = time.time() - start_time
                     rate = i / elapsed if elapsed > 0 else 0
-                    print(f"   Progress: {i}/{total_files} files ({rate:.1f} files/sec)")
+                    percent = (i / total_files * 100) if total_files > 0 else 0
+
+                    # Calculate ETA
+                    if rate > 0:
+                        remaining_files = total_files - i
+                        eta_seconds = remaining_files / rate
+                        eta_minutes = eta_seconds / 60
+                        eta_str = f"ETA: {eta_minutes:.1f}m" if eta_minutes >= 1 else f"ETA: {eta_seconds:.0f}s"
+                    else:
+                        eta_str = "ETA: calculating..."
+
+                    # Progress bar
+                    bar_length = 30
+                    filled = int(bar_length * i / total_files) if total_files > 0 else 0
+                    bar = '█' * filled + '░' * (bar_length - filled)
+
+                    print(f"   [{bar}] {percent:.1f}% ({i}/{total_files}) | {rate:.1f} files/s | {eta_str}")
 
         # Force scan to establish baseline for change detection
         self.file_detector.force_scan()
@@ -377,7 +425,11 @@ class StructuralPipeline:
         # Get repository configuration
         repo_config = self.config.get('repo', {})
         excluded_dirs = set(repo_config.get('excluded_dirs', []))
-        source_extensions = set(repo_config.get('source_code_extensions', ['.py']))
+
+        # Default to multiple languages (Python, JavaScript, TypeScript, Java, Go, Rust, C++, C#)
+        default_extensions = ['.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.go', '.rs',
+                             '.cpp', '.cc', '.cxx', '.hpp', '.h', '.cs']
+        source_extensions = set(repo_config.get('source_code_extensions', default_extensions))
 
         # Walk repository
         for root, dirs, files in os.walk(self.repo_path):
@@ -661,7 +713,6 @@ Include only relevant fields for the question type."""
             )
 
             if response.get('success'):
-                import json
                 content = response.get('content', '{}').strip()
 
                 # Extract JSON from response
