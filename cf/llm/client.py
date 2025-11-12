@@ -1,7 +1,7 @@
 """
 Unified LLM Client for CodeFusion
 
-Direct API calls for better performance and reliability.
+Uses provider-specific SDKs for better reliability and features.
 Includes retry logic with exponential backoff for rate limiting.
 """
 
@@ -14,6 +14,19 @@ import traceback
 import hashlib
 import random
 from cf.trace.tracer import trace_method
+
+# Import provider SDKs
+try:
+    from openai import OpenAI, AzureOpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
+try:
+    from anthropic import Anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
 
 
 class LLMClient:
@@ -135,7 +148,7 @@ class LLMClient:
         """
         Retry API calls with exponential backoff on rate limit errors.
 
-        NEW: Addresses API rate limiting issues with parallel workers.
+        Handles both SDK exceptions and legacy requests exceptions.
 
         Args:
             api_call: The API call function to retry
@@ -153,38 +166,54 @@ class LLMClient:
             try:
                 return api_call(*args, **kwargs)
 
-            except requests.exceptions.HTTPError as e:
+            except Exception as e:
                 last_exception = e
-                status_code = e.response.status_code if e.response else None
 
-                # Retry on rate limit (429) or server errors (5xx)
-                if status_code in [429, 500, 502, 503, 504]:
-                    if attempt < self.max_retries:
-                        # Calculate delay with exponential backoff
-                        if self.use_exponential_backoff:
-                            delay = self.retry_delay * (2 ** attempt)  # 2s, 4s, 8s
-                        else:
-                            delay = self.retry_delay
+                # Check if it's a retryable error
+                should_retry = False
+                error_type = "unknown"
 
-                        print(f"⚠️ API rate limit/error (HTTP {status_code}), retrying in {delay}s (attempt {attempt + 1}/{self.max_retries})...")
-                        time.sleep(delay)
-                        continue
+                # Handle OpenAI SDK exceptions
+                if OPENAI_AVAILABLE and hasattr(e, 'status_code'):
+                    status_code = getattr(e, 'status_code', None)
+                    if status_code in [429, 500, 502, 503, 504]:
+                        should_retry = True
+                        error_type = f"HTTP {status_code}"
+
+                # Handle Anthropic SDK exceptions
+                elif ANTHROPIC_AVAILABLE and 'anthropic' in str(type(e).__module__):
+                    error_str = str(e).lower()
+                    if 'rate' in error_str or '429' in error_str or '5' in str(getattr(e, 'status_code', '')):
+                        should_retry = True
+                        error_type = "rate limit/server error"
+
+                # Handle legacy requests exceptions
+                elif hasattr(e, 'response'):
+                    status_code = getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
+                    if status_code in [429, 500, 502, 503, 504]:
+                        should_retry = True
+                        error_type = f"HTTP {status_code}"
+
+                # Handle timeout/connection errors
+                elif 'timeout' in str(type(e).__name__).lower() or 'connection' in str(type(e).__name__).lower():
+                    should_retry = True
+                    error_type = "network error"
+
+                if should_retry and attempt < self.max_retries:
+                    # Calculate delay with exponential backoff
+                    if self.use_exponential_backoff:
+                        delay = self.retry_delay * (2 ** attempt)  # 2s, 4s, 8s
                     else:
-                        print(f"❌ API call failed after {self.max_retries} retries")
-                        raise
+                        delay = self.retry_delay
 
-                # Don't retry on other errors (auth, bad request, etc.)
-                raise
-
-            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-                last_exception = e
-                if attempt < self.max_retries:
-                    delay = self.retry_delay if not self.use_exponential_backoff else self.retry_delay * (2 ** attempt)
-                    print(f"⚠️ Network error, retrying in {delay}s (attempt {attempt + 1}/{self.max_retries})...")
+                    print(f"⚠️ API {error_type}, retrying in {delay}s (attempt {attempt + 1}/{self.max_retries})...")
                     time.sleep(delay)
                     continue
-                else:
+                elif should_retry:
                     print(f"❌ API call failed after {self.max_retries} retries")
+                    raise
+                else:
+                    # Don't retry on other errors (auth, bad request, etc.)
                     raise
 
         # Should never reach here, but just in case
@@ -193,7 +222,10 @@ class LLMClient:
 
     def _call_anthropic(self, messages: List[Dict], model: str, api_key: str,
                         api_url: str, **kwargs) -> Dict[str, Any]:
-        """Direct API call to Anthropic"""
+        """Call Anthropic API using their SDK"""
+        if not ANTHROPIC_AVAILABLE:
+            raise ImportError("anthropic package not installed. Install with: pip install anthropic")
+
         # Extract system message if present
         system_message = None
         user_messages = []
@@ -204,8 +236,11 @@ class LLMClient:
             else:
                 user_messages.append(msg)
 
-        # Build request payload
-        payload = {
+        # Initialize Anthropic client
+        client = Anthropic(api_key=api_key, base_url=api_url.rsplit('/', 1)[0] if '/messages' in api_url else api_url)
+
+        # Build request parameters
+        params = {
             'model': model,
             'messages': user_messages,
             'max_tokens': kwargs.get('max_tokens', self.max_tokens),
@@ -213,52 +248,49 @@ class LLMClient:
 
         # Add system message if present
         if system_message:
-            payload['system'] = system_message
+            params['system'] = system_message
 
         # Add temperature if specified
         if 'temperature' in kwargs and kwargs['temperature'] is not None:
-            payload['temperature'] = kwargs['temperature']
+            params['temperature'] = kwargs['temperature']
         elif self.temperature is not None:
-            payload['temperature'] = self.temperature
+            params['temperature'] = self.temperature
 
         # Make request with retry logic
-        headers = {
-            'x-api-key': api_key,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json'
-        }
-
         def make_request():
-            response = requests.post(
-                api_url,
-                headers=headers,
-                json=payload,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
+            response = client.messages.create(**params)
+            return response
 
         data = self._retry_with_backoff(make_request)
 
         # Parse response
-        content = data['content'][0]['text']
-        usage = data.get('usage', {})
+        content = data.content[0].text
+        usage = data.usage
 
         return {
             'content': content,
             'usage': {
-                'prompt_tokens': usage.get('input_tokens', 0),
-                'completion_tokens': usage.get('output_tokens', 0),
-                'total_tokens': usage.get('input_tokens', 0) + usage.get('output_tokens', 0)
+                'prompt_tokens': usage.input_tokens,
+                'completion_tokens': usage.output_tokens,
+                'total_tokens': usage.input_tokens + usage.output_tokens
             },
-            'finish_reason': data.get('stop_reason', 'stop'),
+            'finish_reason': data.stop_reason,
             'model': model
         }
 
     def _call_openai(self, messages: List[Dict], model: str, api_key: str,
                      api_url: str, **kwargs) -> Dict[str, Any]:
-        """Direct API call to OpenAI"""
-        payload = {
+        """Call OpenAI API using their SDK"""
+        if not OPENAI_AVAILABLE:
+            raise ImportError("openai package not installed. Install with: pip install openai")
+
+        # Initialize OpenAI client with base_url (supports OpenAI-compatible APIs)
+        # Extract base URL (remove /chat/completions suffix if present)
+        base_url = api_url.rsplit('/chat/completions', 1)[0] if '/chat/completions' in api_url else api_url
+        client = OpenAI(api_key=api_key, base_url=base_url)
+
+        # Build request parameters
+        params = {
             'model': model,
             'messages': messages,
             'max_tokens': kwargs.get('max_tokens', self.max_tokens),
@@ -266,40 +298,30 @@ class LLMClient:
 
         # Add temperature if specified
         if 'temperature' in kwargs and kwargs['temperature'] is not None:
-            payload['temperature'] = kwargs['temperature']
+            params['temperature'] = kwargs['temperature']
         elif self.temperature is not None:
-            payload['temperature'] = self.temperature
+            params['temperature'] = self.temperature
 
-        headers = {
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json'
-        }
-
+        # Make request with retry logic
         def make_request():
-            response = requests.post(
-                api_url,
-                headers=headers,
-                json=payload,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
+            response = client.chat.completions.create(**params)
+            return response
 
         data = self._retry_with_backoff(make_request)
 
         # Parse response
-        choice = data['choices'][0]
-        content = choice['message']['content']
-        usage = data.get('usage', {})
+        choice = data.choices[0]
+        content = choice.message.content
+        usage = data.usage
 
         return {
             'content': content,
             'usage': {
-                'prompt_tokens': usage.get('prompt_tokens', 0),
-                'completion_tokens': usage.get('completion_tokens', 0),
-                'total_tokens': usage.get('total_tokens', 0)
+                'prompt_tokens': usage.prompt_tokens,
+                'completion_tokens': usage.completion_tokens,
+                'total_tokens': usage.total_tokens
             },
-            'finish_reason': choice.get('finish_reason', 'stop'),
+            'finish_reason': choice.finish_reason,
             'model': model
         }
 
@@ -310,49 +332,59 @@ class LLMClient:
         return self._call_azure_openai_custom(messages, self.azure_deployment, api_key, api_url, **kwargs)
 
     def _call_azure_openai_custom(self, messages: List[Dict], deployment: str, api_key: str, api_url: str, **kwargs) -> Dict[str, Any]:
-        """Direct API call to Azure OpenAI with custom URL"""
-        payload = {
+        """Call Azure OpenAI API using their SDK"""
+        if not OPENAI_AVAILABLE:
+            raise ImportError("openai package not installed. Install with: pip install openai")
+
+        # Extract endpoint and API version from URL
+        # URL format: https://{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={version}
+        import re
+        endpoint_match = re.match(r'(https://[^/]+)', api_url)
+        version_match = re.search(r'api-version=([^&]+)', api_url)
+
+        endpoint = endpoint_match.group(1) if endpoint_match else api_url.split('/openai')[0]
+        api_version = version_match.group(1) if version_match else '2024-02-15-preview'
+
+        # Initialize Azure OpenAI client
+        client = AzureOpenAI(
+            api_key=api_key,
+            api_version=api_version,
+            azure_endpoint=endpoint
+        )
+
+        # Build request parameters
+        params = {
+            'model': deployment,  # Azure uses deployment name
             'messages': messages,
             'max_tokens': kwargs.get('max_tokens', self.max_tokens),
         }
 
         # Add temperature if specified
         if 'temperature' in kwargs and kwargs['temperature'] is not None:
-            payload['temperature'] = kwargs['temperature']
+            params['temperature'] = kwargs['temperature']
         elif self.temperature is not None:
-            payload['temperature'] = self.temperature
+            params['temperature'] = self.temperature
 
-        # Azure uses api-key header instead of Authorization
-        headers = {
-            'api-key': api_key,
-            'Content-Type': 'application/json'
-        }
-
+        # Make request with retry logic
         def make_request():
-            response = requests.post(
-                api_url,
-                headers=headers,
-                json=payload,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
+            response = client.chat.completions.create(**params)
+            return response
 
         data = self._retry_with_backoff(make_request)
 
         # Parse response (same format as OpenAI)
-        choice = data['choices'][0]
-        content = choice['message']['content']
-        usage = data.get('usage', {})
+        choice = data.choices[0]
+        content = choice.message.content
+        usage = data.usage
 
         return {
             'content': content,
             'usage': {
-                'prompt_tokens': usage.get('prompt_tokens', 0),
-                'completion_tokens': usage.get('completion_tokens', 0),
-                'total_tokens': usage.get('total_tokens', 0)
+                'prompt_tokens': usage.prompt_tokens,
+                'completion_tokens': usage.completion_tokens,
+                'total_tokens': usage.total_tokens
             },
-            'finish_reason': choice.get('finish_reason', 'stop'),
+            'finish_reason': choice.finish_reason,
             'model': deployment  # Return deployment name
         }
 
