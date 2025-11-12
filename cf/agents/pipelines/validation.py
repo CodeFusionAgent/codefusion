@@ -76,7 +76,7 @@ class ValidationPipeline:
             issues.extend(grounding_issues)
 
             # 4. Check word count (narrative length)
-            word_count_issues = self._validate_word_count(answer)
+            word_count_issues = self._validate_word_count(answer, file_summaries)
             issues.extend(word_count_issues)
 
             # 5. Verify facts against actual code (anti-hallucination)
@@ -263,33 +263,45 @@ class ValidationPipeline:
 
         return issues
 
-    def _validate_word_count(self, answer: str) -> List[ValidationIssue]:
-        """Validate narrative meets minimum word count requirement"""
+    def _validate_word_count(self, answer: str, file_summaries: Dict[str, Any]) -> List[ValidationIssue]:
+        """Validate narrative meets minimum word count requirement (proportional to file count)"""
         issues = []
 
         # Get synthesis config for target word count
         synthesis_config = self.config.get('agents', {}).get('synthesis', {})
-        target_min = synthesis_config.get('target_narrative_min', 3000)
+
+        # Calculate proportional word count based on file count (same logic as synthesis)
+        file_count = len(file_summaries)
+        words_per_file_min = synthesis_config.get('words_per_file_min', 400)
+
+        # Proportional calculation
+        calculated_min = file_count * words_per_file_min
+
+        # Apply absolute limits
+        absolute_min = synthesis_config.get('target_narrative_min', 1200)
+        absolute_max = synthesis_config.get('target_narrative_max', 5000)
+
+        target_min = max(absolute_min, min(calculated_min, absolute_max))
 
         # Count words
         word_count = len(answer.split())
 
-        # Require at least 83% of minimum target (2500 words for 3000 target)
+        # Require at least 83% of minimum target
         min_acceptable = int(target_min * 0.83)
 
         if word_count < min_acceptable:
             issues.append(ValidationIssue(
                 severity='error',
                 issue_type='insufficient_word_count',
-                message=f'Narrative too short: {word_count} words (minimum: {min_acceptable}, target: {target_min})'
+                message=f'Narrative too short: {word_count} words (minimum: {min_acceptable}, target: {target_min} for {file_count} files)'
             ))
-            print(f"\n⚠️  [VALIDATION] Word count below minimum: {word_count} < {min_acceptable}")
+            print(f"\n⚠️  [VALIDATION] Word count below minimum: {word_count} < {min_acceptable} (for {file_count} files)")
         elif word_count < target_min:
             # Warning if below target but above minimum threshold
             issues.append(ValidationIssue(
                 severity='warning',
                 issue_type='below_target_word_count',
-                message=f'Narrative shorter than target: {word_count} words (target: {target_min})'
+                message=f'Narrative shorter than target: {word_count} words (target: {target_min} for {file_count} files)'
             ))
 
         return issues
@@ -537,7 +549,8 @@ class ValidationPipeline:
             # Use repo tools to read file
             result = self.repo_tools.execute('read_file', file_path=file_path)
 
-            if not result.get('success'):
+            # Check for errors or missing content (read_file returns {'content': ..., 'file_path': ...} on success)
+            if 'error' in result or 'content' not in result:
                 return None
 
             content = result.get('content', '')
