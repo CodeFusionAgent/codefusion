@@ -612,9 +612,11 @@ class DiscoveryPipeline:
         for strategy in self.strategies:
             try:
                 candidates = strategy.execute(question, context)
+                print(f"   [DEBUG] {strategy.__class__.__name__} returned {len(candidates) if candidates else 0} candidates")
                 if candidates:
                     all_candidates.extend(candidates)
                     strategies_used.append(strategy.__class__.__name__)
+                    print(f"   [DEBUG] Total candidates so far: {len(all_candidates)}")
                     # Pass results to next strategy as context
                     context[strategy.__class__.__name__] = candidates
             except Exception as e:
@@ -622,6 +624,7 @@ class DiscoveryPipeline:
                 continue
 
         # If no candidates found, use fallback
+        print(f"   [DEBUG] Final candidate count before fallback check: {len(all_candidates)}")
         if not all_candidates:
             print("🔄 [DISCOVERY] Using fallback strategy")
             all_candidates = self.fallback.execute(question, context)
