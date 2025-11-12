@@ -95,7 +95,7 @@ class TieredLLMManager:
         self,
         prompt: str,
         tier: ModelTier = ModelTier.STANDARD,
-        temperature: float = 0.7,
+        temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         **kwargs
     ) -> str:
@@ -124,11 +124,16 @@ class TieredLLMManager:
             tier_name = tier.value
 
         # Generate completion
+        # Build call args; only include temperature if explicitly provided
+        call_kwargs = {**kwargs}
+        if max_tokens is not None:
+            call_kwargs['max_tokens'] = max_tokens
+        if temperature is not None:
+            call_kwargs['temperature'] = temperature
+
         response = model.generate(
             prompt=prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs
+            **call_kwargs
         )
 
         # Track usage
@@ -200,7 +205,6 @@ Return ONLY valid JSON, no additional text."""
         return self.generate(
             prompt=prompt,
             tier=ModelTier.FAST,
-            temperature=0.3,
             max_tokens=500
         )
 
@@ -238,7 +242,6 @@ Return JSON only:
         response = self.generate(
             prompt=prompt,
             tier=ModelTier.FAST,
-            temperature=0.1,
             max_tokens=200
         )
 
@@ -297,7 +300,6 @@ Return JSON only:
         response = self.generate(
             prompt=prompt,
             tier=ModelTier.FAST,
-            temperature=0.2,
             max_tokens=150
         )
 
@@ -356,7 +358,6 @@ Provide a comprehensive, well-structured answer that directly addresses the ques
         response = self.generate(
             prompt=prompt,
             tier=ModelTier.ADVANCED,
-            temperature=0.4,
             max_tokens=2000
         )
         # Coerce to string for downstream usage
