@@ -8,9 +8,10 @@ Supports parallel file processing and caching.
 import json
 import time
 import asyncio
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 from cf.llm.model_tiers import ModelTier
 
@@ -150,7 +151,9 @@ class AnalysisPipeline:
         for file_path in file_paths:
             result = self._analyze_single_file(file_path, question)
             if result:
-                file_summaries[result['path']] = result['summary']
+                # Ensure stored summary is a dict (not a FileSummary object)
+                summary_obj = result['summary']
+                file_summaries[result['path']] = summary_obj if isinstance(summary_obj, dict) else asdict(summary_obj)
                 total_tokens += result['tokens']
                 if result['cached']:
                     cache_hits += 1
@@ -185,7 +188,8 @@ class AnalysisPipeline:
                 try:
                     result = future.result()
                     if result:
-                        file_summaries[result['path']] = result['summary']
+                        summary_obj = result['summary']
+                        file_summaries[result['path']] = summary_obj if isinstance(summary_obj, dict) else asdict(summary_obj)
                         total_tokens += result['tokens']
                         if result['cached']:
                             cache_hits += 1
@@ -223,9 +227,11 @@ class AnalysisPipeline:
 
             if cached_summary:
                 print(f"✅ [ANALYSIS] Cache hit: {file_path}")
+                # Coerce cached summary to dict
+                cached_dict = cached_summary if isinstance(cached_summary, dict) else asdict(cached_summary)
                 return {
                     'path': file_path,
-                    'summary': cached_summary,
+                    'summary': cached_dict,
                     'tokens': 0,
                     'cached': True
                 }
@@ -243,7 +249,8 @@ class AnalysisPipeline:
             llm_duration = time.time() - llm_start
 
             if summary:
-                self.cache.set(cache_key, summary)
+                # Store dict in cache for consistent downstream handling
+                self.cache.set(cache_key, asdict(summary))
 
                 # Track metrics
                 self.file_analysis_metrics.append({
@@ -288,12 +295,20 @@ class AnalysisPipeline:
             if self.tiered_llm:
                 response_text = self.tiered_llm.summarize_file(content, file_path, question)
 
-                # Parse response
-                summary_data = self._parse_summary_response(response_text)
+                # Coerce response to string for token counts and parsing
+                if isinstance(response_text, dict):
+                    # Prefer 'content' field if present; otherwise serialize
+                    raw = response_text.get('content') if 'content' in response_text else response_text
+                    content_str = raw if isinstance(raw, str) else json.dumps(raw)
+                else:
+                    content_str = str(response_text)
 
-                # Estimate tokens (rough approximation)
-                prompt_tokens = len(content.split()) + len(question.split()) + 100
-                completion_tokens = len(response_text.split())
+                # Parse response
+                summary_data = self._parse_summary_response(content_str)
+
+                # Estimate tokens (rough approximation) with safe coercion
+                prompt_tokens = len(str(content).split()) + len(str(question).split()) + 100
+                completion_tokens = len(str(content_str).split())
 
                 llm_metrics = {
                     'prompt_tokens': prompt_tokens,
@@ -339,7 +354,7 @@ class AnalysisPipeline:
             return summary, llm_metrics
 
         except Exception as e:
-            print(f"⚠️ [ANALYSIS] Failed to generate summary for {file_path}: {e}")
+            print(f"⚠️ [ANALYSIS] Failed to generate summary for {file_path}: {traceback.format_exc()}")
 
         return None, {}
 
@@ -375,13 +390,17 @@ Respond in JSON format:
 
         return prompt
 
-    def _parse_summary_response(self, content: str) -> Dict[str, Any]:
-        """Parse JSON response from LLM"""
+    def _parse_summary_response(self, content: Any) -> Dict[str, Any]:
+        """Parse JSON response from LLM (accepts str or dict)."""
+        # If already a dict, return as-is
+        if isinstance(content, dict):
+            return content
         try:
-            start = content.find('{')
-            end = content.rfind('}') + 1
+            text = str(content)
+            start = text.find('{')
+            end = text.rfind('}') + 1
             if start >= 0 and end > start:
-                json_content = content[start:end]
+                json_content = text[start:end]
                 return json.loads(json_content)
         except json.JSONDecodeError:
             pass
