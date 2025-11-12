@@ -145,11 +145,11 @@ class ValidationPipeline:
         issues = []
 
         # Extract file path + line number pairs from the narrative
-        # Pattern matches: "apps/foo/bar.py ... line 123" or "apps/foo/bar.py:123"
-        # We need to find line references that are associated with specific files
-        file_line_pattern = r'((?:apps|src|lib|tests?|cf)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt))[^\n]{0,200}?(?:line[s]?\s+|L|:)(\d+)'
+        # Pattern matches: "apps/foo/bar.py ... line 123" (can span multiple lines/paragraphs)
+        # Allow up to 500 chars between file path and line number (including newlines)
+        file_line_pattern = r'((?:apps|src|lib|tests?|cf)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)).{0,500}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
 
-        file_line_refs = re.findall(file_line_pattern, answer, re.IGNORECASE)
+        file_line_refs = re.findall(file_line_pattern, answer, re.IGNORECASE | re.DOTALL)
 
         print(f"\n🔍 [DEBUG LINE_VALIDATION] Found {len(file_line_refs)} file+line references")
         if file_line_refs:
