@@ -313,8 +313,18 @@ class AnalysisPipeline:
                 else:
                     content_str = str(response_text)
 
+                # DEBUG: Show raw LLM response for diagnosing parsing issues
+                print(f"   [DEBUG ANALYSIS] Raw LLM response for {file_path}:")
+                print(f"   [DEBUG ANALYSIS]   Length: {len(content_str)} chars")
+                print(f"   [DEBUG ANALYSIS]   First 200 chars: {content_str[:200]}")
+
                 # Parse response
                 summary_data = self._parse_summary_response(content_str)
+
+                # DEBUG: Show parsed result
+                print(f"   [DEBUG ANALYSIS] Parsed summary_data:")
+                print(f"   [DEBUG ANALYSIS]   key_features: {summary_data.get('key_features', [])[:2]}")
+                print(f"   [DEBUG ANALYSIS]   architectural_insights: {summary_data.get('architectural_insights', '')[:100]}")
 
                 # Estimate tokens (rough approximation) with safe coercion
                 prompt_tokens = len(str(content).split()) + len(str(question).split()) + 100
@@ -423,12 +433,14 @@ Respond in JSON format:
             if start >= 0 and end > start:
                 json_content = text[start:end]
                 return json.loads(json_content)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            print(f"   ⚠️ [ANALYSIS] JSON parse failed: {e}")
+            print(f"   [DEBUG ANALYSIS] Attempted to parse: {text[:300]}")
 
         # Fallback
+        print(f"   ⚠️ [ANALYSIS] Using fallback response (no valid JSON found)")
         return {
             'key_features': [],
-            'architectural_insights': 'Analysis failed',
+            'architectural_insights': 'Analysis failed - LLM did not return valid JSON',
             'relevance': 'Unknown'
         }
