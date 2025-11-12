@@ -150,7 +150,7 @@ class Neo4jKnowledgeBase:
             'files': "MATCH (f:File {repo_id: $repo_id}) RETURN count(f) as count",
             'functions': "MATCH (fn:Function)-[:CONTAINED_IN]->(:File {repo_id: $repo_id}) RETURN count(fn) as count",
             'classes': "MATCH (c:Class)-[:CONTAINED_IN]->(:File {repo_id: $repo_id}) RETURN count(c) as count",
-            'relationships': "MATCH ()-[r]->() WHERE EXISTS((startNode(r)).repo_id) AND (startNode(r)).repo_id = $repo_id RETURN count(r) as count"
+            'relationships': "MATCH ()-[r]->() WHERE (startNode(r)).repo_id IS NOT NULL AND (startNode(r)).repo_id = $repo_id RETURN count(r) as count"
         }
 
         stats = {}

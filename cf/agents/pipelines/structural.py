@@ -574,7 +574,7 @@ class StructuralPipeline:
         if self.patterns_config.get('enabled', False):
             try:
                 # Use LLM classification from question_context instead of hardcoded keywords
-                question_type = llm_context.get('type', 'search') if llm_context else 'search'
+                question_type = question_context.get('type', 'search') if question_context else 'search'
                 is_pattern_question = question_type in ['pattern', 'architecture', 'class_hierarchy']
                 
                 if is_pattern_question:
@@ -821,7 +821,6 @@ Include only relevant fields for the question type."""
                 print(f"   ⚠️ Life-of-X layer initialization failed: {e}")
 
         print("   ✅ Enhanced layers built successfully!")
-
     # ========== Semantic Layer Methods ==========
 
     @property
@@ -846,10 +845,24 @@ Include only relevant fields for the question type."""
                 else:
                     model = EmbeddingModel.OPENAI_SMALL
 
+            # Ensure we have an LLM client available if embeddings should use it
+            llm_client = None
+            if self.semantic_config.get('use_llm_client', False):
+                if not hasattr(self, '_llm_client') or self._llm_client is None:
+                    try:
+                        from cf.llm.client import LLMClient
+                        # Pass full config so LLMClient can resolve tiers/models
+                        self._llm_client = LLMClient(self.config)
+                    except Exception as e:
+                        print(f"⚠️ [SEMANTIC] Failed to initialize LLMClient for embeddings: {e}")
+                        self._llm_client = None
+                llm_client = getattr(self, '_llm_client', None)
+
             # Pass semantic config to embedder
             self._code_embedder = CodeEmbedder(
                 model=model,
-                config=self.semantic_config
+                config=self.semantic_config,
+                llm_client=llm_client
             )
 
         return self._code_embedder
