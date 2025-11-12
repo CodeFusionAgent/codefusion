@@ -62,11 +62,31 @@ class ToolRegistry:
     
     def execute(self, tool_name: str, **params) -> Dict[str, Any]:
         """Execute a tool with parameters and track metrics"""
+        # Resolve tool name dynamically if exact match not found (handles agent prefixes)
+        resolved_name = tool_name
         if tool_name not in self.tools:
-            return {
-                'error': f'Tool "{tool_name}" not found',
-                'available_tools': list(self.tools.keys())
-            }
+            candidates = []
+            try:
+                keys = list(self.tools.keys())
+                # Prefer exact suffix match (common pattern for agent-prefixed tools)
+                candidates = [n for n in keys if n.endswith(tool_name)]
+                # Special-case for common KB discovery tool suffix
+                if not candidates and tool_name.endswith('_find_files_for_question'):
+                    suffix = '_find_files_for_question'
+                    candidates = [n for n in keys if n.endswith(suffix)]
+                # Fallback to substring search
+                if not candidates:
+                    candidates = [n for n in keys if tool_name in n]
+            except Exception:
+                candidates = []
+
+            if len(candidates) == 1:
+                resolved_name = candidates[0]
+            else:
+                return {
+                    'error': f'Tool "{tool_name}" not found',
+                    'available_tools': list(self.tools.keys())
+                }
 
         start_time = time.time()
         success = False
@@ -75,7 +95,7 @@ class ToolRegistry:
         error = ""
 
         try:
-            result = self.tools[tool_name](**params)
+            result = self.tools[resolved_name](**params)
 
             # Extract tokens and cost if available
             if isinstance(result, dict):
@@ -103,7 +123,7 @@ class ToolRegistry:
 
             # Record metrics
             self.metrics_tracker.record_call(
-                tool_name=tool_name,
+                tool_name=resolved_name,
                 duration=duration,
                 success=success,
                 tokens=tokens,

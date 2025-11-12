@@ -362,8 +362,10 @@ knowledge_base:
   # Semantic Layer Settings
   semantic:
     enabled: true  # Enable semantic search and code similarity
-    embedding_model: "text-embedding-3-small"  # OpenAI model or "all-MiniLM-L6-v2" for local
-    use_local_model: false  # Use local sentence-transformers (free) or OpenAI (paid)
+    # Use local sentence-transformers (no external API calls)
+    embedding_model: "all-MiniLM-L6-v2"  # or "all-mpnet-base-v2" for higher quality
+    use_local_model: true  # Prefer local embeddings
+    use_llm_client: false  # Do not route embeddings through LLMClient
     cache_embeddings: true  # Cache embeddings to disk
     cache_file: ".codefusion/embeddings.pkl"
     similarity_threshold: 0.7  # Minimum similarity for search results
