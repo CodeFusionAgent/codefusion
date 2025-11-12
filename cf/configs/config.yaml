@@ -93,8 +93,14 @@ agents:
 
   # Synthesis configuration
   synthesis:
-    target_narrative_min: 3000  # Minimum narrative word count
-    target_narrative_max: 5000  # Maximum narrative word count
+    # Proportional word count (scales with number of files analyzed)
+    words_per_file_min: 400     # Minimum words per file (e.g., 3 files = 1200 words)
+    words_per_file_max: 700     # Maximum words per file (e.g., 3 files = 2100 words)
+
+    # Absolute limits (fallback for very large/small file counts)
+    target_narrative_min: 1200  # Absolute minimum (for 1-3 files)
+    target_narrative_max: 5000  # Absolute maximum (caps at ~7 files)
+
     max_key_files_cited: 7      # Maximum files to cite
     min_key_files_cited: 3      # Minimum files to cite
 

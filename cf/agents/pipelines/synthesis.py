@@ -49,7 +49,7 @@ class SynthesisPipeline:
         )
 
     def synthesize(self, question: str, file_summaries: Dict[str, Any], insights: List[Dict[str, Any]],
-                   architectural_analysis=None) -> SynthesisResult:
+                   architectural_analysis=None, validation_issues: List[Dict[str, Any]] = None) -> SynthesisResult:
         """
         Generate final technical narrative
 
@@ -57,24 +57,46 @@ class SynthesisPipeline:
             question: User's question
             file_summaries: Analyzed file summaries
             insights: List of insights collected during analysis
+            architectural_analysis: Optional architectural analysis
+            validation_issues: Optional list of validation issues from previous attempt (for retry)
 
         Returns:
             SynthesisResult with narrative and metadata
         """
         try:
-            print("📝 [SYNTHESIS] Generating narrative...")
+            if validation_issues:
+                print(f"📝 [SYNTHESIS] Generating narrative (RETRY with {len(validation_issues)} validation issues)...")
+            else:
+                print("📝 [SYNTHESIS] Generating narrative...")
 
             start_time = time.time()
 
             # Get synthesis parameters from config
             synthesis_config = self.config.get('agents', {}).get('synthesis', {})
-            target_min = synthesis_config.get('target_narrative_min', 3000)
-            target_max = synthesis_config.get('target_narrative_max', 5000)
             max_files = synthesis_config.get('max_key_files_cited', 7)
             min_files = synthesis_config.get('min_key_files_cited', 3)
 
             # Select key files to cite (highest relevance)
             key_files = self._select_key_files(file_summaries, max_files)
+
+            # Calculate word count targets proportional to file count (NEW)
+            file_count = len(key_files)
+            words_per_file_min = synthesis_config.get('words_per_file_min', 400)
+            words_per_file_max = synthesis_config.get('words_per_file_max', 700)
+
+            # Proportional calculation
+            calculated_min = file_count * words_per_file_min
+            calculated_max = file_count * words_per_file_max
+
+            # Apply absolute limits
+            absolute_min = synthesis_config.get('target_narrative_min', 1200)
+            absolute_max = synthesis_config.get('target_narrative_max', 5000)
+
+            target_min = max(absolute_min, min(calculated_min, absolute_max))
+            target_max = min(absolute_max, max(calculated_max, absolute_min))
+
+            print(f"   Target word count: {target_min}-{target_max} words (for {file_count} files)")
+            print(f"   ({words_per_file_min}-{words_per_file_max} words per file)")
 
             # Classify question type for appropriate synthesis strategy
             question_type = 'standard'
@@ -101,7 +123,8 @@ class SynthesisPipeline:
                 target_max,
                 detected_patterns,
                 architectural_analysis,
-                execution_paths
+                execution_paths,
+                validation_issues
             )
 
             # Use tiered LLM for synthesis (advanced tier for quality)
@@ -183,7 +206,8 @@ class SynthesisPipeline:
                                 target_max: int,
                                 detected_patterns: List[Dict[str, Any]] = None,
                                 architectural_analysis=None,
-                                execution_paths: List[Dict[str, Any]] = None) -> str:
+                                execution_paths: List[Dict[str, Any]] = None,
+                                validation_issues: List[Dict[str, Any]] = None) -> str:
         """Build prompt for synthesis"""
 
         # Prepare file summaries text
@@ -292,6 +316,29 @@ class SynthesisPipeline:
         print(f"   {summaries_text[:500]}")
         print(f"   [DEBUG SYNTHESIS] Total summaries_text length: {len(summaries_text)} chars")
 
+        # Prepare validation feedback (if this is a retry)
+        feedback_text = ""
+        if validation_issues:
+            feedback_text = "\n\n🚨 VALIDATION FEEDBACK FROM PREVIOUS ATTEMPT:\n"
+            feedback_text += "Your previous narrative had the following issues that MUST be fixed:\n\n"
+
+            # Group issues by type for clarity
+            errors = [issue for issue in validation_issues if issue.get('severity') == 'error']
+            warnings = [issue for issue in validation_issues if issue.get('severity') == 'warning']
+
+            if errors:
+                feedback_text += "CRITICAL ERRORS (must fix):\n"
+                for i, issue in enumerate(errors[:5], 1):  # Limit to 5 most important
+                    feedback_text += f"  {i}. {issue.get('message', 'Unknown error')}\n"
+
+            if warnings:
+                feedback_text += "\nWARNINGS (should fix):\n"
+                for i, issue in enumerate(warnings[:5], 1):
+                    feedback_text += f"  {i}. {issue.get('message', 'Unknown warning')}\n"
+
+            feedback_text += "\n⚠️  IMPORTANT: Address ALL errors above in your new narrative.\n"
+            feedback_text += "Pay special attention to word count and line number coverage requirements.\n\n"
+
         prompt = f"""Generate a comprehensive technical narrative answering this question:
 
 QUESTION: "{question}"
@@ -309,7 +356,7 @@ INSIGHTS:
 {patterns_text}
 {arch_text}
 {paths_text}
-
+{feedback_text}
 TASK: Write a detailed technical narrative that explains HOW the system works, not just WHAT it does.
 
 REQUIREMENTS:
