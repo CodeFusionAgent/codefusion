@@ -289,10 +289,11 @@ class LLMClient:
         client = OpenAI(api_key=api_key, base_url=base_url)
 
         # Build request parameters
+        # Note: OpenAI API 2024-10-01-preview+ uses max_completion_tokens instead of max_tokens
         params = {
             'model': model,
             'messages': messages,
-            'max_tokens': kwargs.get('max_tokens', self.max_tokens),
+            'max_completion_tokens': kwargs.get('max_tokens', self.max_tokens),
         }
 
         # Add temperature if specified
@@ -350,10 +351,11 @@ class LLMClient:
         )
 
         # Build request parameters
+        # Note: Azure OpenAI API 2024-10-01-preview+ uses max_completion_tokens instead of max_tokens
         params = {
             'model': deployment,  # Azure uses deployment name
             'messages': messages,
-            'max_tokens': kwargs.get('max_tokens', self.max_tokens),
+            'max_completion_tokens': kwargs.get('max_tokens', self.max_tokens),
         }
 
         # Add temperature if specified
