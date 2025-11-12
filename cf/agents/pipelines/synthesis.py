@@ -185,8 +185,24 @@ class SynthesisPipeline:
 
         # Prepare file summaries text
         summaries_text = ""
+
+        # DEBUG: Log what we're receiving
+        print(f"   [DEBUG SYNTHESIS] Building prompt with {len(key_files)} key files")
+
         for file_path in key_files:
             summary = file_summaries.get(file_path, {})
+
+            # DEBUG: Log summary structure
+            print(f"   [DEBUG SYNTHESIS] File: {file_path}")
+            print(f"   [DEBUG SYNTHESIS]   Summary type: {type(summary)}")
+            if isinstance(summary, dict):
+                print(f"   [DEBUG SYNTHESIS]   Functions: {len(summary.get('functions', []))} items")
+                if summary.get('functions'):
+                    print(f"   [DEBUG SYNTHESIS]   First function: {summary['functions'][0]}")
+                print(f"   [DEBUG SYNTHESIS]   Classes: {len(summary.get('classes', []))} items")
+                if summary.get('classes'):
+                    print(f"   [DEBUG SYNTHESIS]   First class: {summary['classes'][0]}")
+
             if isinstance(summary, dict):
                 summaries_text += f"\n\n## {file_path}\n"
                 summaries_text += f"Key Features: {', '.join(summary.get('key_features', []))}\n"
@@ -198,9 +214,11 @@ class SynthesisPipeline:
                 if functions:
                     func_refs = [f"{f.get('name', '')} (line {f.get('line', '?')})" for f in functions[:5]]
                     summaries_text += f"Functions: {', '.join(func_refs)}\n"
+                    print(f"   [DEBUG SYNTHESIS]   Generated func_refs: {func_refs}")
                 if classes:
                     class_refs = [f"{c.get('name', '')} (line {c.get('line', '?')})" for c in classes[:5]]
                     summaries_text += f"Classes: {', '.join(class_refs)}\n"
+                    print(f"   [DEBUG SYNTHESIS]   Generated class_refs: {class_refs}")
 
                 # Include test information if available (test-aware analysis)
                 test_info = summary.get('test_info', {})
@@ -258,6 +276,11 @@ class SynthesisPipeline:
 
         # Build list of valid file paths for the LLM to reference
         file_paths_list = "\n".join([f"  - {fp}" for fp in key_files])
+
+        # DEBUG: Show snippet of summaries_text that will go in prompt
+        print(f"   [DEBUG SYNTHESIS] summaries_text snippet (first 500 chars):")
+        print(f"   {summaries_text[:500]}")
+        print(f"   [DEBUG SYNTHESIS] Total summaries_text length: {len(summaries_text)} chars")
 
         prompt = f"""Generate a comprehensive technical narrative answering this question:
 
