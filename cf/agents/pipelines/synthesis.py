@@ -106,16 +106,19 @@ class SynthesisPipeline:
 
             # Use tiered LLM for synthesis (advanced tier for quality)
             if self.tiered_llm:
-                narrative = self.tiered_llm.synthesize_answer(
-                    question=question,
-                    question_type=question_type,
-                    insights=insights,
-                    context={
-                        'file_summaries': file_summaries,
-                        'key_files': key_files
-                    }
+                # Use the detailed prompt we built with line number requirements
+                # instead of letting synthesize_answer create its own generic prompt
+                response = self.tiered_llm.generate(
+                    prompt=prompt,
+                    tier=ModelTier.ADVANCED,
+                    max_tokens=2000
                 )
-                narrative = str(narrative).strip()
+                # Coerce response to string
+                if isinstance(response, dict):
+                    narrative = response.get('content', str(response))
+                else:
+                    narrative = str(response)
+                narrative = narrative.strip()
                 word_count = len(narrative.split())
             else:
                 # Fallback to old method
