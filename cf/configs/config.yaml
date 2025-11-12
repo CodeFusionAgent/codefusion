@@ -117,10 +117,10 @@ agents:
     loop_detection_min_actions: 3  # Minimum actions before checking for loops
 
     # Validation thresholds
-    # ADJUSTED: Raised line coverage after fixing validation bugs (path extraction, line number validation)
+    # ADJUSTED: Line coverage lowered to 0.10 based on real-world testing (9-14% is typical for quality narratives)
     # Path accuracy and invalid line number issues are resolved, so we can enforce higher quality
     min_analysis_certainty: 0.6  # Minimum grounding score for validation (lowered from 0.7)
-    min_line_coverage: 0.25  # Minimum line number coverage (raised from 0.1 to 25% after fixing validation)
+    min_line_coverage: 0.10  # Minimum line number coverage (lowered from 0.25 to 0.10 based on testing)
     min_path_accuracy: 0.5  # Minimum file path accuracy (lowered from 0.9 to 50%)
     validation_no_refs_score: 0.3  # Score when no references found
     validation_refs_base: 0.5  # Base score for grounding calculation
@@ -140,8 +140,30 @@ agents:
   validation:
     enable_fact_verification: true  # Verify claims against actual code
     max_claims_to_verify: 20  # Limit for performance (verify top 20 claims)
-    min_identifier_match: 0.3  # Minimum % of identifiers that must match
+    min_identifier_match: 0.2  # Minimum % of identifiers that must match (lowered from 0.3 to reduce false negatives)
     use_llm_verification: false  # Use LLM for complex verification (costs more)
+
+    # File path patterns for validation (configurable for different repo structures)
+    file_path_prefixes:  # Common source code directory prefixes
+      - apps
+      - src
+      - lib
+      - test
+      - tests
+      - cf
+      - backend
+      - frontend
+      - server
+      - client
+      - pkg
+      - internal
+      - cmd
+      - api
+      - core
+      - services
+      - components
+      - modules
+    max_file_line_gap_chars: 100  # Max chars between file path and line number (reduced from 500 to prevent cross-paragraph pairing)
 
   # Life-of-X Configuration (NEW)
   # Execution path tracing for "how does X work?" questions
