@@ -13,12 +13,15 @@ Uses state-based flow for adaptive analysis.
 
 from typing import Dict, List, Any
 from enum import Enum
+
+# CodeFusion imports - all at top per PEP 8
 from cf.agents.base import BaseAgent
 from cf.agents.pipelines.discovery import DiscoveryPipeline
 from cf.agents.pipelines.analysis import AnalysisPipeline
 from cf.agents.pipelines.validation import ValidationPipeline
 from cf.agents.pipelines.synthesis import SynthesisPipeline
 from cf.agents.pipelines.structural import StructuralPipeline
+from cf.agents.pipelines.test_analysis import TestFileAnalyzer
 from cf.llm.model_tiers import TieredLLMManager
 
 
@@ -46,13 +49,11 @@ class CodeOrchestrator(BaseAgent):
 
         # Set up registries before BaseAgent.__init__
         if agent_registry is None:
-            from cf.agents.registry import AgentRegistry
             self.agent_registry = AgentRegistry()
         else:
             self.agent_registry = agent_registry
 
         if tool_registry is None:
-            from cf.tools.registry import ToolRegistry
             self.tool_registry = ToolRegistry(repo_path, agent_registry=self.agent_registry)
         else:
             self.tool_registry = tool_registry
@@ -66,6 +67,7 @@ class CodeOrchestrator(BaseAgent):
         self.analysis = None
         self.validation = None
         self.synthesis = None
+        self.test_analyzer = TestFileAnalyzer(config)  # Test-aware analysis
 
         # State tracking (state-based flow instead of iteration-based)
         self.current_state = AnalysisState.INIT
@@ -131,8 +133,6 @@ class CodeOrchestrator(BaseAgent):
         Returns: Language name or None
         """
         try:
-            from pathlib import Path
-            from collections import Counter
 
             # Count file extensions
             extensions = Counter()
@@ -278,7 +278,6 @@ class CodeOrchestrator(BaseAgent):
                         self.structural = StructuralPipeline(self.repo_path, self.config)
 
                         # Register KB agent with tool registry (tool-first pattern)
-                        from cf.agents.kb.structural_kb_agent import StructuralKBAgent
                         kb_agent = StructuralKBAgent(kb=self.structural, config=self.config)
                         self.agent_registry.register(kb_agent)
                         print("✅ [ORCHESTRATOR] Registered StructuralKBAgent with tool registry")
@@ -402,7 +401,6 @@ class CodeOrchestrator(BaseAgent):
 
         except Exception as e:
             print(f"❌ [ORCHESTRATOR] Initialization failed: {e}")
-            import traceback
             traceback.print_exc()
             return "scan_failed"
 
@@ -438,7 +436,7 @@ class CodeOrchestrator(BaseAgent):
             return "discovery_failed"
 
     def _analyze_files(self, question: str) -> str:
-        """Analyze discovered files using analysis pipeline"""
+        """Analyze discovered files using analysis pipeline with test-aware enhancement"""
         try:
             print("📄 [ORCHESTRATOR] Analyzing files...")
 
@@ -447,6 +445,42 @@ class CodeOrchestrator(BaseAgent):
 
             # Store file summaries
             self.file_summaries = analysis_result.file_summaries
+
+            # Test-aware analysis integration - enhance summaries with test information
+            test_files = [f for f in self.discovered_files if self.test_analyzer.is_test_file(f)]
+            if test_files:
+                print(f"🧪 [ORCHESTRATOR] Found {len(test_files)} test files - extracting test scenarios...")
+
+                # Analyze test files
+                test_analyses = []
+                for test_file in test_files:
+                    try:
+                        file_summary = self.file_summaries.get(test_file, {})
+                        content = file_summary.get('content', '') if isinstance(file_summary, dict) else ''
+                        structure = file_summary.get('functions', []) if isinstance(file_summary, dict) else []
+
+                        if content:
+                            test_analysis = self.test_analyzer.analyze_test_file(
+                                test_file, content, {'functions': structure}
+                            )
+                            test_analyses.append(test_analysis)
+                    except Exception as e:
+                        print(f"⚠️ [TEST_ANALYZER] Failed to analyze {test_file}: {e}")
+
+                if test_analyses:
+                    # Enhance file summaries with test information
+                    self.file_summaries = self.test_analyzer.enhance_analysis_with_tests(
+                        self.file_summaries, test_analyses
+                    )
+
+                    total_tests = sum(t.total_tests for t in test_analyses)
+                    print(f"✅ [TEST_ANALYZER] Extracted {total_tests} test scenarios from {len(test_analyses)} files")
+
+                    self.add_insight(
+                        f"Test analysis: {total_tests} test scenarios extracted, including usage examples and edge cases",
+                        confidence=self.get_confidence('high'),
+                        source="test_analysis"
+                    )
 
             print(f"✅ [ORCHESTRATOR] Analyzed {analysis_result.total_files_analyzed} files")
             print(f"   Cache efficiency: {analysis_result.cache_hits}/{analysis_result.cache_hits + analysis_result.cache_misses}")
