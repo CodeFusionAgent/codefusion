@@ -22,6 +22,7 @@ from cf.agents.web import WebAgent
 from cf.cache.semantic import SemanticCache
 from cf.llm.model_tiers import TieredLLMManager, ModelTier
 from cf.tools.registry import ToolRegistry
+from cf.utils.llm_parser import LLMResponseParser
 
 
 class SupervisorAgent(BaseAgent):
