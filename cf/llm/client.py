@@ -35,7 +35,8 @@ class LLMClient:
     def __init__(self, llm_config: Dict[str, Any]):
         # Global settings
         self.max_tokens = llm_config.get('max_tokens', 2000)
-        self.temperature = llm_config.get('temperature', 0.7)
+        # Do not set a default temperature; many provider deployments only allow default (1) or reject custom values
+        self.temperature = llm_config.get('temperature', None)
         self.timeout = llm_config.get('timeout', 60)
 
         # Retry configuration
@@ -250,11 +251,9 @@ class LLMClient:
         if system_message:
             params['system'] = system_message
 
-        # Add temperature if specified
+        # Add temperature only if explicitly provided (some models reject non-default values)
         if 'temperature' in kwargs and kwargs['temperature'] is not None:
             params['temperature'] = kwargs['temperature']
-        elif self.temperature is not None:
-            params['temperature'] = self.temperature
 
         # Make request with retry logic
         def make_request():
@@ -293,14 +292,12 @@ class LLMClient:
         params = {
             'model': model,
             'messages': messages,
-            'max_tokens': kwargs.get('max_tokens', self.max_tokens),
+            'max_completion_tokens': kwargs.get('max_tokens', self.max_tokens),
         }
 
         # Add temperature if specified
         if 'temperature' in kwargs and kwargs['temperature'] is not None:
             params['temperature'] = kwargs['temperature']
-        elif self.temperature is not None:
-            params['temperature'] = self.temperature
 
         # Make request with retry logic
         def make_request():
@@ -356,7 +353,7 @@ class LLMClient:
         params = {
             'model': deployment,  # Azure uses deployment name
             'messages': messages,
-            'max_tokens': kwargs.get('max_tokens', self.max_tokens),
+            'max_completion_tokens': kwargs.get('max_tokens', self.max_tokens),
         }
 
         # Add temperature if specified
