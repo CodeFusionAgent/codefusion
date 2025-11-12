@@ -690,18 +690,34 @@ Response:"""
         if not sentences:
             return 0.0
 
-        # Count sentences with file+line pairs (not just "line 5" alone)
-        # This ensures proper grounding - line numbers must be associated with file paths
-        # Use a tighter window (200 chars) within sentence boundaries for better accuracy
-        file_line_pattern = r'(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt).{0,200}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        # Find all file+line pairs in the entire answer (may span sentences due to markdown formatting)
+        # Use same pattern as validation for consistency
+        file_line_pattern = r'(?:apps|src|lib|tests?|cf|backend|frontend|server|client)/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt).{0,500}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        file_line_matches = list(re.finditer(file_line_pattern, answer, re.IGNORECASE | re.DOTALL))
 
-        sentences_with_grounded_lines = 0
+        if not file_line_matches:
+            return 0.0
+
+        # Build sentence boundaries (character positions in answer)
+        sentence_boundaries = []
+        pos = 0
         for sentence in sentences:
-            # Check if this sentence contains a file+line pair
-            if re.search(file_line_pattern, sentence, re.IGNORECASE | re.DOTALL):
-                sentences_with_grounded_lines += 1
+            start = answer.find(sentence, pos)
+            if start != -1:
+                end = start + len(sentence)
+                sentence_boundaries.append((start, end))
+                pos = end
 
-        return sentences_with_grounded_lines / len(sentences)
+        # Count how many sentences contain at least one file+line reference
+        sentences_with_lines = set()
+        for match in file_line_matches:
+            match_pos = match.start()
+            for i, (start, end) in enumerate(sentence_boundaries):
+                if start <= match_pos < end:
+                    sentences_with_lines.add(i)
+                    break
+
+        return len(sentences_with_lines) / len(sentences)
 
     def _calculate_path_accuracy(self, answer: str, file_summaries: Dict[str, Any]) -> float:
         """Calculate accuracy of file path references"""
