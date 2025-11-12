@@ -400,7 +400,7 @@ class ValidationPipeline:
             line_num = int(line_match.group(1))
 
             # Read actual code at that line (with context)
-            code_context = self._read_code_at_line(file_path, line_num, context_lines=3)
+            code_context = self._read_code_at_line(file_path, line_num, context_lines=5)
 
             if not code_context:
                 issues.append(ValidationIssue(
@@ -579,7 +579,23 @@ class ValidationPipeline:
         code_words = code_context.lower().split()
 
         # If claim mentions specific identifiers, they should exist in code
-        identifiers_in_claim = [w.strip('`"\'()') for w in words if w and w[0].isupper() or '_' in w]
+        # Filter out markdown artifacts, common words, and keep only code-like identifiers
+        common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from',
+                        'this', 'that', 'these', 'those', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+                        'key', 'similar', 'after', 'finally', 'starting', 'three', 'model', 'pattern',
+                        'url', 'ui', 'orm', 'mvc', 'component', 'interactions', 'detailed', 'together'}
+        identifiers_in_claim = []
+        for w in words:
+            # Strip markdown and punctuation
+            cleaned = w.strip('`"\'()*_#[]')
+            # Only keep if it looks like a code identifier and is not a common word
+            if cleaned and len(cleaned) >= 2:
+                cleaned_lower = cleaned.lower()
+                # Keep if: has underscore (snake_case), or mixed case (camelCase/PascalCase), or longer proper names
+                if ('_' in cleaned or  # snake_case
+                    (any(c.isupper() for c in cleaned[1:]) and any(c.islower() for c in cleaned)) or  # camelCase/PascalCase
+                    (cleaned[0].isupper() and len(cleaned) > 3 and cleaned_lower not in common_words)):  # Longer proper names
+                    identifiers_in_claim.append(cleaned)
 
         if identifiers_in_claim:
             # Check if at least some identifiers are in the code
