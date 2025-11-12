@@ -125,6 +125,170 @@ export OPENAI_API_KEY="your-openai-api-key"     # For GPT-4o
 python -m cf.run.main --help
 ```
 
+### Knowledge Base Backend
+
+CodeFusion uses a **6-layer knowledge base architecture** with two backend options:
+
+**Option 1: SQLite (Recommended for Quick Start)**
+- ✅ No external database server required
+- ✅ Zero setup - works out of the box
+- ✅ Perfect for small-medium codebases (<10K files)
+- ✅ Single file, portable, easy to backup
+- ⚠️ Slower for deep graph traversals (call chains >5 levels)
+- ⚠️ Limited concurrent access
+
+**Option 2: Neo4j (Recommended for Production)**
+- ✅ Optimized for graph queries and relationships
+- ✅ Excellent performance for large codebases (>10K files)
+- ✅ Fast deep traversals (call chains, inheritance hierarchies)
+- ✅ Supports concurrent analysis sessions
+- ⚠️ Requires Docker or native installation
+- ⚠️ Additional infrastructure setup
+
+---
+
+#### 6-Layer Knowledge Base Architecture
+
+Both backends support:
+
+1. **Repository Layer**: File system scanning and metadata
+2. **Structural Layer**: AST-based code parsing (functions, classes, imports)
+3. **Semantic Layer**: Code embeddings for similarity search
+4. **Pattern Layer**: Design pattern and code smell detection
+5. **Life-of-X Layer**: Execution path and data flow tracing
+6. **Validation Layer**: Anti-hallucination fact verification
+
+---
+
+#### Quick Start with SQLite (Zero Setup)
+
+SQLite works out of the box with no additional setup:
+
+```bash
+# 1. Set backend to sqlite in config (default)
+nano cf/configs/config.yaml
+```
+
+Update config:
+```yaml
+knowledge_base:
+  type: sqlite  # Use SQLite backend (default)
+  sqlite:
+    db_path: ".codefusion/knowledge.db"
+```
+
+```bash
+# 2. Run CodeFusion - KB will be built automatically
+python -m cf.run.main ask /path/to/repo "How does authentication work?"
+
+# Database file created at: .codefusion/knowledge.db
+```
+
+**That's it!** SQLite requires no external dependencies.
+
+---
+
+#### Setting Up Neo4j (For Production)
+
+For large codebases or production deployments, Neo4j provides better performance:
+
+##### Why Choose Neo4j?
+
+- **Graph-based code analysis**: Trace function calls, class hierarchies, import chains
+- **Fast structural queries**: Find all classes implementing an interface, all functions calling a method
+- **Pattern detection**: Identify Singleton, Factory, Observer, MVC, Microservices patterns
+- **Life-of-X tracing**: Follow execution paths from entry points through the entire codebase
+
+##### Installing Neo4j
+
+**Option 1: Docker (Recommended)**
+```bash
+# Start Neo4j container
+docker run -d \
+  --name neo4j \
+  -p 7474:7474 -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/your-password \
+  neo4j:latest
+
+# Verify Neo4j is running
+docker logs neo4j
+# Should see "Started" in logs
+
+# Access Neo4j Browser at http://localhost:7474
+# Login with username: neo4j, password: your-password
+```
+
+**Option 2: Native Installation**
+```bash
+# macOS
+brew install neo4j
+neo4j start
+
+# Ubuntu/Debian
+wget -O - https://debian.neo4j.com/neotechnology.gpg.key | sudo apt-key add -
+echo 'deb https://debian.neo4j.com stable latest' | sudo tee /etc/apt/sources.list.d/neo4j.list
+sudo apt-get update
+sudo apt-get install neo4j
+sudo systemctl start neo4j
+
+# Windows: Download from https://neo4j.com/download/
+```
+
+##### Configuring CodeFusion for Neo4j
+
+```bash
+# Set Neo4j password via environment variable (recommended)
+export NEO4J_PASSWORD="your-password"
+
+# OR edit cf/configs/config.yaml
+nano cf/configs/config.yaml
+```
+
+Update `config.yaml`:
+```yaml
+knowledge_base:
+  enabled: true  # Enable persistent knowledge base
+  type: neo4j  # Switch from sqlite to neo4j
+
+  neo4j:
+    uri: "bolt://localhost:7687"
+    user: "neo4j"
+    password: ""  # Set via NEO4J_PASSWORD env var (or paste here)
+    database: "codefusion"
+```
+
+##### Building the Knowledge Base
+
+```bash
+# First run will automatically build KB (can take 5-30 minutes for large repos)
+python -m cf.run.main ask /path/to/repo "How does authentication work?"
+
+# Or build KB explicitly
+python -m cf.knowledge.build --repo /path/to/repo
+
+# Incremental updates (much faster) happen automatically when files change
+```
+
+---
+
+#### Backend Comparison Table
+
+| Feature | SQLite | Neo4j |
+|---------|--------|-------|
+| **Setup Complexity** | Zero (built-in) | Medium (Docker/native) |
+| **Codebase Size** | <10K files | >10K files |
+| **Performance (small repos)** | Fast | Fast |
+| **Performance (large repos)** | Moderate | Excellent |
+| **Deep Graph Queries** | Slow (>5 levels) | Fast (any depth) |
+| **Storage** | Single file | Database server |
+| **Concurrent Access** | Limited | Full support |
+| **Portability** | High (single file) | Low (server-based) |
+| **Best For** | Dev, testing, small projects | Production, large codebases |
+
+**Recommendation**:
+- **Start with SQLite** for quick evaluation and small projects
+- **Upgrade to Neo4j** when you need production-grade performance or analyze large codebases
+
 ### Package Structure
 
 The clean `cf/` package structure:

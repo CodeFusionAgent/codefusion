@@ -39,14 +39,29 @@ class CodeOrchestrator(BaseAgent):
     Clean architecture with ~200 lines vs 4,375 in monolithic CodeAgent.
     """
 
-    def __init__(self, repo_path: str, config: Dict[str, Any]):
-        super().__init__(repo_path, config, "code_orchestrator")
-
-        # Initialize tiered LLM manager
+    def __init__(self, repo_path: str, config: Dict[str, Any], tool_registry=None, agent_registry=None):
+        # Accept shared registries from supervisor to avoid duplication
+        # Initialize tiered LLM manager BEFORE BaseAgent (needs to be available)
         self.tiered_llm = TieredLLMManager(config)
 
+        # Set up registries before BaseAgent.__init__
+        if agent_registry is None:
+            from cf.agents.registry import AgentRegistry
+            self.agent_registry = AgentRegistry()
+        else:
+            self.agent_registry = agent_registry
+
+        if tool_registry is None:
+            from cf.tools.registry import ToolRegistry
+            self.tool_registry = ToolRegistry(repo_path, agent_registry=self.agent_registry)
+        else:
+            self.tool_registry = tool_registry
+
+        # Initialize BaseAgent with shared tool registry
+        super().__init__(repo_path, config, "code_orchestrator", tool_registry=self.tool_registry)
+
         # Initialize pipelines
-        self.structural = None  # NEW - Structural KB pipeline
+        self.structural = None  # Structural KB pipeline
         self.discovery = None
         self.analysis = None
         self.validation = None
@@ -57,7 +72,7 @@ class CodeOrchestrator(BaseAgent):
         self.path_map = {}
         self.discovered_files = []
         self.file_summaries = {}
-        self.kb_initialized = False  # NEW - Track KB initialization
+        self.kb_initialized = False  # Track KB initialization
 
         # Adaptive discovery config
         self.discovery_attempt = 0
@@ -262,6 +277,12 @@ class CodeOrchestrator(BaseAgent):
                         print("🔍 [ORCHESTRATOR] Initializing structural knowledge base...")
                         self.structural = StructuralPipeline(self.repo_path, self.config)
 
+                        # Register KB agent with tool registry (tool-first pattern)
+                        from cf.agents.kb.structural_kb_agent import StructuralKBAgent
+                        kb_agent = StructuralKBAgent(kb=self.structural, config=self.config)
+                        self.agent_registry.register(kb_agent)
+                        print("✅ [ORCHESTRATOR] Registered StructuralKBAgent with tool registry")
+
                         if self.structural.is_kb_available():
                             # Check if KB exists
                             if self.structural.kb_exists():
@@ -338,7 +359,7 @@ class CodeOrchestrator(BaseAgent):
                     self.llm,
                     self.tools,
                     self.path_map,
-                    structural_pipeline=self.structural  # NEW - Pass KB pipeline
+                    tool_registry=self.tool_registry  # UPDATED - Pass tool registry (tool-first pattern)
                 )
             if self.analysis is None:
                 self.analysis = AnalysisPipeline(
@@ -353,7 +374,8 @@ class CodeOrchestrator(BaseAgent):
                 self.validation = ValidationPipeline(
                     self.repo_path,
                     self.config,
-                    self.tools
+                    self.tools,
+                    llm_client=self.llm  # Pass LLM for fact verification
                 )
             if self.synthesis is None:
                 self.synthesis = SynthesisPipeline(

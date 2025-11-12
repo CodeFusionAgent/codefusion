@@ -25,6 +25,7 @@ from cf.knowledge.structural.schema import (
     VariableNode
 )
 from cf.knowledge.structural.neo4j_client import Neo4jKnowledgeBase
+from cf.knowledge.structural.sqlite_client import SQLiteKnowledgeBase
 from cf.knowledge.structural.ast_parser import PythonASTParser
 from cf.knowledge.structural.dependency_graph import DependencyGraphBuilder
 
@@ -41,6 +42,62 @@ from cf.knowledge.patterns.code_smells import CodeSmellDetector, CodeSmell, Seve
 from cf.knowledge.lifeofx.dataflow import DataFlowAnalyzer
 from cf.knowledge.lifeofx.execution_paths import ExecutionPathTracer
 
+
+def create_knowledge_base(config: dict):
+    """
+    Factory function to create appropriate knowledge base backend.
+
+    Supports:
+    - neo4j: Graph database (recommended for large codebases)
+    - sqlite: Lightweight file-based database (recommended for small-medium codebases)
+
+    Args:
+        config: Knowledge base configuration dict with 'type' and backend-specific settings
+
+    Returns:
+        Knowledge base instance (Neo4jKnowledgeBase or SQLiteKnowledgeBase)
+
+    Example:
+        # Neo4j backend
+        config = {
+            'type': 'neo4j',
+            'neo4j': {
+                'uri': 'bolt://localhost:7687',
+                'user': 'neo4j',
+                'password': 'your-password',
+                'database': 'codefusion'
+            }
+        }
+        kb = create_knowledge_base(config)
+
+        # SQLite backend (no external dependencies)
+        config = {
+            'type': 'sqlite',
+            'sqlite': {
+                'db_path': '.codefusion/knowledge.db'
+            }
+        }
+        kb = create_knowledge_base(config)
+    """
+    kb_type = config.get('type', 'neo4j').lower()
+
+    if kb_type == 'neo4j':
+        neo4j_config = config.get('neo4j', {})
+        return Neo4jKnowledgeBase(
+            uri=neo4j_config.get('uri', 'bolt://localhost:7687'),
+            user=neo4j_config.get('user', 'neo4j'),
+            password=neo4j_config.get('password', ''),
+            database=neo4j_config.get('database', 'neo4j')
+        )
+    elif kb_type == 'sqlite':
+        sqlite_config = config.get('sqlite', {})
+        return SQLiteKnowledgeBase(
+            db_path=sqlite_config.get('db_path', '.codefusion/knowledge.db')
+        )
+    else:
+        raise ValueError(f"Unsupported knowledge base type: {kb_type}. Use 'neo4j' or 'sqlite'")
+
+
 __all__ = [
     # Structural layer
     "NodeType",
@@ -51,6 +108,8 @@ __all__ = [
     "FileNode",
     "VariableNode",
     "Neo4jKnowledgeBase",
+    "SQLiteKnowledgeBase",
+    "create_knowledge_base",
     "PythonASTParser",
     "DependencyGraphBuilder",
     # Semantic layer

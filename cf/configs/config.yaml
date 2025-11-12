@@ -1,33 +1,86 @@
 # CodeFusion Configuration
-
 # LLM Settings
 llm:
-  model: "gpt-4o"
-  api_key: ""
+  # Global LLM settings (defaults for all models)
   max_tokens: 2000
-  #temperature: 0.7
-
-  # Multi-Model Tiered Strategy (NEW)
-  # Match task complexity to model capability for optimal cost/performance
+  max_retries: 3  # Number of retry attempts for API calls (429, 5xx errors)
+  retry_delay_seconds: 2  # Initial delay between retries
+  use_exponential_backoff: true  # Use exponential backoff (2s, 4s, 8s, ...)
+  # Multi-Model Tiered Strategy
+  # FAST tier: Cheapest, fastest for simple tasks (file summaries, classification)
+  # STANDARD tier: Balanced for most tasks (general analysis, moderate reasoning)
+  # ADVANCED tier: Best quality for complex reasoning (final synthesis, deep reasoning)
   tiers:
     fast:
-      model: "claude-3-5-haiku-20241022"  # Fast, cheap for simple tasks
+      model: "gpt-4.1-mini"  # Anthropic - $0.25/1M tokens
       use_cases: ["file_summaries", "classification", "coordination"]
-      cost_per_1m: 0.25  # ~$0.25/1M tokens
+      cost_per_1m: 0.25
     standard:
-      model: "gpt-4o"  # Balanced for most tasks
+      model: "gpt-4.1-mini"  # Azure OpenAI or standard OpenAI
       use_cases: ["general_analysis", "moderate_reasoning"]
-      cost_per_1m: 2.50  # ~$2.50/1M tokens
+      cost_per_1m: 2.50
     advanced:
-      model: "claude-sonnet-4-5"  # Best for complex synthesis
+      model: "gpt-5"  # Anthropic - $3.00/1M tokens
       use_cases: ["final_synthesis", "deep_reasoning"]
-      cost_per_1m: 3.00  # ~$3.00/1M tokens
+      cost_per_1m: 3.00
+  # Per-Model Configurations
+  # Each model can have its own endpoint, API keys, and provider-specific settings
+  models:
+    # Azure OpenAI Models
+    gpt-4o:
+      provider: "azure"
+      endpoint: ""  # e.g., "https://your-resource.openai.azure.com/"
+      deployment: "gpt-4o"  # Your Azure deployment name
+      subscription_key: ""  # Or set AZURE_OPENAI_API_KEY env var
+      api_version: "2024-02-15-preview"
+    gpt-5:
+      provider: "azure"
+      endpoint: "https://arune-mfpva4eo-eastus2.cognitiveservices.azure.com/"
+      model_name: "gpt-5"
+      deployment: "gpt-5"
+      subscription_key: ""  # Set via AZURE_OPENAI_API_KEY environment variable
+      api_version: "2025-01-01-preview"
+    gpt-4.1:
+      provider: "azure"
+      endpoint: "https://ai-arunesh8579ai720415905130.cognitiveservices.azure.com/"
+      model_name: "gpt-4.1"
+      deployment: "gpt-4.1"
+      subscription_key: ""  # Set via environment variable
+      api_version: "2024-12-01-preview"
+    gpt-4.1-mini:
+      provider: "azure"
+      endpoint: "https://arune-mfpva4eo-eastus2.openai.azure.com/"
+      subscription_key: ""
+      model_name: "gpt-4.1-mini"
+      deployment: "gpt-4.1-mini"
+      api_version: "2025-01-01-preview"
+    # Anthropic Models
+    claude-3-5-haiku-20241022:
+      provider: "anthropic"
+      api_key: ""  # Or set ANTHROPIC_API_KEY env var
+      base_url: "https://api.anthropic.com/v1/"
+
+    claude-sonnet-4-5:
+      provider: "anthropic"
+      api_key: ""  # Or set ANTHROPIC_API_KEY env var
+      base_url: "https://api.anthropic.com/v1/"
+
+    # Google Gemini Models (via OpenAI-compatible API)
+    gemini-2.5-flash:
+      provider: "gemini"
+      api_key: ""  # Or set GOOGLE_API_KEY env var
+      base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+    # Meta Llama Models (via OpenAI-compatible API)
+    meta-llama/llama-4-maverick-17b-128e-instruct:
+      provider: "openai-compatible"
+      api_key: ""  # Provider-specific API key
+      base_url: ""  # Provider's base URL
 
 # Agent Settings
 agents:
   max_iterations: 20  # Increased from 10 to support 3 passes with 3 agents (worst case: 13 iterations + margin)
   timeout: 300  # seconds
-  use_pipeline_architecture: true  # Use new modular pipeline architecture (recommended)
   max_files_to_analyze: 50  # Maximum files for discovery pipeline
 
   # Parallel Processing Settings (NEW)
@@ -36,6 +89,7 @@ agents:
   parallel_workers: 10  # Number of concurrent LLM calls (adjust based on API limits)
   parallel_min_files: 3  # Minimum files to enable parallel processing
   max_llm_json_size: 10000  # Maximum JSON response size from LLM (chars)
+  enable_adaptive_workers: true  # Automatically reduce workers on rate limiting (NEW)
 
   # Synthesis configuration
   synthesis:
@@ -73,6 +127,27 @@ agents:
     path_refs_medium: 3  # Medium quality path reference count
     code_blocks_min: 4  # Minimum code blocks for bonus
     sections_min: 3  # Minimum sections for structure bonus
+
+  # Validation configuration (Anti-hallucination)
+  validation:
+    enable_fact_verification: true  # Verify claims against actual code
+    max_claims_to_verify: 20  # Limit for performance (verify top 20 claims)
+    min_identifier_match: 0.3  # Minimum % of identifiers that must match
+    use_llm_verification: false  # Use LLM for complex verification (costs more)
+
+  # Life-of-X Configuration (NEW)
+  # Execution path tracing for "how does X work?" questions
+  max_execution_trace_depth: 10  # Maximum call chain depth to trace
+  enable_execution_tracing: true  # Enable automatic execution path tracing
+
+  # Semantic Search Configuration (NEW)
+  semantic_search_top_k: 20  # Number of semantically similar files to return
+  min_semantic_similarity: 0.5  # Minimum similarity threshold (0-1)
+
+  # Incremental Context Building (NEW)
+  # Analyze files in phases: core → dependencies → periphery
+  enable_incremental_analysis: false  # Enable phased analysis (experimental)
+  incremental_phase_delay_ms: 100  # Delay between phases for context propagation
 
 # Cache Settings
 cache:
@@ -148,15 +223,19 @@ repo:
     - ".html"
     - ".css"
     - ".sql"
-  
-  # Documentation extensions (handled by DocsAgent)
-  documentation_extensions:
-    - ".md"
-    - ".rst"
-    - ".txt"
-    - ".adoc"
-    - ".org"
-  
+
+  # Documentation extensions (DISABLED - building separate documentation KB later)
+  # Currently focusing on CODE-ONLY knowledge base
+  # Will integrate documentation KB after code KB is validated and tested
+  documentation_extensions: []
+  # Future documentation extensions (when documentation KB is ready):
+  # documentation_extensions:
+  #   - ".md"
+  #   - ".rst"
+  #   - ".txt"
+  #   - ".adoc"
+  #   - ".org"
+
   # All text extensions (for general file operations)
   text_extensions:
     - ".py"
@@ -204,11 +283,12 @@ repo:
     - ".html"
     - ".css"
     - ".sql"
-    - ".md"
-    - ".rst"
-    - ".txt"
-    - ".adoc"
-    - ".org"
+    # DOCUMENTATION EXTENSIONS REMOVED - focusing on code-only KB
+    # - ".md"
+    # - ".rst"
+    # - ".txt"
+    # - ".adoc"
+    # - ".org"
   excluded_dirs:
     - ".git"
     - "__pycache__"
@@ -217,8 +297,6 @@ repo:
     - "venv"
     - "build"
     - "dist"
-    - "test"
-    - "tests"
     - "spec"
   excluded_extensions:
     - ".pyc"
@@ -229,14 +307,21 @@ repo:
 # Knowledge Base Settings (Structural Analysis)
 knowledge_base:
   enabled: true  # Enable persistent knowledge base (recommended for large repos)
-  type: neo4j
+  type: sqlite  # Options: "neo4j" (graph DB, best for large codebases) or "sqlite" (file-based, lightweight)
 
-  # Neo4j Connection Settings
+  # Neo4j Connection Settings (when type = "neo4j")
+  # Recommended for: Large codebases (>10K files), complex graph queries, production use
   neo4j:
     uri: "bolt://localhost:7687"
     user: "neo4j"
     password: ""  # Set via NEO4J_PASSWORD environment variable
     database: "codefusion"
+
+  # SQLite Settings (when type = "sqlite")
+  # Recommended for: Small-medium codebases (<10K files), local development, quick setup
+  # No external database server required - stores everything in a single file
+  sqlite:
+    db_path: ".codefusion/knowledge.db"  # Path to SQLite database file
 
   # KB Build Settings
   build:

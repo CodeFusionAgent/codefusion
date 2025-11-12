@@ -33,6 +33,20 @@ class SemanticCache:
         # LLM client for embeddings (will be set by agent)
         self.llm_client = None
         
+        # Metrics tracking
+        self.metrics = {
+            'hits': 0,
+            'misses': 0,
+            'writes': 0,
+            'evictions': 0,
+            'expirations': 0,
+            'semantic_searches': 0,
+            'total_latency_ms': 0
+        }
+        
+        # Cache version for invalidation
+        self.cache_version = '1.0.0'
+
         # Initialize
         if self.enabled:
             self.cache_dir.mkdir(exist_ok=True)
@@ -47,6 +61,8 @@ class SemanticCache:
         if not self.enabled:
             return None
         
+        start_time = time.time()
+        
         # Clean expired entries first
         self._clean_expired()
         
@@ -56,16 +72,24 @@ class SemanticCache:
             if not self._is_expired(entry):
                 entry['hits'] = entry.get('hits', 0) + 1
                 entry['last_accessed'] = time.time()
+                self.metrics['hits'] += 1
+                self.metrics['total_latency_ms'] += (time.time() - start_time) * 1000
                 return entry['result']
         
         # If semantic query provided, try semantic search
         if semantic_query and self.llm_client:
+            self.metrics['semantic_searches'] += 1
             similar_entry = self._find_similar(semantic_query)
             if similar_entry:
                 similar_entry['hits'] = similar_entry.get('hits', 0) + 1
                 similar_entry['last_accessed'] = time.time()
+                self.metrics['hits'] += 1
+                self.metrics['total_latency_ms'] += (time.time() - start_time) * 1000
                 return similar_entry['result']
         
+        # Cache miss
+        self.metrics['misses'] += 1
+        self.metrics['total_latency_ms'] += (time.time() - start_time) * 1000
         return None
     
     def set(self, key: str, result: Dict[str, Any], semantic_key: str = "", metadata: Dict[str, Any] = None):
@@ -93,6 +117,7 @@ class SemanticCache:
                 entry['embedding'] = embedding_result['embedding']
         
         self.cache_data[key] = entry
+        self.metrics['writes'] += 1
         self._save_cache()
     
     def _find_similar(self, query: str) -> Optional[Dict[str, Any]]:
@@ -152,6 +177,7 @@ class SemanticCache:
         
         for key in expired_keys:
             del self.cache_data[key]
+            self.metrics['expirations'] += 1
         
         if expired_keys:
             self._save_cache()
@@ -167,7 +193,9 @@ class SemanticCache:
         
         # Keep top 80% of max cache size
         keep_count = int(self.max_cache_size * 0.8)
+        evicted_count = len(self.cache_data) - keep_count
         self.cache_data = dict(sorted_entries[:keep_count])
+        self.metrics['evictions'] += evicted_count
         self._save_cache()
     
     def _load_cache(self):
@@ -176,9 +204,19 @@ class SemanticCache:
             if self.cache_file.exists():
                 with open(self.cache_file, 'r') as f:
                     data = json.load(f)
+
+                    # Check cache version for invalidation
+                    cached_version = data.get('version', '1.0.0')
+                    if cached_version != self.cache_version:
+                        print(f"⚠️ Cache version mismatch ({cached_version} != {self.cache_version}), invalidating cache")
+                        self.cache_data = {}
+                        self._save_cache()
+                        return
+
                     self.cache_data = data.get('entries', {})
         except Exception as e:
             # If cache file is corrupted, start fresh
+            print(f"⚠️ Cache load error: {e}, starting fresh")
             self.cache_data = {}
     
     def _save_cache(self):
@@ -186,14 +224,16 @@ class SemanticCache:
         try:
             cache_export = {
                 'agent_name': self.agent_name,
+                'version': self.cache_version,
                 'created': time.time(),
                 'entries': self.cache_data
             }
-            
+
             with open(self.cache_file, 'w') as f:
                 json.dump(cache_export, f, indent=2)
-        except Exception:
+        except Exception as e:
             # Fail silently - caching is not critical
+            print(f"⚠️ Cache save error: {e}")
             pass
     
     def clear(self):
@@ -201,26 +241,90 @@ class SemanticCache:
         self.cache_data = {}
         if self.cache_file.exists():
             self.cache_file.unlink()
+        print(f"✅ Cache cleared for {self.agent_name}")
+
+    def invalidate_by_pattern(self, pattern: str):
+        """
+        Invalidate cache entries matching a pattern.
+
+        Args:
+            pattern: Pattern to match (substring in key or semantic_key)
+        """
+        if not self.enabled:
+            return
+
+        pattern_lower = pattern.lower()
+        keys_to_remove = []
+
+        for key, entry in self.cache_data.items():
+            if (pattern_lower in key.lower() or
+                pattern_lower in entry.get('semantic_key', '').lower()):
+                keys_to_remove.append(key)
+
+        for key in keys_to_remove:
+            del self.cache_data[key]
+
+        if keys_to_remove:
+            self._save_cache()
+            print(f"✅ Invalidated {len(keys_to_remove)} cache entries matching '{pattern}'")
+
+    def invalidate_repo(self, repo_path: str):
+        """
+        Invalidate all cache entries for a specific repository.
+
+        Args:
+            repo_path: Repository path
+        """
+        if not self.enabled:
+            return
+
+        keys_to_remove = [
+            key for key, entry in self.cache_data.items()
+            if entry.get('metadata', {}).get('repo_path', '') == repo_path
+        ]
+
+        for key in keys_to_remove:
+            del self.cache_data[key]
+
+        if keys_to_remove:
+            self._save_cache()
+            print(f"✅ Invalidated {len(keys_to_remove)} cache entries for repo '{repo_path}'")
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get cache statistics"""
+        """Get cache statistics with detailed metrics"""
         if not self.enabled:
             return {'enabled': False}
         
-        total_hits = sum(entry.get('hits', 0) for entry in self.cache_data.values())
+        total_entry_hits = sum(entry.get('hits', 0) for entry in self.cache_data.values())
         semantic_entries = sum(1 for entry in self.cache_data.values() if 'embedding' in entry)
+        
+        total_requests = self.metrics['hits'] + self.metrics['misses']
+        hit_rate = self.metrics['hits'] / total_requests if total_requests > 0 else 0
+        avg_latency = self.metrics['total_latency_ms'] / total_requests if total_requests > 0 else 0
         
         return {
             'enabled': True,
             'total_entries': len(self.cache_data),
             'semantic_entries': semantic_entries,
-            'total_hits': total_hits,
             'cache_size_mb': self._get_cache_size_mb(),
             'oldest_entry': min(
                 (entry['timestamp'] for entry in self.cache_data.values()),
                 default=time.time()
             ),
-            'hit_rate': total_hits / max(len(self.cache_data), 1)
+            # Session metrics
+            'session_hits': self.metrics['hits'],
+            'session_misses': self.metrics['misses'],
+            'session_writes': self.metrics['writes'],
+            'session_evictions': self.metrics['evictions'],
+            'session_expirations': self.metrics['expirations'],
+            'semantic_searches': self.metrics['semantic_searches'],
+            'hit_rate': hit_rate,
+            'avg_latency_ms': avg_latency,
+            # Entry metrics
+            'entry_hits': total_entry_hits,
+            'entry_hit_rate': total_entry_hits / max(len(self.cache_data), 1),
+            # Version
+            'cache_version': self.cache_version
         }
     
     def _get_cache_size_mb(self) -> float:

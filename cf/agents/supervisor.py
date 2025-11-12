@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Any
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from cf.agents.base import BaseAgent
+from cf.agents.multi_pass_coordinator import MultiPassCoordinator
 from cf.cache.semantic import SemanticCache
 
 
@@ -21,41 +22,54 @@ class SupervisorAgent(BaseAgent):
     """
     
     def __init__(self, repo_path: str, config: Dict[str, Any]):
-        super().__init__(repo_path, config, "supervisor")
-        
+        # Initialize shared tool/agent registry BEFORE calling super().__init__
+        # so that supervisor and all specialist agents share the same registry
+        from cf.tools.registry import ToolRegistry
+        from cf.agents.registry import AgentRegistry
+        self._agent_registry = AgentRegistry()
+        self._shared_tool_registry = ToolRegistry(repo_path, agent_registry=self._agent_registry)
+
+        # Initialize BaseAgent with shared tool registry
+        super().__init__(repo_path, config, "supervisor", tool_registry=self._shared_tool_registry)
+
         # Specialist agents (persistent across questions)
         self._code_agent = None
         self._docs_agent = None
         self._web_agent = None
-        
+
         # Question-specific state (reset each question)
         self.reset_question_state()
+
+        # Multi-pass coordinator (handles complex state management)
+        self.pass_coordinator = MultiPassCoordinator(self.config, self.call_llm)
 
     def reset_question_state(self):
         """Reset state for new question"""
         self.agents_to_consult = []  # Will be determined intelligently based on question
-        self.agents_completed = []
-        self.all_insights = []
-        self.specialist_results = {}
         self.actions_taken = []
         self.results = {}
         self.insights = []
         
-        # Multi-pass coordination state
+        # Analysis type tracking
         self.analysis_type = None  # Will be determined by LLM
+        self.repo_cache_status = None  # 'new' or 'existing'
+        
+        # Multi-pass coordinator handles: pass_number, attempts, context_sharing, etc.
+        # No need to track these separately anymore
+
+        # Backward-compatibility shim for existing SupervisorAgent logic that still
+        # references pass-related attributes directly (pending full migration to
+        # MultiPassCoordinator). These ensure attributes exist to prevent AttributeError.
+        self.pass_config = {'standard': {'max_passes': 3}, 'summary': {'max_passes': 2}}
         self.pass_number = 1
         self.current_pass_attempt = 1
-        self.max_pass_attempts = 3  # Retry mechanism
-        self.pass_results = {}  # Store results from each pass
-        self.repo_cache_status = None  # 'new' or 'existing'
-        self.context_sharing_decision = None  # LLM decides per pass
-        self.all_passes_complete = False  # Track when all multi-pass coordination is done
-
-        # Multi-pass configuration
-        self.pass_config = {
-            'standard': {'max_passes': 3},
-            'summary': {'max_passes': 2}
-        }
+        self.max_pass_attempts = 3
+        self.agents_completed = []
+        self.specialist_results = {}
+        self.all_insights = []
+        self.pass_results = {}
+        self.all_passes_complete = False
+        self.context_sharing_decision = False
 
         # Cache is already initialized by BaseAgent.__init__()
         # Just track if it's enabled for checking later
@@ -77,32 +91,31 @@ class SupervisorAgent(BaseAgent):
                 from cf.llm.model_tiers import TieredLLMManager
                 tiered_llm = TieredLLMManager(self.config)
             except Exception:
-                # If tiered LLM fails, use all agents as safe fallback
-                self.logger.verbose("Tiered LLM not available - consulting all agents", "⚠️")
-                return ['code', 'docs', 'web']
+                # If tiered LLM fails, use code agent as safe fallback (docs and web disabled)
+                self.logger.verbose("Tiered LLM not available - using code agent", "⚠️")
+                return ['code']
 
         # Use fast tier model to intelligently route question
         prompt = f"""You are an intelligent agent router for a codebase analysis system.
 
 Available specialist agents:
 - code: Analyzes source code, implementation details, architecture, how things work
-- docs: Analyzes documentation, README files, setup instructions, guides
-- web: Searches web for latest versions, external dependencies, framework updates
+
+NOTE: Currently in CODE-ONLY mode:
+- Documentation analysis: DISABLED (will integrate later)
+- Web search: DISABLED (focusing on codebase analysis only)
 
 Question: "{question}"
 
-Which agents should handle this question? Consider:
-1. code agent: Use for questions about implementation, algorithms, code flow, architecture
-2. docs agent: Use for questions about documentation, installation, setup, usage
-3. web agent: Use ONLY for questions about latest versions, external packages, or current releases
+The code agent will handle this question using the 6-layer knowledge base:
+1. Structural layer (AST, graph analysis)
+2. Semantic layer (embeddings, similarity search)
+3. Dependency layer (call graphs, imports)
+4. Patterns layer (design patterns, code smells)
+5. Life-of-X layer (execution tracing, data flow)
 
-Return JSON with selected agents:
-{{"agents": ["code"], "reasoning": "brief explanation"}}
-
-Important:
-- Select minimum necessary agents (usually 1-2, rarely all 3)
-- Default to just "code" for technical implementation questions
-- Only include "web" if question explicitly asks about versions/updates
+Return JSON confirming code agent will handle this:
+{{"agents": ["code"], "reasoning": "Code agent will analyze using multi-layer KB"}}
 """
 
         try:
@@ -115,25 +128,21 @@ Important:
             )
 
             # Parse JSON response
-            import json
-            # Extract JSON from response
-            start = response.find('{')
-            end = response.rfind('}') + 1
-            if start >= 0 and end > start:
-                json_str = response[start:end]
-                result = json.loads(json_str)
-                selected_agents = result.get('agents', ['code'])
-                reasoning = result.get('reasoning', '')
+            from cf.utils.llm_parser import LLMResponseParser
 
-                # Validate agents
-                valid_agents = ['code', 'docs', 'web']
-                selected_agents = [a for a in selected_agents if a in valid_agents]
+            result = LLMResponseParser.extract_json(response, fallback={'agents': ['code']})
+            selected_agents = result.get('agents', ['code'])
+            reasoning = result.get('reasoning', '')
 
-                if not selected_agents:
-                    selected_agents = ['code']  # Default fallback
+            # Validate agents (docs and web disabled for code-only KB focus)
+            valid_agents = ['code']
+            selected_agents = [a for a in selected_agents if a in valid_agents]
 
-                self.logger.verbose(f"Selected agents: {', '.join(selected_agents)} - {reasoning}", "🎯")
-                return selected_agents
+            if not selected_agents:
+                selected_agents = ['code']  # Default fallback
+
+            self.logger.verbose(f"Selected agents: {', '.join(selected_agents)} - {reasoning}", "🎯")
+            return selected_agents
 
         except Exception as e:
             self.logger.verbose(f"Agent selection failed: {e} - using default [code]", "⚠️")
@@ -233,13 +242,16 @@ Important:
         """Get result from specific agent type"""
         if agent_type == 'code':
             if not self._code_agent:
-                use_pipeline = self.config.get('agents', {}).get('use_pipeline_architecture', True)
-                if use_pipeline:
-                    from cf.agents.code_orchestrator import CodeOrchestrator
-                    self._code_agent = CodeOrchestrator(self.repo_path, self.config)
-                else:
-                    from cf.agents.code import CodeAgent
-                    self._code_agent = CodeAgent(self.repo_path, self.config)
+                # Always use pipeline architecture (CodeOrchestrator)
+                # Pass shared registries for cross-agent tool usage (no duplication!)
+                from cf.agents.code_orchestrator import CodeOrchestrator
+                self._code_agent = CodeOrchestrator(
+                    self.repo_path,
+                    self.config,
+                    tool_registry=self._shared_tool_registry,
+                    agent_registry=self._agent_registry
+                )
+                # KB agents are automatically registered in shared registry during orchestrator init
 
             # Pass LLM question classification to code agent to eliminate hardcoded patterns
             if hasattr(self._code_agent, 'set_question_context'):
@@ -251,13 +263,17 @@ Important:
             return self._code_agent.analyze(question)
         elif agent_type == 'docs':
             if not self._docs_agent:
+                # Pass shared tool registry for cross-agent tool usage
                 from cf.agents.docs import DocsAgent
-                self._docs_agent = DocsAgent(self.repo_path, self.config)
+                self._docs_agent = DocsAgent(self.repo_path, self.config,
+                                              tool_registry=self._shared_tool_registry)
             return self._docs_agent.analyze(question)
         elif agent_type == 'web':
             if not self._web_agent:
+                # Pass shared tool registry for cross-agent tool usage
                 from cf.agents.web import WebAgent
-                self._web_agent = WebAgent(self.repo_path, self.config)
+                self._web_agent = WebAgent(self.repo_path, self.config,
+                                            tool_registry=self._shared_tool_registry)
             return self._web_agent.analyze(question)
         else:
             return {'success': False, 'error': f'Unknown agent type: {agent_type}', 'insights': []}
@@ -514,20 +530,15 @@ The Architecture & Flow section should be particularly rich - it's the heart of 
                 
                 # Try to parse JSON response
                 try:
-                    if content.startswith('{'):
-                        synthesis = json.loads(content)
+                    from cf.utils.llm_parser import LLMResponseParser
+
+                    synthesis = LLMResponseParser.extract_json(content)
+                    if synthesis:
+                        return {'success': True, 'synthesis': synthesis}
                     else:
-                        # Extract JSON from markdown
-                        start = content.find('{')
-                        end = content.rfind('}') + 1
-                        if start >= 0 and end > start:
-                            synthesis = json.loads(content[start:end])
-                        else:
-                            raise ValueError("No JSON found")
-                    
-                    return {'success': True, 'synthesis': synthesis}
-                    
-                except json.JSONDecodeError:
+                        raise ValueError("No JSON found")
+
+                except (json.JSONDecodeError, ValueError):
                     # Fallback: treat as plain text narrative
                     return {
                         'success': True,
@@ -627,13 +638,15 @@ Return JSON format only."""
             llm_response = self.call_llm(prompt, system_prompt)
             
             if llm_response.get('success'):
-                try:
-                    result = json.loads(llm_response.get('content', '{}'))
-                    self.analysis_type = result.get('analysis_type', 'standard')
-                    return {'success': True, 'analysis_type': self.analysis_type, 'reasoning': result.get('reasoning', '')}
-                except json.JSONDecodeError:
-                    self.analysis_type = 'standard'
-                    return {'success': True, 'analysis_type': 'standard', 'reasoning': 'JSON parse failed, using fallback'}
+                from cf.utils.llm_parser import LLMResponseParser
+
+                result = LLMResponseParser.extract_json_with_validation(
+                    llm_response.get('content', ''),
+                    required_keys=['analysis_type'],
+                    fallback={'analysis_type': 'standard', 'reasoning': 'JSON parse failed'}
+                )
+                self.analysis_type = result.get('analysis_type', 'standard')
+                return {'success': True, 'analysis_type': self.analysis_type, 'reasoning': result.get('reasoning', '')}
             
             self.analysis_type = 'standard'
             return {'success': True, 'analysis_type': 'standard', 'reasoning': 'LLM call failed, using fallback'}
@@ -774,12 +787,16 @@ Return JSON format only."""
             llm_response = self.call_llm(prompt, system_prompt)
             
             if llm_response.get('success'):
-                try:
-                    analysis = json.loads(llm_response.get('content', '{}'))
+                from cf.utils.llm_parser import LLMResponseParser
+
+                analysis = LLMResponseParser.extract_json(
+                    llm_response.get('content', ''),
+                    fallback=None
+                )
+                if analysis:
                     return analysis
-                except json.JSONDecodeError:
-                    # JSON parse failed, fall through to fallback logic
-                    self.logger.error("JSON parse failed, using fallback logic")
+                # JSON parse failed, fall through to fallback logic
+                self.logger.error("JSON parse failed, using fallback logic")
             else:
                 # LLM call failed, fall through to fallback logic
                 self.logger.error("LLM call failed, using fallback logic")
