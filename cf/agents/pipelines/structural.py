@@ -536,11 +536,13 @@ class StructuralPipeline:
                             steps = path_info.get('steps', [])
 
                             for step in steps:
-                                # Extract file_path from qualified_name (format: "path/to/file.py::function")
+                                # qualified_name format: "module.Class.function" (dot notation)
+                                # Need to lookup file_path from KB using qualified_name
                                 qualified_name = step.get('qualified_name', '')
 
-                                if '::' in qualified_name:
-                                    file_path = qualified_name.split('::')[0]
+                                if qualified_name:
+                                    # Query KB for file_path of this function
+                                    file_path = self._lookup_file_path(qualified_name)
                                     if file_path:
                                         # High relevance for execution flow files
                                         file_scores[file_path] = max(file_scores.get(file_path, 0), 0.9)
@@ -678,6 +680,53 @@ class StructuralPipeline:
         ranked_files = sorted(unique_files, key=lambda f: file_scores.get(f, 0.5), reverse=True)
 
         return ranked_files[:max_results]
+
+    def _lookup_file_path(self, qualified_name: str) -> Optional[str]:
+        """
+        Look up file_path for a qualified function/class name in KB.
+
+        Args:
+            qualified_name: Qualified name in dot notation (e.g., "module.Class.function")
+
+        Returns:
+            File path if found, None otherwise
+        """
+        if not self.is_kb_available():
+            return None
+
+        try:
+            # Try as function first
+            query = """
+            MATCH (f:Function {repo_id: $repo_id, qualified_name: $qname})
+            RETURN f.file_path as file_path
+            LIMIT 1
+            """
+            result = self.kb.execute_query(query, {
+                'repo_id': self.repo_id,
+                'qname': qualified_name
+            })
+
+            if result.nodes and len(result.nodes) > 0:
+                return result.nodes[0].get('file_path')
+
+            # Try as class
+            query = """
+            MATCH (c:Class {repo_id: $repo_id, qualified_name: $qname})
+            RETURN c.file_path as file_path
+            LIMIT 1
+            """
+            result = self.kb.execute_query(query, {
+                'repo_id': self.repo_id,
+                'qname': qualified_name
+            })
+
+            if result.nodes and len(result.nodes) > 0:
+                return result.nodes[0].get('file_path')
+
+        except Exception as e:
+            print(f"⚠️ [KB_LIFEOFX] File path lookup failed for {qualified_name}: {e}")
+
+        return None
 
     def _resolve_entry_point(self, entry_point: str) -> List[str]:
         """
