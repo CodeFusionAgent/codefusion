@@ -56,6 +56,11 @@ class ValidationPipeline:
         try:
             print("✅ [VALIDATION] Validating answer...")
 
+            # DEBUG: Show narrative snippet
+            print(f"\n🔍 [DEBUG VALIDATION] Narrative preview (first 500 chars):")
+            print(f"   {answer[:500]}...")
+            print(f"   Total length: {len(answer)} chars, {len(answer.split())} words\n")
+
             issues = []
 
             # 1. Check line number references
@@ -96,6 +101,26 @@ class ValidationPipeline:
             print(f"   Line coverage: {line_coverage:.2f}")
             print(f"   Path accuracy: {path_accuracy:.2f}")
             print(f"   Issues: {len(issues)} ({error_count} errors)")
+
+            # DEBUG: Print all validation issues
+            if issues:
+                print(f"\n🔍 [DEBUG VALIDATION] Issue breakdown:")
+                error_issues = [i for i in issues if i.severity == 'error']
+                warning_issues = [i for i in issues if i.severity == 'warning']
+
+                if error_issues:
+                    print(f"   ❌ ERRORS ({len(error_issues)}):")
+                    for i, issue in enumerate(error_issues[:10], 1):  # Show first 10 errors
+                        location = f" at {issue.file_path}:{issue.line_number}" if issue.file_path else ""
+                        print(f"      {i}. [{issue.issue_type}]{location}")
+                        print(f"         {issue.message[:150]}")
+
+                if warning_issues:
+                    print(f"   ⚠️  WARNINGS ({len(warning_issues)}):")
+                    for i, issue in enumerate(warning_issues[:5], 1):  # Show first 5 warnings
+                        location = f" at {issue.file_path}:{issue.line_number}" if issue.file_path else ""
+                        print(f"      {i}. [{issue.issue_type}]{location}")
+                        print(f"         {issue.message[:150]}")
 
             return ValidationResult(
                 valid=valid,
@@ -164,8 +189,11 @@ class ValidationPipeline:
         path_pattern = r'[\w/.-]+\.\w+'
         potential_paths = re.findall(path_pattern, answer)
 
+        print(f"\n🔍 [DEBUG FILE_PATHS] Validating {len(potential_paths)} potential paths")
+
         valid_paths = set(file_summaries.keys())
 
+        unverified_count = 0
         for path in potential_paths:
             # Check if it's a real path mentioned in file_summaries
             if path not in valid_paths:
@@ -178,6 +206,10 @@ class ValidationPipeline:
                         message=f'Path "{path}" not found in analyzed files',
                         file_path=path
                     ))
+                    unverified_count += 1
+
+        if unverified_count > 0:
+            print(f"   ⚠️  Found {unverified_count} unverified paths")
 
         return issues
 
@@ -249,16 +281,25 @@ class ValidationPipeline:
         claim_pattern = r'([^.!?]+(?:line[s]?\s+\d+|L\d+|at\s+line\s+\d+)[^.!?]*[.!?])'
         claims_with_lines = re.findall(claim_pattern, answer, re.IGNORECASE)
 
+        print(f"\n🔍 [DEBUG CLAIM_VERIFICATION] Found {len(claims_with_lines)} claims with line references")
+        if claims_with_lines:
+            print(f"   First 3 claims:")
+            for i, claim in enumerate(claims_with_lines[:3], 1):
+                print(f"      {i}. {claim[:100]}...")
+
         # Limit claims to verify (performance consideration)
         claims_to_verify = claims_with_lines[:max_claims]
+        print(f"   Verifying {len(claims_to_verify)} claims (max: {max_claims})")
 
         verified_count = 0
         failed_count = 0
+        skipped_count = 0
 
         for claim in claims_to_verify:
             # Extract file path from claim (if present)
             path_match = re.search(r'([\w/.-]+\.py)', claim)
             if not path_match:
+                skipped_count += 1
                 continue
 
             file_path = path_match.group(1)
@@ -268,12 +309,14 @@ class ValidationPipeline:
                 # Try partial match
                 matching_files = [f for f in file_summaries.keys() if file_path in f or f in file_path]
                 if not matching_files:
+                    skipped_count += 1
                     continue
                 file_path = matching_files[0]
 
             # Extract line number from claim
             line_match = re.search(r'(?:line[s]?\s+|L)(\d+)', claim, re.IGNORECASE)
             if not line_match:
+                skipped_count += 1
                 continue
 
             line_num = int(line_match.group(1))
@@ -311,6 +354,8 @@ class ValidationPipeline:
             print(f"   ✅ Verified {verified_count} claims against actual code")
         if failed_count > 0:
             print(f"   ⚠️  {failed_count} claims failed verification")
+        if skipped_count > 0:
+            print(f"   ℹ️  Skipped {skipped_count} claims (no file path or line number)")
 
         return issues
 
@@ -465,6 +510,11 @@ class ValidationPipeline:
             # Require at least 30% of mentioned identifiers to be in code
             min_match_ratio = self.config.get('agents', {}).get('validation', {}).get('min_identifier_match', 0.3)
             if match_ratio < min_match_ratio:
+                # DEBUG: Show why claim failed
+                print(f"      🔍 [DEBUG] Claim failed identifier check:")
+                print(f"         Identifiers in claim: {identifiers_in_claim[:5]}")
+                print(f"         Match ratio: {match_ratio:.2%} < {min_match_ratio:.2%}")
+                print(f"         Claim: {claim[:80]}...")
                 return False
 
         # Heuristic 2: Check for contradictions with file summary
@@ -586,32 +636,53 @@ Response:"""
         path_pattern = r'[\w/.-]+\.\w+'
         mentioned_paths = re.findall(path_pattern, answer)
 
+        # DEBUG: Show extracted paths
+        print(f"\n🔍 [DEBUG PATH_ACCURACY] Extracted {len(mentioned_paths)} path references from narrative")
+        if mentioned_paths:
+            print(f"   Mentioned paths (first 10): {mentioned_paths[:10]}")
+
         if not mentioned_paths:
+            print(f"   ℹ️  No paths found in narrative - returning 1.0 (perfect accuracy)")
             return 1.0  # No paths = perfect accuracy (nothing to be wrong)
 
         valid_paths = set(file_summaries.keys())
+        print(f"   Valid paths from file_summaries: {list(valid_paths)}")
 
         # Count correct paths with fuzzy matching
         correct = 0
+        incorrect_paths = []
         for mentioned_path in mentioned_paths:
             # Normalize path (remove leading ./ and normalize separators)
             normalized_mention = mentioned_path.lstrip('./')
 
+            matched = False
+
             # Check exact match first
             if normalized_mention in valid_paths:
                 correct += 1
+                matched = True
                 continue
 
             # Check if mentioned path is a suffix of any valid path
             # (handles cases where LLM omits repo prefix)
             if any(vp.endswith(normalized_mention) for vp in valid_paths):
                 correct += 1
+                matched = True
                 continue
 
             # Check if any valid path is a suffix of mentioned path
             # (handles cases where LLM adds extra prefix)
             if any(normalized_mention.endswith(vp) for vp in valid_paths):
                 correct += 1
+                matched = True
                 continue
 
-        return correct / len(mentioned_paths)
+            if not matched:
+                incorrect_paths.append(mentioned_path)
+
+        accuracy = correct / len(mentioned_paths)
+        print(f"   ✅ Matched paths: {correct}/{len(mentioned_paths)} ({accuracy:.2%})")
+        if incorrect_paths:
+            print(f"   ❌ Unmatched paths (first 5): {incorrect_paths[:5]}")
+
+        return accuracy
