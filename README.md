@@ -1,723 +1,652 @@
 # CodeFusion - AI-Powered Codebase Analysis
 
-An **intelligent multi-agent system** for deep codebase exploration and analysis. CodeFusion uses LLM-driven function calling and verbose logging to provide comprehensive technical narratives about how systems work.
+A **pipeline-based multi-agent system** for deep codebase exploration and technical narrative generation. CodeFusion helps software engineers ramp up on new repositories by providing architectural understanding, execution flow analysis, and grounded code explanations.
+
+## 🎯 Problem Statement
+
+When engineers join a new project or explore unfamiliar code, they need:
+- **Architectural Understanding**: How components fit together
+- **Execution Flow**: How features work end-to-end
+- **Grounded Explanations**: Answers backed by actual code with line numbers
+- **Quick Ramp-up**: Comprehensive narratives without reading thousands of files
+
+**CodeFusion solves this** by analyzing code repositories and generating technical narratives that explain how systems work.
+
+---
 
 ## 🏗️ System Architecture
 
-```mermaid
-graph TB
-    %% User Layer
-    User[👤 User<br/>Developer analyzing codebase]
-    
-    %% Interface Layer
-    CLI[🖥️ Command Line Interface<br/>python -m cf.run.main --verbose ask]
-    
-    %% Core System
-    Supervisor[🤖 SupervisorAgent<br/>Multi-Agent Orchestration]
-    
-    %% Specialized Agents
-    subgraph Agents ["🎯 Intelligent Agents"]
-        CodeAgent[🔍 CodeAgent<br/>Source Code Analysis]
-        DocsAgent[📚 DocsAgent<br/>Documentation Processing]
-        WebAgent[🌐 WebAgent<br/>External Knowledge Search]
-    end
-    
-    %% Infrastructure
-    subgraph Infrastructure ["⚙️ Core Infrastructure"]
-        Tools[🛠️ Tool System<br/>Repository & Analysis Tools]
-        LLM[🧠 LLM Integration<br/>GPT-4o Function Calling]
-        Cache[💾 Semantic Cache<br/>Persistent Memory]
-    end
-    
-    %% Output
-    Narrative[📖 Technical Narrative<br/>Life of X Format]
-    
-    %% Flow
-    User --> CLI
-    CLI --> Supervisor
-    Supervisor --> CodeAgent
-    Supervisor --> DocsAgent
-    Supervisor --> WebAgent
-    
-    CodeAgent --> Tools
-    DocsAgent --> Tools
-    WebAgent --> Tools
-    
-    Tools --> LLM
-    LLM --> Cache
-    
-    CodeAgent --> Supervisor
-    DocsAgent --> Supervisor
-    WebAgent --> Supervisor
-    
-    Supervisor --> Narrative
-    Narrative --> CLI
-    CLI --> User
-    
-    %% Clean styling with good contrast
-    classDef user fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
-    classDef interface fill:#388e3c,stroke:#1b5e20,stroke-width:2px,color:#fff
-    classDef core fill:#7b1fa2,stroke:#4a148c,stroke-width:3px,color:#fff
-    classDef agents fill:#d32f2f,stroke:#b71c1c,stroke-width:2px,color:#fff
-    classDef infra fill:#f57c00,stroke:#e65100,stroke-width:2px,color:#fff
-    classDef output fill:#c2185b,stroke:#880e4f,stroke-width:3px,color:#fff
-    
-    class User user
-    class CLI interface
-    class Supervisor core
-    class CodeAgent,DocsAgent,WebAgent agents
-    class Tools,LLM,Cache infra
-    class Narrative output
+### High-Level Flow
+
+```
+User Question
+    ↓
+SupervisorAgent (Multi-pass coordination, LLM-based routing)
+    ↓
+CodeOrchestrator (State-based pipeline execution)
+    ├─ Discovery Pipeline (5 strategies: KB, Keywords, Domain, Grep, Fallback)
+    ├─ Analysis Pipeline (Parallel file analysis with LLM)
+    ├─ Synthesis Pipeline (Narrative generation with validation feedback)
+    └─ Validation Pipeline (Anti-hallucination checks)
+    ↓
+Technical Narrative (Markdown with code references)
 ```
 
-> **📋 For detailed workflow diagrams and system execution flow, see [Architecture Documentation](docs/dev/architecture.md#system-workflow-overview)**
+### Component Interaction
 
-## 🎯 Current Features
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        USER LAYER                            │
+│  CLI: python -m cf.run.main ask /repo "question"            │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────────────┐
+│                   SUPERVISOR AGENT                           │
+│  • Multi-pass coordination (1-3 passes)                     │
+│  • LLM-based agent selection (code/docs/web)                │
+│  • Result synthesis and caching                             │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────────────┐
+│                  CODE ORCHESTRATOR                           │
+│  State-based flow: INIT → REPO_READY → FILES_DISCOVERED     │
+│                 → FILES_ANALYZED → SYNTHESIS_COMPLETE        │
+└─────┬────────┬────────┬────────┬──────────────────────────┘
+      │        │        │        │
+┌─────▼──┐ ┌──▼──────┐ ┌▼──────┐ ┌▼────────────┐
+│Discovery│ │Analysis │ │Synth- │ │Validation  │
+│Pipeline │ │Pipeline │ │esis   │ │Pipeline    │
+│         │ │         │ │Pipeline│ │            │
+│5 Strate-│ │Parallel │ │LLM +  │ │Facts,Lines,│
+│gies     │ │File     │ │Cross- │ │Paths       │
+│         │ │Analysis │ │File   │ │            │
+└─────┬───┘ └──┬──────┘ └┬──────┘ └┬───────────┘
+      │        │         │         │
+┌─────▼────────▼─────────▼─────────▼─────────────────────────┐
+│                  INFRASTRUCTURE LAYER                        │
+│  • Neo4j/SQLite Knowledge Base (6-layer architecture)       │
+│  • Tool Registry (File ops, code analysis, KB queries)      │
+│  • Tiered LLM Manager (FAST/STANDARD/ADVANCED models)       │
+│  • Semantic Cache (Cross-session memory)                    │
+└──────────────────────────────────────────────────────────────┘
+```
 
-### ✅ **Multi-Agent Coordination**
-- **SupervisorAgent**: Orchestrates 3 specialized agents and synthesizes responses
-- **CodeAgent**: Deep code analysis using LLM function calling loops
-- **DocsAgent**: Documentation analysis and README parsing
-- **WebAgent**: Web search integration for external knowledge
-- **Response Time Tracking**: Accurate execution time measurement (fixed from 0.0s issue)
+---
 
-### ✅ **LLM Function Calling System**
-- **Conversation History**: Multi-turn dialogue with context preservation
-- **Dynamic Tool Selection**: LLM intelligently selects tools with parameters
-- **Tool Registry**: Schema-based tool management and dispatch
-- **Available Tools**: `scan_directory`, `read_file`, `search_files`, `analyze_code`, `web_search`
+## 📐 Design Choices & Architecture
 
-### ✅ **Verbose Logging System**
-- **Action Planning Phases**: Shows agent reasoning and decision making
-- **Tool Selection Logging**: Displays which tools LLM selects and why
-- **Progress Tracking**: Real-time visibility into agent activity
-- **Dual Logging**: Technical debug logs + user-friendly verbose output
+### 1. **Pipeline-Based Architecture**
 
-### ✅ **Technical Narrative Generation**
-- **Architectural Overview**: Comprehensive technical stories about system components
-- **Life of X Format**: Detailed narratives following features through entire systems
-- **Code Pattern Recognition**: Identifies specific implementations, classes, and methods
-- **Framework Integration**: Understands relationships between technologies (e.g., FastAPI + Starlette)
+**Why Pipelines?**
+- **Modular**: Each pipeline has a single responsibility (200 LOC vs 4,375 in monolithic)
+- **Testable**: Independent unit testing per pipeline
+- **Config-Driven**: All behavior controlled via YAML config
+- **Reusable**: Pipelines work for any repo structure
 
-### ✅ **LLM Integration**
-- **LiteLLM Support**: Multi-provider integration (OpenAI, Anthropic, LLaMA)
-- **Primary Model**: GPT-4o with function calling capabilities
-- **Configuration**: YAML config + environment variable support
-- **API Key Management**: Secure credential handling
+**Four Core Pipelines:**
+
+#### **Discovery Pipeline** (`cf/agents/pipelines/discovery.py`)
+**Purpose**: Find relevant files for the question
+
+**Strategy Chain** (tries in order, highest priority first):
+1. **GraphQueryStrategy**: Uses Knowledge Base for structural queries
+   - KB semantic search for similar code
+   - KB "Life of X" tracing (entry point → execution path)
+   - KB pattern detection (finds classes/functions by name)
+2. **KeywordMatchingStrategy**: Simple keyword-to-file matching
+3. **DomainDetectionStrategy**: LLM infers domain (e.g., "auth" → `src/auth/`)
+4. **GrepSearchStrategy**: Regex search through codebase
+5. **FallbackStrategy**: Returns most recently modified files
+
+**Design Choice**: Chain-of-responsibility pattern allows graceful degradation if KB unavailable.
+
+#### **Analysis Pipeline** (`cf/agents/pipelines/analysis.py`)
+**Purpose**: Extract structured summaries from discovered files
+
+**Process**:
+1. **Read file structure**: Parse AST, extract functions/classes/imports
+2. **LLM summarization** (FAST tier): Generate key features, architectural insights
+3. **Cache result**: Semantic cache prevents re-analysis
+
+**Parallel Execution**:
+- ThreadPoolExecutor with configurable workers (default: 10)
+- Adaptive rate limiting: reduces workers on 429 errors
+- Batch processing for large file sets
+
+**Design Choice**: Parallel analysis reduces analysis time by 5-10x for large repos.
+
+#### **Synthesis Pipeline** (`cf/agents/pipelines/synthesis.py`)
+**Purpose**: Generate technical narrative from file summaries
+
+**Multi-Phase Process**:
+1. **Key File Selection**: Rank files by relevance (keyword match, function count)
+2. **Cross-File Analysis**: Infer relationships (shared classes, dependencies, data flow)
+3. **Pattern Detection**: Identify design patterns from KB or heuristics
+4. **Execution Tracing**: Trace "life of X" entry point → full call chain
+5. **LLM Generation** (ADVANCED tier): Build comprehensive narrative with code references
+6. **Proportional Word Count**: Target = `file_count × 400-700 words` (scales with complexity)
+
+**Design Choice**: Multi-phase preparation before LLM call produces higher quality narratives.
+
+#### **Validation Pipeline** (`cf/agents/pipelines/validation.py`)
+**Purpose**: Anti-hallucination quality assurance
+
+**Four Validation Checks**:
+1. **Line Number Validation**: Ensure line numbers exist and are within file bounds
+2. **File Path Validation**: Verify all file paths mentioned actually exist
+3. **Fact Verification**: Extract code claims, verify identifiers match actual code
+4. **Word Count Validation**: Ensure sufficient detail (proportional to file count)
+
+**Validation Feedback Loop**:
+```
+Synthesis → Validation (fails) → Store issues → Retry Synthesis (with issues)
+```
+- Max 2 retries per synthesis attempt
+- Each retry receives specific validation errors to fix
+- Prevents identical outputs on retry
+
+**Design Choice**: Configurable thresholds adapt to different repo structures (e.g., `backend/`, `pkg/`, `cmd/`).
+
+---
+
+### 2. **State-Based Flow** (vs Iteration-Based)
+
+**Why State Machines?**
+- **Predictable**: Each state has well-defined transitions
+- **Debuggable**: Easy to trace where pipeline failed
+- **Resumable**: Can save/restore state (future feature)
+
+**State Transitions**:
+```
+INIT → (scan repo) → REPO_READY
+     → (discover files) → FILES_DISCOVERED
+     → (analyze files) → FILES_ANALYZED
+     → (synthesize + validate) → SYNTHESIS_COMPLETE
+     → COMPLETE
+```
+
+**Design Choice**: State-based flow eliminates infinite loops and clarifies pipeline progress.
+
+---
+
+### 3. **Knowledge Base Architecture**
+
+#### **6-Layer Knowledge Base**
+
+Each layer builds on the previous, enabling progressively sophisticated queries:
+
+**Layer 1: Repository Layer**
+- **Stores**: File paths, sizes, modification times, extensions
+- **Purpose**: Fast file discovery and filtering
+- **Query**: "Find all Python files in `src/auth/`"
+
+**Layer 2: Structural Layer** (AST-based)
+- **Stores**: Functions, classes, methods, parameters, return types, imports
+- **Purpose**: Understand code structure without reading content
+- **Query**: "Find all classes implementing `BaseHandler`"
+- **Why AST?**: Parsing code into Abstract Syntax Trees gives accurate structure regardless of formatting
+
+**Layer 3: Dependency Layer** (Graph relationships)
+- **Stores**: Function calls, class inheritance, import dependencies
+- **Purpose**: Trace execution paths and understand relationships
+- **Query**: "Show call chain from `login()` to database"
+
+**Layer 4: Semantic Layer** (Embeddings)
+- **Stores**: Code embeddings from `sentence-transformers` (local model)
+- **Purpose**: Find semantically similar code
+- **Query**: "Find code similar to authentication flow"
+- **Why Local Embeddings?**: No external API calls, faster, free
+
+**Layer 5: Pattern Layer** (Design patterns & code smells)
+- **Stores**: Detected patterns (Singleton, Factory, MVC) and anti-patterns (God Class, Long Method)
+- **Purpose**: Architectural understanding and quality assessment
+- **Query**: "Show all Singleton classes"
+
+**Layer 6: Life-of-X Layer** (Execution tracing)
+- **Stores**: Entry points, execution paths, data flow nodes
+- **Purpose**: Answer "How does X work?" questions
+- **Query**: "Trace student application from submission to enrollment"
+
+#### **Neo4j vs SQLite Backend**
+
+**Why Two Backends?**
+- **SQLite**: Zero setup, perfect for quick start and small repos
+- **Neo4j**: Optimized for graph queries, essential for large repos
+
+**Neo4j Design Choice**:
+- **What it stores**: Nodes (files, functions, classes) + Edges (calls, imports, inherits)
+- **Why graph database?**:
+  - Recursive queries (call chains of any depth)
+  - Pattern matching (`MATCH (a)-[:CALLS*1..5]->(b)` finds 1-5 hop call chains)
+  - Fast traversals (index-free adjacency)
+- **When to use**: Production deployments, repos >10K files, deep architectural analysis
+
+**SQLite Design Choice**:
+- **What it stores**: Same data, but in relational tables with JSON columns for nested data
+- **Why relational?**: Simple, portable, no external dependencies
+- **When to use**: Development, testing, small repos (<10K files)
+
+**Example: Call Chain Query**
+
+Neo4j (native graph):
+```cypher
+MATCH (start:Function {name: 'login'})-[:CALLS*1..10]->(end:Function)
+RETURN path
+```
+
+SQLite (emulated graph):
+```sql
+WITH RECURSIVE call_chain AS (
+  SELECT source, target, 1 as depth FROM function_calls WHERE source = 'login'
+  UNION ALL
+  SELECT fc.source, fc.target, cc.depth + 1
+  FROM function_calls fc JOIN call_chain cc ON fc.source = cc.target
+  WHERE cc.depth < 10
+)
+SELECT * FROM call_chain;
+```
+
+---
+
+### 4. **Tool Registry System**
+
+**Purpose**: Provides tools for agents and pipelines to interact with codebase
+
+**Core Tools** (`cf/tools/registry.py`):
+
+| Tool | Purpose | Used By | Example |
+|------|---------|---------|---------|
+| `scan_directory` | Recursive file system scan | Discovery Pipeline | Find all `.py` files |
+| `read_file` | Read file with encoding detection | Analysis Pipeline | Extract file content |
+| `search_files` | Grep-based content search | Discovery Pipeline | Find "def authenticate" |
+| `analyze_code` | AST parsing + structure extraction | Analysis Pipeline | Extract functions/classes |
+| `kb_query` | Knowledge Base structural queries | Discovery Pipeline | Find call chains |
+| `kb_semantic_search` | Embedding-based similarity | Discovery Pipeline | Find similar code |
+| `kb_lifeofx_trace` | Execution path tracing | Synthesis Pipeline | Trace request handling |
+
+**Why Tool Registry?**
+- **Abstraction**: Pipelines don't know implementation details
+- **Schema-based**: Each tool has JSON schema for validation
+- **Testable**: Mock tools for unit tests
+- **Extensible**: Add tools without modifying pipelines
+
+**Design Choice**: Tools are functions, not classes, for simplicity and composability.
+
+---
+
+### 5. **Tiered LLM Strategy**
+
+**Problem**: Using expensive models (GPT-4) for all tasks wastes money
+
+**Solution**: Route tasks to appropriate model tiers
+
+**Three Tiers**:
+
+| Tier | Model | Cost/1M Tokens | Use Cases |
+|------|-------|----------------|-----------|
+| **FAST** | gpt-4.1-mini | $0.25 | File summaries, classification, simple questions |
+| **STANDARD** | gpt-5 | $2.50 | General analysis, moderate reasoning |
+| **ADVANCED** | gpt-5 | $3.00 | Final synthesis, complex reasoning, narrative generation |
+
+**Design Choice**: Saves 60-80% on LLM costs while maintaining quality where it matters.
+
+**Usage Example**:
+- Analysis Pipeline uses **FAST** tier (summarize 100 files = $0.05)
+- Synthesis Pipeline uses **ADVANCED** tier (generate narrative = $0.30)
+- Total: $0.35 instead of $3.00 if all used ADVANCED
+
+---
+
+### 6. **Validation Feedback Loop**
+
+**Problem**: LLMs hallucinate file paths and line numbers
+
+**Solution**: Validate narrative, provide specific errors to LLM on retry
+
+**Feedback Loop**:
+```
+Attempt 1: Generate narrative
+          ↓
+       Validate (grounding: 100%, line coverage: 8%, word count: 1100)
+          ↓
+       FAIL (line coverage < 10%, word count < 1200)
+          ↓
+       Store issues: [
+         "Line coverage too low: 8% (need 10%)",
+         "Word count too short: 1100 words (need 1200-2100)"
+       ]
+          ↓
+Attempt 2: Generate narrative WITH issues shown to LLM
+          ↓
+       Validate (grounding: 100%, line coverage: 12%, word count: 1250)
+          ↓
+       PASS ✅
+```
+
+**Design Choice**: Bidirectional feedback improves quality without human intervention.
+
+**Configurable Thresholds** (`config.yaml`):
+- `min_line_coverage: 0.10` (10% of sentences must cite code)
+- `min_path_accuracy: 0.5` (50% of file paths must be valid)
+- `min_identifier_match: 0.2` (20% of code identifiers must match actual code)
+- `max_file_line_gap_chars: 100` (file path and line number must be within 100 chars)
+
+---
+
+### 7. **Multi-Pass Coordination**
+
+**Problem**: Single-pass analysis may miss details
+
+**Solution**: Supervisor orchestrates multiple passes with context sharing
+
+**Pass Strategy**:
+- **Pass 1**: Initial discovery and high-level understanding
+- **Pass 2**: Deep dive into key components (informed by Pass 1 results)
+- **Pass 3**: Integration and edge cases (only if needed)
+
+**Context Sharing Decision** (LLM-based):
+- After each pass, LLM analyzes results and decides:
+  - **Complete**: All information gathered, synthesize answer
+  - **Next Pass**: Need more detail, share context with next agent
+  - **Retry**: Agent failed, retry current pass
+
+**Design Choice**: Adaptive multi-pass prevents both under-analysis and over-analysis.
+
+---
 
 ## 🚀 Quick Start
 
-### Installation & Setup
+### Installation
 
 ```bash
-# 1. Create and activate virtual environment (REQUIRED)
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+# 1. Clone and enter directory
+cd codefusion
 
-# 2. Install dependencies
+# 2. Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 3. Install dependencies
 pip install -e .
 
-# 3. Set up API key (choose one method)
-export OPENAI_API_KEY="your-openai-api-key"     # For GPT-4o
-# OR edit cf/configs/config.yaml directly
-
-# 4. Verify installation
-python -m cf.run.main --help
+# 4. Set API key
+export OPENAI_API_KEY="your-openai-api-key"  # Or Azure keys
 ```
 
-### Knowledge Base Backend
+### Knowledge Base Setup
 
-CodeFusion uses a **6-layer knowledge base architecture** with two backend options:
+#### **Option 1: SQLite (Recommended for Quick Start)**
 
-**Option 1: SQLite (Recommended for Quick Start)**
-- ✅ No external database server required
-- ✅ Zero setup - works out of the box
-- ✅ Perfect for small-medium codebases (<10K files)
-- ✅ Single file, portable, easy to backup
-- ⚠️ Slower for deep graph traversals (call chains >5 levels)
-- ⚠️ Limited concurrent access
-
-**Option 2: Neo4j (Recommended for Production)**
-- ✅ Optimized for graph queries and relationships
-- ✅ Excellent performance for large codebases (>10K files)
-- ✅ Fast deep traversals (call chains, inheritance hierarchies)
-- ✅ Supports concurrent analysis sessions
-- ⚠️ Requires Docker or native installation
-- ⚠️ Additional infrastructure setup
-
----
-
-#### 6-Layer Knowledge Base Architecture
-
-Both backends support:
-
-1. **Repository Layer**: File system scanning and metadata
-2. **Structural Layer**: AST-based code parsing (functions, classes, imports)
-3. **Semantic Layer**: Code embeddings for similarity search
-4. **Pattern Layer**: Design pattern and code smell detection
-5. **Life-of-X Layer**: Execution path and data flow tracing
-6. **Validation Layer**: Anti-hallucination fact verification
-
----
-
-#### Quick Start with SQLite (Zero Setup)
-
-SQLite works out of the box with no additional setup:
+Zero setup required - just run:
 
 ```bash
-# 1. Set backend to sqlite in config (default)
-nano cf/configs/config.yaml
-```
-
-Update config:
-```yaml
-knowledge_base:
-  type: sqlite  # Use SQLite backend (default)
-  sqlite:
-    db_path: ".codefusion/knowledge.db"
-```
-
-```bash
-# 2. Run CodeFusion - KB will be built automatically
 python -m cf.run.main ask /path/to/repo "How does authentication work?"
-
-# Database file created at: .codefusion/knowledge.db
 ```
 
-**That's it!** SQLite requires no external dependencies.
+SQLite KB is automatically created at `.codefusion/knowledge.db`
 
----
+#### **Option 2: Neo4j (Recommended for Production)**
 
-#### Setting Up Neo4j (For Production)
+For large repos or production use:
 
-For large codebases or production deployments, Neo4j provides better performance:
-
-##### Why Choose Neo4j?
-
-- **Graph-based code analysis**: Trace function calls, class hierarchies, import chains
-- **Fast structural queries**: Find all classes implementing an interface, all functions calling a method
-- **Pattern detection**: Identify Singleton, Factory, Observer, MVC, Microservices patterns
-- **Life-of-X tracing**: Follow execution paths from entry points through the entire codebase
-
-##### Installing Neo4j
-
-**Option 1: Docker (Recommended)**
 ```bash
-# Start Neo4j container
+# Start Neo4j with Docker
 docker run -d \
   --name neo4j \
   -p 7474:7474 -p 7687:7687 \
   -e NEO4J_AUTH=neo4j/your-password \
   neo4j:latest
 
-# Verify Neo4j is running
-docker logs neo4j
-# Should see "Started" in logs
-
-# Access Neo4j Browser at http://localhost:7474
-# Login with username: neo4j, password: your-password
-```
-
-**Option 2: Native Installation**
-```bash
-# macOS
-brew install neo4j
-neo4j start
-
-# Ubuntu/Debian
-wget -O - https://debian.neo4j.com/neotechnology.gpg.key | sudo apt-key add -
-echo 'deb https://debian.neo4j.com stable latest' | sudo tee /etc/apt/sources.list.d/neo4j.list
-sudo apt-get update
-sudo apt-get install neo4j
-sudo systemctl start neo4j
-
-# Windows: Download from https://neo4j.com/download/
-```
-
-##### Configuring CodeFusion for Neo4j
-
-```bash
-# Set Neo4j password via environment variable (recommended)
+# Configure CodeFusion
 export NEO4J_PASSWORD="your-password"
 
-# OR edit cf/configs/config.yaml
+# Update config.yaml
 nano cf/configs/config.yaml
 ```
 
-Update `config.yaml`:
-```yaml
-knowledge_base:
-  enabled: true  # Enable persistent knowledge base
-  type: neo4j  # Switch from sqlite to neo4j
-
-  neo4j:
-    uri: "bolt://localhost:7687"
-    user: "neo4j"
-    password: ""  # Set via NEO4J_PASSWORD env var (or paste here)
-    database: "codefusion"
-```
-
-##### Building the Knowledge Base
+Set `knowledge_base.type: neo4j` in config, then run:
 
 ```bash
-# First run will automatically build KB (can take 5-30 minutes for large repos)
 python -m cf.run.main ask /path/to/repo "How does authentication work?"
+```
 
-# Or build KB explicitly
-python -m cf.knowledge.build --repo /path/to/repo
+First run builds KB (5-30 minutes), subsequent runs are instant.
 
-# Incremental updates (much faster) happen automatically when files change
+---
+
+## 💡 Usage Examples
+
+### Basic Question
+
+```bash
+python -m cf.run.main ask /path/to/repo "How does user authentication work?"
+```
+
+### Life-of-X Question
+
+```bash
+python -m cf.run.main ask /path/to/repo "Trace a student application from submission to enrollment"
+```
+
+### Architectural Question
+
+```bash
+python -m cf.run.main ask /path/to/repo "What design patterns are used?"
+```
+
+### With Verbose Logging
+
+```bash
+python -m cf.run.main --verbose ask /path/to/repo "How does routing work?"
 ```
 
 ---
 
-#### Backend Comparison Table
+## 📊 Output Format
 
-| Feature | SQLite | Neo4j |
-|---------|--------|-------|
-| **Setup Complexity** | Zero (built-in) | Medium (Docker/native) |
-| **Codebase Size** | <10K files | >10K files |
-| **Performance (small repos)** | Fast | Fast |
-| **Performance (large repos)** | Moderate | Excellent |
-| **Deep Graph Queries** | Slow (>5 levels) | Fast (any depth) |
-| **Storage** | Single file | Database server |
-| **Concurrent Access** | Limited | Full support |
-| **Portability** | High (single file) | Low (server-based) |
-| **Best For** | Dev, testing, small projects | Production, large codebases |
+CodeFusion generates technical narratives with:
 
-**Recommendation**:
-- **Start with SQLite** for quick evaluation and small projects
-- **Upgrade to Neo4j** when you need production-grade performance or analyze large codebases
+- **Architectural Overview**: High-level system design
+- **Component Interactions**: How pieces fit together
+- **Code References**: File paths and line numbers for every claim
+- **Execution Flow**: Step-by-step process traces
+- **Design Patterns**: Identified architectural patterns
+- **Cross-File Analysis**: Relationships and dependencies
 
-### Package Structure
+**Example Output**:
+```markdown
+# Life of a Student Application: From Submission to Enrollment
 
-The clean `cf/` package structure:
+## Architectural Overview
+When a student submits an application, the journey begins with the
+ApplicationController component receiving the submission through an
+endpoint defined in `apps/enrollment/controllers.py` at line 45...
+
+## Key Components
+
+**ApplicationManager** (`apps/enrollment/managers.py:4`)
+- Filters active (non-archived) applications
+- Provides `get_queryset()` method at line 5 for database queries
+- Implements Repository pattern for data access
+
+**GradingTasks** (`apps/gradebook/tasks.py:7`)
+- Celery async tasks for grade computation
+- `task_compute_grades_for_cohort()` processes entire cohorts
+- Integrates with Django management commands
+
+## Component Interactions
+
+The submission flows through...
+```
+
+---
+
+## 🔧 Configuration
+
+Key configuration sections in `cf/configs/config.yaml`:
+
+### LLM Tiers
+```yaml
+llm:
+  tiers:
+    fast:
+      model: "gpt-4.1-mini"
+      cost_per_1m: 0.25
+    advanced:
+      model: "gpt-5"
+      cost_per_1m: 3.00
+```
+
+### Validation Thresholds
+```yaml
+agents:
+  thresholds:
+    min_line_coverage: 0.10  # 10% of sentences cite code
+    min_path_accuracy: 0.5   # 50% of paths must be valid
+
+  validation:
+    min_identifier_match: 0.2  # 20% identifier match threshold
+    max_file_line_gap_chars: 100  # Prevent cross-paragraph pairing
+    file_path_prefixes:  # Configurable for any repo structure
+      - apps
+      - src
+      - backend
+      - pkg
+```
+
+### Synthesis Settings
+```yaml
+agents:
+  synthesis:
+    words_per_file_min: 400  # Proportional word count
+    words_per_file_max: 700
+    target_narrative_min: 1200  # Absolute minimum
+```
+
+---
+
+## 📁 Project Structure
 
 ```
 cf/
-├── __init__.py
-├── agents/           # Multi-agent system
-│   ├── base.py      # Common agent functionality  
-│   ├── supervisor.py # Orchestration & synthesis
-│   ├── code.py      # Code analysis with LLM function calling
-│   ├── docs.py      # Documentation processing
-│   └── web.py       # Web search integration
-├── tools/           # Tool ecosystem
-│   ├── registry.py  # Schema management for LLM function calling
-│   ├── repo_tools.py # File system operations
-│   ├── llm_tools.py  # AI-powered analysis tools
-│   └── web_tools.py  # External search capabilities
-├── llm/             # AI integration
-│   └── client.py    # LiteLLM multi-provider interface
-├── run/             # CLI interface
-│   └── main.py      # Entry point
-├── configs/         # Configuration
-│   ├── config.yaml  # Main configuration file
-│   └── config_mgr.py # Configuration management
-├── cache/           # Persistent caching
-│   └── semantic.py  # Cross-session memory
-├── trace/           # Performance monitoring
-│   └── tracer.py    # Execution tracing
-└── utils/           # Utilities
-    └── logger.py    # Verbose logging system
+├── agents/                    # Agent layer
+│   ├── supervisor.py         # Multi-pass coordination
+│   ├── code_orchestrator.py  # Pipeline orchestration
+│   └── pipelines/            # Specialized pipelines
+│       ├── discovery.py      # File discovery (5 strategies)
+│       ├── analysis.py       # Parallel file analysis
+│       ├── synthesis.py      # Narrative generation
+│       └── validation.py     # Quality assurance
+│
+├── agents/kb/                # Knowledge Base layer
+│   ├── structural_kb_agent.py # KB interface
+│   ├── sqlite_adapter.py     # SQLite backend
+│   ├── neo4j_adapter.py      # Neo4j backend
+│   └── structural_analysis.py # AST parsing
+│
+├── tools/                    # Tool layer
+│   ├── registry.py          # Tool registration
+│   ├── repo_tools.py        # File operations
+│   └── kb_tools.py          # KB queries
+│
+├── llm/                     # LLM integration
+│   ├── client.py           # LiteLLM wrapper
+│   └── model_tiers.py      # Tiered routing
+│
+├── cache/                  # Caching layer
+│   └── semantic.py        # Semantic cache
+│
+└── configs/
+    └── config.yaml        # All configuration
 ```
 
-### Basic Usage
+---
+
+## 🎯 Design Principles
+
+1. **Config-Driven**: No hardcoded values, everything in YAML
+2. **Modular Pipelines**: Single responsibility, independently testable
+3. **State-Based Flow**: Predictable, debuggable, resumable
+4. **Validation Feedback**: Iterative quality improvement
+5. **Cost-Optimized**: Tiered LLM strategy saves 60-80%
+6. **Graceful Degradation**: Fallback strategies at every level
+7. **Extensible**: Add tools/pipelines without core changes
+
+---
+
+## 📈 Performance
+
+### Typical Analysis Times
+
+| Repo Size | Files Analyzed | KB Build Time | Query Time |
+|-----------|---------------|---------------|------------|
+| Small (100-500 files) | 3-5 | 1-3 min | 10-20s |
+| Medium (500-2K files) | 3-7 | 5-10 min | 15-30s |
+| Large (2K-10K files) | 5-10 | 15-30 min | 20-40s |
+
+**Note**: KB build is one-time, subsequent queries use cached KB.
+
+### Cost Estimates
+
+Average per-question cost with tiered LLM:
+- File analysis (FAST): $0.03-0.10
+- Narrative synthesis (ADVANCED): $0.20-0.40
+- **Total: $0.25-0.50 per question**
+
+Without tiered LLM (all ADVANCED): $2.00-3.00 per question
+
+---
+
+## 🔍 Troubleshooting
+
+### KB Not Found
 
 ```bash
-# Analyze a codebase with verbose logging
-python -m cf.run.main --verbose ask /path/to/repo "How does FastAPI routing work?"
-
-# Example output shows:
-# 📝 Processing: How does FastAPI routing work?
-# 🤖 Coordinating multiple specialized agents...
-# 🔍 Running code analysis agent...
-# 🎯 [CodeAgent] ACTION PLANNING PHASE
-# 🎯 [CodeAgent] LLM selected tool: search_files
-# 📚 Running documentation agent...
-# 🌐 Running web search agent...
-# 🤖 Consolidating results with LLM...
-# ⏱️ Response time: 30.4s
-
-# Different repository analysis
-python -m cf.run.main --verbose ask /tmp/fastapi "Explain the relationship between FastAPI and Starlette"
+# Force KB rebuild
+rm -rf .codefusion/
+python -m cf.run.main ask /repo "question"
 ```
 
-### Configuration
+### Validation Failures
+
+```bash
+# Check validation thresholds in config.yaml
+nano cf/configs/config.yaml
+
+# Lower thresholds if needed
+min_line_coverage: 0.08  # from 0.10
+min_identifier_match: 0.15  # from 0.20
+```
+
+### Low Line Coverage
+
+Add more file path prefixes to match your repo structure:
 
 ```yaml
-# cf/configs/config.yaml
-llm:
-  model: "gpt-4o"
-  api_key: "your-openai-api-key"  # Or use OPENAI_API_KEY env var
-  max_tokens: 1000
-  temperature: 0.7
-  provider: "openai"
+validation:
+  file_path_prefixes:
+    - your_custom_prefix
+    - another_prefix
 ```
 
-### Environment Variables
-```bash
-# Alternative to config.yaml
-export OPENAI_API_KEY="your-openai-api-key"
-export CF_LLM_MODEL="gpt-4o"
-export CF_LLM_MAX_TOKENS=1000
-```
-
-## 🔄 ReAct Process Flow
-
-The framework follows a systematic **Reason → Act → Observe** cycle:
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Supervisor
-    participant Agent
-    participant LLM
-    participant ToolRegistry
-    participant Tools
-    participant Cache
-
-    User->>Supervisor: python -m cf.run.simple_run analyze /repo --focus=all
-    
-    loop ReAct Loop
-        Note over Agent: 🧠 REASON Phase
-        Agent->>LLM: Context + Current State
-        LLM-->>Agent: Contextual reasoning
-        
-        Note over Agent: 🎯 ACT Phase - LLM Function Calling
-        Agent->>LLM: Available tools + Context
-        Note over LLM: Function Calling
-        LLM->>ToolRegistry: {tool: "scan_directory", args: {...}}
-        ToolRegistry->>Tools: Execute selected tool
-        Tools->>Cache: Check for cached results
-        alt Cache Miss
-            Tools->>LLM: Process/summarize content
-            LLM-->>Tools: Processed results
-            Tools->>Cache: Store results
-        end
-        Cache-->>Tools: Return results
-        Tools-->>ToolRegistry: Tool execution results
-        ToolRegistry-->>Agent: Structured results
-        
-        Note over Agent: 👁️ OBSERVE Phase
-        Agent->>Agent: Process LLM-selected results
-        Agent->>Agent: Update understanding
-        Agent->>Agent: Check goal progress
-    end
-    
-    Agent-->>Supervisor: Analysis complete
-    Supervisor-->>User: Comprehensive insights
-```
-
-## 🛠️ LLM Function Calling Tool Ecosystem
-
-Each ReAct agent uses **LLM Function Calling** where the AI selects tools by generating structured output:
-
-### Core Exploration Tools (LLM-Selected)
-- **🔍 SCAN_DIRECTORY**: Recursive directory structure exploration
-- **📋 LIST_FILES**: Pattern-based file discovery  
-- **📖 READ_FILE**: Intelligent file content analysis
-- **🔎 SEARCH_FILES**: Multi-file pattern searching
-
-### Advanced Analysis Tools (LLM-Selected)
-- **⚙️ ANALYZE_CODE**: Code structure and complexity analysis
-- **📝 GENERATE_SUMMARY**: Intelligent content summarization
-
-### How LLM Function Calling Works
-1. **Context Provision**: Agent provides current state and available tools to LLM
-2. **Tool Selection**: LLM analyzes context and selects optimal tool with parameters
-3. **Structured Output**: LLM generates JSON with tool name and arguments
-4. **Execution**: Tool Registry executes the selected tool with LLM-chosen parameters
-5. **Adaptive Learning**: Results inform future tool selection decisions
-
-```json
-// Example LLM Tool Selection
-{
-  "tool_calls": [
-    {
-      "function_name": "search_files",
-      "arguments": {
-        "pattern": "*.py",
-        "file_types": [".py"],
-        "max_results": 20
-      }
-    }
-  ]
-}
-```
-
-## 🎛️ Configuration & Performance
-
-### Environment Variables
-```bash
-# ReAct Loop Configuration
-CF_REACT_MAX_ITERATIONS=20          # Maximum iterations per agent
-CF_REACT_ITERATION_TIMEOUT=30.0     # Timeout per iteration (seconds)
-CF_REACT_TOTAL_TIMEOUT=600.0        # Total analysis timeout
-
-# Caching Configuration
-CF_REACT_CACHE_ENABLED=true         # Enable persistent caching
-CF_REACT_CACHE_MAX_SIZE=1000        # Maximum cache entries
-CF_REACT_CACHE_TTL=3600             # Cache TTL (seconds)
-
-# Tracing Configuration
-CF_REACT_TRACING_ENABLED=true       # Enable execution tracing
-CF_REACT_TRACE_DIR=./traces         # Trace output directory
-
-# Error Handling
-CF_REACT_ERROR_RECOVERY=true        # Enable error recovery
-CF_REACT_MAX_CONSECUTIVE_ERRORS=3   # Circuit breaker threshold
-```
-
-### Performance Profiles
-```bash
-# Fast Analysis (10 iterations, 15s timeout)
-CF_REACT_MAX_ITERATIONS=10 python -m cf.run.simple_run analyze /repo --focus=all
-
-# Thorough Analysis (50 iterations, 60s timeout)  
-CF_REACT_MAX_ITERATIONS=50 python -m cf.run.simple_run analyze /repo --focus=all
-
-# Custom Configuration
-CF_REACT_MAX_ITERATIONS=30 CF_REACT_CACHE_MAX_SIZE=2000 python -m cf.run.simple_run analyze /repo
-```
-
-## 📊 Example Output
-
-### Actual Working Example
-```bash
-$ python -m cf.run.main --verbose ask /tmp/fastapi "Explain the relationship between FastAPI and Starlette"
-
-🚀 CodeFusion - Ask
-📁 /tmp/fastapi | 🤖 code, docs, web
-==================================================
-📝 [SupervisorAgent] Processing: Explain the relationship between FastAPI and Starlette...
-
-🧠 [SupervisorAgent] Analyzing question and building context...
-🤖 [SupervisorAgent] Coordinating multiple specialized agents...
-🔍 [SupervisorAgent] Running code analysis agent...
-🎯 [CodeAgent] ACTION PLANNING PHASE
-💭 [CodeAgent] Based on reasoning: Since there are no code files found yet, the first step is to identify and explore...
-🔧 [CodeAgent] Using LLM function calling for intelligent tool selection
-📡 [CodeAgent] Calling LLM with function calling enabled...
-🎯 [CodeAgent] LLM selected tool: search_files
-📋 [CodeAgent] Tool arguments: {'pattern': 'FastAPI', 'file_types': ['*.py'], 'max_results': 5}
-✅ [SupervisorAgent] Code analysis completed
-📚 [SupervisorAgent] Running documentation agent...
-🎯 [DocsAgent] ACTION PLANNING PHASE
-💭 [DocsAgent] Based on reasoning: Analyzing documentation files to understand the system architecture...
-✅ [SupervisorAgent] Documentation analysis completed
-🌐 [SupervisorAgent] Running web search agent...
-🎯 [WebAgent] ACTION PLANNING PHASE
-💭 [WebAgent] Based on reasoning: Searching the web for external documentation and related information...
-✅ [SupervisorAgent] Web search completed
-🤖 Consolidating results with LLM...
-============================================================
-✅ [SupervisorAgent] Integrated 6 insights into narrative
-
-🎯 Life of FastAPI: The Role of Starlette
-======================================================================
-
-🏗️ **Architectural Overview:** When a developer decides to use FastAPI for building a web application, 
-the journey begins with FastAPI itself, which is a modern, fast (high-performance), web framework for 
-building APIs with Python 3.6+ based on standard Python type hints. The underlying technology that 
-FastAPI relies on is Starlette, a lightweight ASGI (Asynchronous Server Gateway Interface) framework. 
-Starlette handles several core responsibilities that are critical for the operation of FastAPI. The entry 
-point for handling HTTP requests in FastAPI typically involves the `FastAPI` class, which is defined in 
-a FastAPI-specific file but leverages Starlette's routing and ASGI capabilities. FastAPI uses Starlette's 
-capabilities to manage HTTP requests, responses, WebSocket support, and background tasks. For example, 
-when an HTTP request is made to a FastAPI endpoint, Starlette's built-in routing system directs the 
-request to the appropriate endpoint defined in the FastAPI application.
-
-📊 **Analysis Confidence:** 75.0%
-🤖 **Powered by:** gpt-4o
-🎯 **Agents used:** 3
-💡 This unified narrative traces the complete journey of how your
-   question flows through interconnected system components.
-⏱️  Response time: 30.4s
-```
-
-## 🔧 Advanced Usage
-
-### Python API
-
-```python
-from cf.core.interactive_session import InteractiveSessionManager
-from cf.aci.repo import LocalCodeRepo
-from cf.config import CfConfig
-
-# Create interactive session
-repo = LocalCodeRepo("/path/to/repo")
-config = CfConfig()
-session = InteractiveSessionManager(repo, config)
-
-# Start interactive session with persistent memory
-session.start_interactive_session()
-
-# Ask questions programmatically
-response = session.ask_question("How does routing work?")
-print(response['narrative'])
-
-# Follow-up questions remember context
-response2 = session.ask_question("What about async performance?")
-print(response2['comparison_analysis'])
-
-# Access session memory
-memories = session.get_session_memories()
-context = session.get_session_context()
-
-# Multi-agent coordination for complex questions
-from cf.tools import should_consolidate_multi_agent_results, generate_llm_driven_narrative
-
-question = "Explain FastAPI and Starlette relationship"
-if should_consolidate_multi_agent_results(question):
-    # Run all 3 agents: code, docs, web search
-    code_results = session.supervisor.explore_repository(goal=question, focus="code")
-    docs_results = session.supervisor.explore_repository(goal=question, focus="docs") 
-    web_results = session.web_search_agent.search_for_question(question)
-    
-    # Consolidate with LLM
-    unified_response = generate_llm_driven_narrative(question, code_results, docs_results, web_results)
-```
-
-### Custom Agent Development
-
-```python
-from cf.core.react_agent import ReActAgent, ReActAction, ActionType
-
-class SecurityAnalysisAgent(ReActAgent):
-    def reason(self) -> str:
-        if not self.state.observations:
-            return "Start by scanning for security-related files"
-        return "Search for potential security vulnerabilities"
-    
-    def plan_action(self, reasoning: str) -> ReActAction:
-        if "scan" in reasoning.lower():
-            return ReActAction(
-                action_type=ActionType.SEARCH_FILES,
-                description="Find security-related files",
-                parameters={'pattern': 'auth|security|crypto', 'file_types': ['.py']}
-            )
-        # ... additional action planning
-    
-    def _generate_summary(self) -> str:
-        return f"Security analysis complete: {len(self.state.observations)} findings"
-```
-
-## 📈 Monitoring & Debugging
-
-### Execution Tracing
-```bash
-# Enable detailed tracing
-CF_REACT_TRACING_ENABLED=true CF_REACT_TRACE_DIR=./traces python -m cf.run.simple_run analyze /repo
-
-# View trace files
-ls -la ./traces/
-cat ./traces/trace_12345_supervisor.json
-```
-
-### Performance Monitoring
-```python
-from cf.core.react_tracing import tracer
-
-# Get global metrics
-metrics = tracer.get_global_metrics()
-print(f"Total sessions: {metrics['total_sessions']}")
-print(f"Average duration: {metrics['avg_session_duration']:.2f}s")
-print(f"Success rate: {(1 - metrics['total_errors']/metrics['total_sessions']):.2%}")
-```
-
-### Debug Mode
-```bash
-# Enable verbose debugging
-CF_REACT_LOG_LEVEL=DEBUG CF_REACT_VERBOSE_LOGGING=true python -m cf.run.simple_run analyze /repo
-
-# Disable caching for testing
-CF_REACT_CACHE_ENABLED=false python -m cf.run.simple_run analyze /repo
-```
-
-## 🆚 Why ReAct Framework?
-
-### Traditional Code Analysis Tools
-- ❌ Static analysis with limited context
-- ❌ One-time indexing without adaptation
-- ❌ No reasoning about findings
-- ❌ Limited multi-perspective analysis
-
-### CodeFusion ReAct Framework
-- ✅ Dynamic, adaptive exploration
-- ✅ AI-powered reasoning and decision making
-- ✅ Multi-agent collaborative analysis
-- ✅ Persistent learning across sessions
-- ✅ Comprehensive error recovery
-- ✅ Configurable depth and focus
+---
 
 ## 📚 Documentation
 
-- [**Architecture Guide**](./docs/dev/architecture.md) - Detailed system architecture
-- [**ReAct Framework Documentation**](./docs/react-framework.md) - Complete framework guide
-- [**Configuration Reference**](./docs/usage/configuration.md) - All configuration options
-- [**CLI Usage**](./docs/usage/cli.md) - Command line interface guide
+- [Architecture Analysis](./ARCHITECTURE_ANALYSIS.md) - Detailed design review
+- [Configuration Reference](./cf/configs/config.yaml) - All settings explained
 
-## 🧪 Testing
-
-```bash
-# Run comprehensive test suite
-pytest tests/test_react_framework.py -v
-
-# Test specific components
-pytest tests/test_react_framework.py::TestReActAgent -v
-
-# Run with coverage
-pytest tests/test_react_framework.py --cov=cf.core --cov=cf.agents
-```
+---
 
 ## 🤝 Contributing
 
-We welcome contributions that enhance the ReAct framework:
+Contributions welcome! Focus areas:
+1. New discovery strategies
+2. Additional design pattern detectors
+3. Improved validation heuristics
+4. Enhanced cross-file analysis
 
-1. **Maintain ReAct Principles**: Preserve the Reason → Act → Observe pattern
-2. **Add Specialized Agents**: Create domain-specific analysis agents
-3. **Extend Tool Ecosystem**: Add new tools for enhanced capabilities
-4. **Improve LLM Integration**: Support additional providers and models
-5. **Enhance Error Recovery**: Strengthen resilience and fault tolerance
-
-## 🆕 Key Interactive Features (v0.2+)
-
-### ✅ **Interactive Session Management**
-- **Persistent Memory**: Remembers previous questions and context across session
-- **Session State**: Maintains conversation history and learned insights
-- **Context Building**: Each question builds upon previous understanding
-
-### ✅ **Multi-Agent Coordination**  
-- **Intelligent Agent Selection**: LLM determines which agents are needed per question
-- **3-Agent System**: Code analysis, documentation analysis, web search agents
-- **Result Consolidation**: LLM weaves together insights from all agents
-
-### ✅ **Adaptive Response Formats**
-- **Smart Format Detection**: LLM analyzes question type and selects optimal format
-- **Journey Format**: For process flows and system architecture (Life of X)
-- **Comparison Format**: For performance analysis and technical trade-offs
-- **Explanation Format**: For conceptual questions and configurations
-
-### ✅ **Web Search Integration**
-- **External Knowledge**: DuckDuckGo API integration for best practices and documentation
-- **Seamless Integration**: Web insights woven into main narrative, not shown separately
-- **LLM-Powered Search Queries**: Intelligent search query generation based on context
-
-## 🔮 Roadmap
-
-### Upcoming Features
-- **Session Persistence**: Save and restore sessions across CLI restarts
-- **Multi-Repository Sessions**: Handle multiple codebases in one session
-- **Advanced Memory**: Semantic similarity-based memory retrieval
-- **Plugin Architecture**: Dynamic agent and tool loading
-- **Parallel Tool Execution**: Concurrent action execution for faster analysis
-
-### LLM Integration Enhancements
-- **Model Switching**: Dynamic model selection based on task complexity
-- **Context Window Management**: Intelligent truncation and summarization
-- **Cost Optimization**: Efficient token usage and provider selection
-- **Streaming Responses**: Real-time response generation for interactive mode"}
+---
 
 ## 📜 License
 
@@ -725,4 +654,4 @@ Apache 2.0 License
 
 ---
 
-*Built on the ReAct pattern for systematic, intelligent code exploration through reasoning, acting, and observing.*
+**Built with a pipeline-based architecture for systematic, intelligent code exploration.**
