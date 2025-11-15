@@ -990,12 +990,65 @@ class StructuralPipeline:
                 print(f"   📊 [KB_LIFEOFX] Strategy 2 (file-path search) found {files_found} files, {functions_from_files} functions, added {len(candidates) - len([c for c,f in candidates if c in seen_qnames])} new candidates")
                 print(f"   📊 [KB_LIFEOFX] Total candidates after both strategies: {len(candidates)}")
 
+                # Apply the SAME scoring logic as the main path
+                # This ensures utilities get penalized even in fallback
+                def fallback_score(candidate_tuple):
+                    qname, fpath = candidate_tuple
+                    name_lower = qname.lower()
+                    score = 0
+
+                    # Check utility FIRST - utilities should not get entry point bonus
+                    is_utility = self._is_utility_file(fpath)
+                    is_entry_point = self._is_entry_point_file(fpath)
+
+                    # Entry point bonus (but not for utilities)
+                    if is_entry_point and not is_utility:
+                        score += 100
+
+                    # Utility penalty
+                    if is_utility:
+                        score -= 50
+
+                    # Keyword matches
+                    if any(kw in name_lower for kw in keywords):
+                        score += 10
+                    if all(kw in name_lower for kw in keywords):
+                        score += 20
+
+                    # Entry point function names
+                    entry_point_names = [
+                        'submit', 'create', 'register', 'process',
+                        'handle', 'view', 'endpoint', 'post', 'get'
+                    ]
+                    if any(ep_name in name_lower for ep_name in entry_point_names):
+                        score += 15
+
+                    return score
+
+                # Sort candidates by score (highest first)
+                candidates.sort(key=fallback_score, reverse=True)
+
+                # Log top candidates with scores
+                if candidates:
+                    print(f"   📊 [KB_LIFEOFX_FALLBACK] Scored {len(candidates)} candidates:")
+                    for qname, fpath in candidates[:5]:  # Show top 5
+                        score = fallback_score((qname, fpath))
+                        is_entry = "🎯 ENTRY" if self._is_entry_point_file(fpath) else ""
+                        is_util = "⚠️ UTILITY" if self._is_utility_file(fpath) else ""
+                        print(f"      {score:4d} {is_entry}{is_util} {fpath}")
+
                 # Prioritize non-test files over test files
                 non_test_candidates = [(qname, fpath) for qname, fpath in candidates if not self._is_test_file(fpath)]
                 test_candidates = [(qname, fpath) for qname, fpath in candidates if self._is_test_file(fpath)]
 
-                if non_test_candidates:
-                    print(f"   ✅ [KB_LIFEOFX] Found {len(non_test_candidates)} non-test function(s), prioritizing these over {len(test_candidates)} test files")
+                # Also filter out utilities with negative scores
+                non_test_non_utility = [(qname, fpath) for qname, fpath in non_test_candidates if fallback_score((qname, fpath)) >= 0]
+
+                if non_test_non_utility:
+                    print(f"   ✅ [KB_LIFEOFX] Found {len(non_test_non_utility)} non-test, non-utility function(s)")
+                    resolved = [qname for qname, _ in non_test_non_utility]
+                elif non_test_candidates:
+                    print(f"   ⚠️ [KB_LIFEOFX] Found {len(non_test_candidates)} non-test function(s) but they're all utilities (allowing for now)")
                     resolved = [qname for qname, _ in non_test_candidates]
                 elif test_candidates:
                     print(f"   ⚠️ [KB_LIFEOFX] No non-test matches found, falling back to {len(test_candidates)} test file(s)")
