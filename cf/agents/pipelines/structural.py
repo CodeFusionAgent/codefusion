@@ -904,15 +904,34 @@ class StructuralPipeline:
                 elif top_score < 20:
                     print(f"   ⚠️ [KB_LIFEOFX] Low confidence matches (score: {top_score}). May not be true entry points.")
 
-            # If nothing found, try fallback with tests
+            # If nothing found, try fallback - prioritize non-test files
             if not resolved:
-                print("   ⚠️ [KB_LIFEOFX] No non-test matches found, including test files")
+                print("   ⚠️ [KB_LIFEOFX] No entry point matches found, searching broader...")
+
+                # First pass: collect all candidates with their file paths
+                candidates = []
+                seen_qnames = set()
                 for keyword in keywords:
                     result = self.kb.search_by_name(keyword, self.repo_id, node_type='Function')
                     for node in result.nodes:
                         qualified_name = node.get('qualified_name')
-                        if qualified_name and qualified_name not in resolved:
-                            resolved.append(qualified_name)
+                        if qualified_name and qualified_name not in seen_qnames:
+                            seen_qnames.add(qualified_name)
+                            file_path = self.kb.get_file_path_for_qualified_name(qualified_name, self.repo_id)
+                            candidates.append((qualified_name, file_path))
+
+                # Prioritize non-test files over test files
+                non_test_candidates = [(qname, fpath) for qname, fpath in candidates if not self._is_test_file(fpath)]
+                test_candidates = [(qname, fpath) for qname, fpath in candidates if self._is_test_file(fpath)]
+
+                if non_test_candidates:
+                    print(f"   ✅ [KB_LIFEOFX] Found {len(non_test_candidates)} non-test function(s), prioritizing these over {len(test_candidates)} test files")
+                    resolved = [qname for qname, _ in non_test_candidates]
+                elif test_candidates:
+                    print(f"   ⚠️ [KB_LIFEOFX] No non-test matches found, falling back to {len(test_candidates)} test file(s)")
+                    resolved = [qname for qname, _ in test_candidates]
+                else:
+                    print("   ❌ [KB_LIFEOFX] No matches found at all")
 
         except Exception as e:
             print(f"⚠️ [KB_LIFEOFX] Entry point resolution failed: {e}")
