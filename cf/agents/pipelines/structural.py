@@ -854,31 +854,50 @@ class StructuralPipeline:
                 is_utility = self._is_utility_file(fpath)
                 is_entry_point = self._is_entry_point_file(fpath)
 
+                # DEBUG: Log ALL file paths being scored to diagnose pattern matching
+                if '/factories/' in (fpath or '').lower() or '/management/commands/' in (fpath or '').lower():
+                    print(f"   🔍 [SCORE_DEBUG] Scoring: {qname}")
+                    print(f"        file_path: '{fpath}'")
+                    print(f"        is_utility: {is_utility}, is_entry_point: {is_entry_point}")
+
                 # HIGHEST priority: Entry point files (views, API endpoints, handlers)
                 # But NOT if they're also utilities (factories, management commands)
+                entry_point_bonus = 0
                 if is_entry_point and not is_utility:
+                    entry_point_bonus = 100
                     score += 100
 
                 # PENALTY: Utility files (managers, tasks, helpers, factories, commands)
+                utility_penalty = 0
                 if is_utility:
+                    utility_penalty = -50
                     score -= 50
 
                 # Name matching scores
                 # Exact match in any part
+                keyword_bonus = 0
                 if any(kw in name_lower for kw in keywords):
+                    keyword_bonus += 10
                     score += 10
 
                 # All keywords present (higher relevance)
                 if all(kw in name_lower for kw in keywords):
+                    keyword_bonus += 20
                     score += 20
 
                 # Bonus for common entry point function names
+                name_bonus = 0
                 entry_point_names = [
                     'submit', 'create', 'register', 'process',
                     'handle', 'view', 'endpoint', 'post', 'get'
                 ]
                 if any(ep_name in name_lower for ep_name in entry_point_names):
+                    name_bonus = 15
                     score += 15
+
+                # DEBUG: Show score breakdown for problematic files
+                if '/factories/' in (fpath or '').lower() or '/management/commands/' in (fpath or '').lower():
+                    print(f"        score breakdown: entry_point={entry_point_bonus}, utility={utility_penalty}, keyword={keyword_bonus}, name={name_bonus}, total={score}")
 
                 return score
 
@@ -1010,6 +1029,7 @@ class StructuralPipeline:
         major application flows like "student application submission".
         """
         if not file_path:
+            print(f"   🔍 [UTILITY_DEBUG] _is_utility_file called with EMPTY file_path!")
             return False
         path_lower = file_path.lower()
 
@@ -1029,12 +1049,27 @@ class StructuralPipeline:
 
         result = any(pattern in path_lower for pattern in utility_patterns)
 
-        # DEBUG: Log for factories and management/commands specifically
-        if '/factories/' in path_lower or '/management/commands/' in path_lower:
-            print(f"   🔍 [DEBUG] _is_utility_file('{file_path}') = {result}")
-            for pattern in utility_patterns:
-                if pattern in path_lower:
-                    print(f"      ✓ Matched pattern: '{pattern}'")
+        # DEBUG: Log for ALL files that look like they should be utilities
+        # Also log if path contains expected keywords but doesn't match
+        has_factory_keyword = 'factory' in path_lower or 'factories' in path_lower
+        has_command_keyword = 'command' in path_lower or 'commands' in path_lower
+        should_debug = (
+            '/factories/' in path_lower or
+            '/management/commands/' in path_lower or
+            (has_factory_keyword and not result) or
+            (has_command_keyword and not result)
+        )
+
+        if should_debug:
+            print(f"   🔍 [UTILITY_DEBUG] _is_utility_file('{file_path}') = {result}")
+            print(f"        path_lower: '{path_lower}'")
+            print(f"        has '/factories/' in path: {'/factories/' in path_lower}")
+            print(f"        has '/management/commands/' in path: {'/management/commands/' in path_lower}")
+            matched_patterns = [p for p in utility_patterns if p in path_lower]
+            if matched_patterns:
+                print(f"        ✓ Matched patterns: {matched_patterns}")
+            else:
+                print(f"        ✗ No patterns matched (expected one to match!)")
 
         return result
 
