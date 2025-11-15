@@ -327,7 +327,26 @@ class StructuralKBAgent(KnowledgeAgent):
         """Search using semantic/vector search"""
         start_time = time.time()
         try:
-            results = self.kb.search_by_natural_language(query, top_k=limit)
+            # Call semantic search layer directly (no wrapper)
+            if self.kb.semantic_search is None:
+                return {'success': False, 'error': 'Semantic search not enabled'}
+
+            min_similarity = self.semantic_config.get('similarity_threshold', 0.7)
+            raw_results = self.kb.semantic_search.search_by_natural_language(
+                query, top_k=limit, min_similarity=min_similarity
+            )
+
+            # Convert SimilarityResult objects to dicts
+            results = [
+                {
+                    'element_id': r.element_id,
+                    'similarity_score': r.similarity_score,
+                    'element_type': r.element_type,
+                    'text': r.text,
+                    'metadata': r.metadata
+                }
+                for r in raw_results
+            ]
 
             self._record_call(
                 tokens=0,  # Would need to track embedding tokens
@@ -353,7 +372,23 @@ class StructuralKBAgent(KnowledgeAgent):
         """Find similar code components"""
         start_time = time.time()
         try:
-            results = self.kb.find_similar_code(component_id, top_k=limit)
+            # Call semantic search layer directly (no wrapper)
+            if self.kb.semantic_search is None:
+                return {'success': False, 'error': 'Semantic search not enabled'}
+
+            raw_results = self.kb.semantic_search.find_similar_functions(component_id, top_k=limit)
+
+            # Convert SimilarityResult objects to dicts
+            results = [
+                {
+                    'element_id': r.element_id,
+                    'similarity_score': r.similarity_score,
+                    'element_type': r.element_type,
+                    'text': r.text,
+                    'metadata': r.metadata
+                }
+                for r in raw_results
+            ]
 
             self._record_call(time_taken=time.time() - start_time, error=False)
 
@@ -371,7 +406,11 @@ class StructuralKBAgent(KnowledgeAgent):
         """Detect duplicate code"""
         start_time = time.time()
         try:
-            clusters = self.kb.detect_duplicate_code(similarity_threshold)
+            # Call semantic search layer directly (no wrapper)
+            if self.kb.semantic_search is None:
+                return {'success': False, 'error': 'Semantic search not enabled'}
+
+            clusters = self.kb.semantic_search.cluster_similar_code(similarity_threshold)
 
             self._record_call(time_taken=time.time() - start_time, error=False)
 
@@ -389,9 +428,26 @@ class StructuralKBAgent(KnowledgeAgent):
         """Find code similar to a given example snippet using semantic search"""
         start_time = time.time()
         try:
-            # Use semantic search with the code snippet as query
-            # The embedder will embed the code and find similar code
-            results = self.kb.search_by_natural_language(code_snippet, top_k=limit)
+            # Call semantic search layer directly (no wrapper)
+            if self.kb.semantic_search is None:
+                return {'success': False, 'error': 'Semantic search not enabled'}
+
+            min_similarity = self.semantic_config.get('similarity_threshold', 0.7)
+            raw_results = self.kb.semantic_search.search_by_natural_language(
+                code_snippet, top_k=limit, min_similarity=min_similarity
+            )
+
+            # Convert SimilarityResult objects to dicts
+            results = [
+                {
+                    'element_id': r.element_id,
+                    'similarity_score': r.similarity_score,
+                    'element_type': r.element_type,
+                    'text': r.text,
+                    'metadata': r.metadata
+                }
+                for r in raw_results
+            ]
 
             self._record_call(time_taken=time.time() - start_time, error=False)
 
@@ -425,8 +481,25 @@ class StructuralKBAgent(KnowledgeAgent):
             })
             all_classes = [record['c'] for record in result.nodes]
 
-            # Detect patterns
-            patterns = self.kb.detect_design_patterns(all_classes)
+            # Call design pattern detector directly (no wrapper)
+            if self.kb.design_pattern_detector is None:
+                return {'success': False, 'error': 'Pattern detection not enabled'}
+
+            if not self.patterns_config.get('detect_design_patterns', True):
+                return {'success': True, 'patterns': [], 'count': 0, 'pattern_type': pattern_type}
+
+            raw_matches = self.kb.design_pattern_detector.detect_all_patterns(all_classes)
+
+            # Convert PatternMatch objects to dicts
+            patterns = [
+                {
+                    'pattern': match.pattern.value,
+                    'class_name': match.class_name,
+                    'confidence': match.confidence,
+                    'evidence': match.evidence
+                }
+                for match in raw_matches
+            ]
 
             # Filter by pattern type if specified
             if pattern_type != 'all':
@@ -474,8 +547,26 @@ class StructuralKBAgent(KnowledgeAgent):
             all_classes = [record['c'] for record in classes_result.nodes]
             all_functions = [record['f'] for record in functions_result.nodes]
 
-            # Detect smells
-            smells = self.kb.detect_code_smells(all_classes, all_functions)
+            # Call code smell detector directly (no wrapper)
+            if self.kb.code_smell_detector is None:
+                return {'success': False, 'error': 'Code smell detection not enabled'}
+
+            if not self.patterns_config.get('detect_code_smells', True):
+                return {'success': True, 'smells': [], 'count': 0, 'scope': scope}
+
+            raw_matches = self.kb.code_smell_detector.detect_all_smells(all_classes, all_functions)
+
+            # Convert SmellMatch objects to dicts
+            smells = [
+                {
+                    'smell': match.smell.value,
+                    'element_name': match.element_name,
+                    'severity': match.severity.value,
+                    'metrics': match.metrics,
+                    'suggestion': match.suggestion
+                }
+                for match in raw_matches
+            ]
 
             self._record_call(time_taken=time.time() - start_time, error=False)
 
@@ -662,7 +753,34 @@ class StructuralKBAgent(KnowledgeAgent):
         """Trace execution path"""
         start_time = time.time()
         try:
-            paths = self.kb.trace_execution_path(entry_point, max_depth, max_paths)
+            # Call execution path tracer directly (no wrapper)
+            if self.kb.execution_path_tracer is None:
+                return {'success': False, 'error': 'Execution path tracing not enabled'}
+
+            raw_paths = self.kb.execution_path_tracer.trace_from_entry_point(
+                entry_point, max_depth=max_depth, max_paths=max_paths
+            )
+
+            # Convert ExecutionPath objects to dicts
+            paths = [
+                {
+                    'entry_point': p.entry_point,
+                    'exit_point': p.exit_point,
+                    'total_functions': p.total_functions,
+                    'max_depth': p.max_depth,
+                    'confidence': p.confidence,
+                    'steps': [
+                        {
+                            'function_name': s.function_name,
+                            'qualified_name': s.qualified_name,
+                            'step_type': s.step_type,
+                            'metadata': s.metadata
+                        }
+                        for s in p.steps
+                    ]
+                }
+                for p in raw_paths
+            ]
 
             self._record_call(time_taken=time.time() - start_time, error=False)
 
@@ -680,7 +798,24 @@ class StructuralKBAgent(KnowledgeAgent):
         """Trace data flow"""
         start_time = time.time()
         try:
-            flows = self.kb.trace_data_flow(start_element, max_depth)
+            # Call dataflow analyzer directly (no wrapper)
+            if self.kb.dataflow_analyzer is None:
+                return {'success': False, 'error': 'Data flow analysis not enabled'}
+
+            raw_paths = self.kb.dataflow_analyzer.trace_data_flow(start_element, max_depth=max_depth)
+
+            # Convert DataFlowPath objects to dicts
+            flows = [
+                {
+                    'start_node': p.start_node,
+                    'end_node': p.end_node,
+                    'path_length': len(p.path),
+                    'path': p.path,
+                    'transformations': p.transformations,
+                    'confidence': p.confidence
+                }
+                for p in raw_paths
+            ]
 
             self._record_call(time_taken=time.time() - start_time, error=False)
 
@@ -698,7 +833,32 @@ class StructuralKBAgent(KnowledgeAgent):
         """Trace request lifecycle"""
         start_time = time.time()
         try:
-            lifecycle = self.kb.trace_request_lifecycle(endpoint_function, max_depth)
+            # Call execution path tracer directly (no wrapper)
+            if self.kb.execution_path_tracer is None:
+                return {'success': False, 'error': 'Execution path tracing not enabled'}
+
+            raw_path = self.kb.execution_path_tracer.trace_request_lifecycle(endpoint_function, max_depth=max_depth)
+
+            if raw_path is None:
+                lifecycle = None
+            else:
+                # Convert ExecutionPath object to dict
+                lifecycle = {
+                    'entry_point': raw_path.entry_point,
+                    'exit_point': raw_path.exit_point,
+                    'total_functions': raw_path.total_functions,
+                    'max_depth': raw_path.max_depth,
+                    'confidence': raw_path.confidence,
+                    'steps': [
+                        {
+                            'function_name': s.function_name,
+                            'qualified_name': s.qualified_name,
+                            'step_type': s.step_type,
+                            'metadata': s.metadata
+                        }
+                        for s in raw_path.steps
+                    ]
+                }
 
             self._record_call(time_taken=time.time() - start_time, error=False)
 
@@ -742,15 +902,18 @@ class StructuralKBAgent(KnowledgeAgent):
                     question_context=question_context
                 )
             else:
-                # Fallback: just use semantic search
+                # Fallback: just use semantic search directly
                 file_paths = []
-                if self.semantic_config.get('enabled', False):
-                    results = self.kb.search_by_natural_language(question, top_k=max_results)
-                    for result in results:
-                        if isinstance(result, dict) and 'metadata' in result:
-                            file_path = result.get('metadata', {}).get('file_path')
-                            if file_path:
-                                file_paths.append(file_path)
+                if self.semantic_config.get('enabled', False) and self.kb.semantic_search is not None:
+                    min_similarity = self.semantic_config.get('similarity_threshold', 0.7)
+                    raw_results = self.kb.semantic_search.search_by_natural_language(
+                        question, top_k=max_results, min_similarity=min_similarity
+                    )
+                    # Extract file paths from SimilarityResult objects
+                    for result in raw_results:
+                        file_path = result.metadata.get('file_path') if hasattr(result, 'metadata') else None
+                        if file_path:
+                            file_paths.append(file_path)
 
             self._record_call(time_taken=time.time() - start_time, error=False)
 

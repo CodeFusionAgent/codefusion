@@ -720,11 +720,36 @@ If >= 0.7, return empty missing_components array."""
         """
         patterns = []
 
-        # Try KB pattern detection first
-        if self.kb and hasattr(self.kb, 'detect_patterns'):
+        # Try KB pattern detection first (call layer directly - no wrapper)
+        if self.kb and self.kb.design_pattern_detector is not None:
             try:
-                file_paths = list(file_summaries.keys())
-                kb_patterns = self.kb.detect_patterns(file_paths)
+                # Query all classes from KB
+                query = """
+                MATCH (c:Class {repo_id: $repo_id})
+                RETURN c.qualified_name as name, c.file_path as file, c
+                LIMIT $limit
+                """
+                repo_id = getattr(self.kb, 'repo_id', 'default')
+                result = self.kb.kb.execute_query(query, {
+                    'repo_id': repo_id,
+                    'limit': 500
+                })
+                all_classes = [record['c'] for record in result.nodes]
+
+                # Call design pattern detector directly
+                raw_matches = self.kb.design_pattern_detector.detect_all_patterns(all_classes)
+
+                # Convert PatternMatch objects to pattern dicts
+                kb_patterns = [
+                    {
+                        'name': match.pattern.value,
+                        'description': f"Detected pattern: {match.pattern.value}",
+                        'files': [match.class_name],  # Simplified - would need file lookup
+                        'confidence': match.confidence
+                    }
+                    for match in raw_matches
+                ]
+
                 if kb_patterns:
                     print(f"   🎨 Detected {len(kb_patterns)} patterns from KB")
                     return kb_patterns
@@ -785,8 +810,8 @@ If >= 0.7, return empty missing_components array."""
         """
         paths = []
 
-        # Try KB execution path tracing first
-        if self.kb and hasattr(self.kb, 'trace_execution_path'):
+        # Try KB execution path tracing first (call layer directly - no wrapper)
+        if self.kb and self.kb.execution_path_tracer is not None:
             try:
                 print("   🔄 Tracing execution paths from KB...")
 
@@ -795,20 +820,34 @@ If >= 0.7, return empty missing_components array."""
 
                 for entry_func in entry_functions[:3]:  # Limit to 3 entry points
                     try:
-                        # Trace execution path from entry function
+                        # Trace execution path from entry function (direct layer call)
                         max_depth = self.config.get('agents', {}).get('max_execution_trace_depth', 10)
-                        traced_path = self.kb.trace_execution_path(
+                        max_paths = 10
+
+                        traced_paths = self.kb.execution_path_tracer.trace_from_entry_point(
                             entry_point=entry_func,
-                            max_depth=max_depth
+                            max_depth=max_depth,
+                            max_paths=max_paths
                         )
 
-                        if traced_path and traced_path.get('steps'):
-                            paths.append({
-                                'name': f"Flow from {entry_func}",
-                                'entry_point': entry_func,
-                                'steps': traced_path.get('steps', []),
-                                'depth': len(traced_path.get('steps', []))
-                            })
+                        # traced_paths is a list of ExecutionPath objects
+                        for path_obj in traced_paths[:1]:  # Take first path for each entry point
+                            if path_obj and path_obj.steps:
+                                # Convert ExecutionPath object to dict
+                                paths.append({
+                                    'name': f"Flow from {entry_func}",
+                                    'entry_point': entry_func,
+                                    'steps': [
+                                        {
+                                            'function_name': s.function_name,
+                                            'qualified_name': s.qualified_name,
+                                            'step_type': s.step_type,
+                                            'metadata': s.metadata
+                                        }
+                                        for s in path_obj.steps
+                                    ],
+                                    'depth': len(path_obj.steps)
+                                })
                     except Exception as e:
                         print(f"   ⚠️ Failed to trace path from {entry_func}: {e}")
 
