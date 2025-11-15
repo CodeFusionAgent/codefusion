@@ -1027,7 +1027,16 @@ class StructuralPipeline:
             '/management/commands/',  # Django management commands - CLI, not HTTP endpoints
         ]
 
-        return any(pattern in path_lower for pattern in utility_patterns)
+        result = any(pattern in path_lower for pattern in utility_patterns)
+
+        # DEBUG: Log for factories and management/commands specifically
+        if '/factories/' in path_lower or '/management/commands/' in path_lower:
+            print(f"   🔍 [DEBUG] _is_utility_file('{file_path}') = {result}")
+            for pattern in utility_patterns:
+                if pattern in path_lower:
+                    print(f"      ✓ Matched pattern: '{pattern}'")
+
+        return result
 
     def _is_entry_point_file(self, file_path: str) -> bool:
         """
