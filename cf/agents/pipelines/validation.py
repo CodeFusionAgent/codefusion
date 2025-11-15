@@ -94,11 +94,15 @@ class ValidationPipeline:
             grounding_issues = self._validate_grounding(answer, file_summaries)
             issues.extend(grounding_issues)
 
-            # 4. Check word count (narrative length)
+            # 4. Check for file hallucinations (CRITICAL anti-hallucination check)
+            hallucination_issues = self._check_file_hallucination(answer, file_summaries)
+            issues.extend(hallucination_issues)
+
+            # 5. Check word count (narrative length)
             word_count_issues = self._validate_word_count(answer, file_summaries)
             issues.extend(word_count_issues)
 
-            # 5. Verify facts against actual code (anti-hallucination)
+            # 6. Verify facts against actual code (anti-hallucination)
             fact_issues = self._verify_facts(answer, file_summaries)
             issues.extend(fact_issues)
 
@@ -258,6 +262,75 @@ class ValidationPipeline:
 
         if unverified_count > 0:
             print(f"   ⚠️  Found {unverified_count} unverified paths")
+
+        return issues
+
+    def _check_file_hallucination(self, answer: str, file_summaries: Dict[str, Any]) -> List[ValidationIssue]:
+        """
+        Check if narrative mentions files that were NOT analyzed (hallucination detection).
+
+        This is stricter than _validate_file_paths - it flags ANY file reference that's not
+        in the analyzed set as a critical error, especially common hallucinated names like
+        "ApplicationController.py", "ApplicationService.py", etc.
+        """
+        issues = []
+
+        # Extract ALL .py file references from narrative (simple pattern)
+        # This catches files mentioned in text like "ApplicationController.py does X"
+        all_file_refs = re.findall(r'\b(\w+(?:/\w+)*\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt))\b', answer)
+
+        # Also catch files with full paths
+        prefix_pattern = self._get_file_path_pattern()
+        full_path_refs = re.findall(
+            rf'\b({prefix_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt))\b',
+            answer
+        )
+
+        # Combine both patterns
+        all_mentioned_files = set(all_file_refs + full_path_refs)
+
+        # Get the set of actually analyzed files
+        analyzed_files = set(file_summaries.keys())
+
+        # Common hallucinated file names (these should NEVER appear unless actually analyzed)
+        common_hallucinations = {
+            'ApplicationController.py', 'ApplicationService.py', 'ApplicationRepository.py',
+            'UserController.py', 'UserService.py', 'UserRepository.py',
+            'AuthController.py', 'AuthService.py',
+            'BaseController.py', 'BaseService.py',
+            'models.py', 'views.py', 'controllers.py', 'services.py', 'repositories.py'
+        }
+
+        print(f"\n🔍 [DEBUG HALLUCINATION] Checking {len(all_mentioned_files)} file references")
+        print(f"   Analyzed files: {len(analyzed_files)}")
+
+        hallucinated_count = 0
+        for mentioned_file in all_mentioned_files:
+            # Check if this file was actually analyzed
+            is_analyzed = mentioned_file in analyzed_files
+
+            # Also check if it's a basename of an analyzed file
+            if not is_analyzed:
+                basenames = [fp.split('/')[-1] for fp in analyzed_files]
+                is_analyzed = mentioned_file in basenames or any(mentioned_file in fp for fp in analyzed_files)
+
+            if not is_analyzed:
+                # This file was NOT analyzed - potential hallucination
+                severity = 'error' if mentioned_file in common_hallucinations else 'error'
+
+                issues.append(ValidationIssue(
+                    severity=severity,
+                    issue_type='file_hallucination',
+                    message=f'Narrative references "{mentioned_file}" which was NOT analyzed. This is likely a hallucination. Only reference files from the analyzed set.',
+                    file_path=mentioned_file
+                ))
+                hallucinated_count += 1
+                print(f"   🚨 [HALLUCINATION] Found reference to non-analyzed file: {mentioned_file}")
+
+        if hallucinated_count > 0:
+            print(f"   ❌ Found {hallucinated_count} hallucinated file references")
+        else:
+            print(f"   ✅ No file hallucinations detected")
 
         return issues
 
