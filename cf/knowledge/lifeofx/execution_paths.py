@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from collections import deque
 
 from cf.knowledge.structural.dependency_graph import DependencyGraphBuilder
+from cf.knowledge.metrics import KnowledgeLayerMetrics, register_layer_metrics
 
 
 @dataclass
@@ -71,7 +72,7 @@ class ExecutionPath:
         return "".join(narrative)
 
 
-class ExecutionPathTracer:
+class ExecutionPathTracer(KnowledgeLayerMetrics):
     """
     Traces execution paths through code.
 
@@ -85,6 +86,10 @@ class ExecutionPathTracer:
         Args:
             dep_graph: Dependency graph builder
         """
+        # Initialize metrics tracking
+        super().__init__('lifeofx_tracing')
+        register_layer_metrics(self)
+
         self.dep_graph = dep_graph
 
     def trace_from_entry_point(
@@ -104,46 +109,48 @@ class ExecutionPathTracer:
         Returns:
             List of execution paths
         """
-        paths = []
+        # Track this operation (graph traversal, no tokens/cost)
+        with self.track_operation(tokens=0, cost=0.0):
+            paths = []
 
-        # BFS to find paths
-        queue = deque([(entry_point, [], 0)])
-        visited_paths = set()
+            # BFS to find paths
+            queue = deque([(entry_point, [], 0)])
+            visited_paths = set()
 
-        while queue and len(paths) < max_paths:
-            current, path_so_far, depth = queue.popleft()
+            while queue and len(paths) < max_paths:
+                current, path_so_far, depth = queue.popleft()
 
-            if depth > max_depth:
-                continue
+                if depth > max_depth:
+                    continue
 
-            # Create path signature to avoid duplicates
-            path_sig = tuple(path_so_far + [current])
-            if path_sig in visited_paths:
-                continue
-            visited_paths.add(path_sig)
+                # Create path signature to avoid duplicates
+                path_sig = tuple(path_so_far + [current])
+                if path_sig in visited_paths:
+                    continue
+                visited_paths.add(path_sig)
 
-            # Get functions called by current function
-            callees = self.dep_graph.call_graph.get(current, [])
+                # Get functions called by current function
+                callees = self.dep_graph.call_graph.get(current, [])
 
-            if not callees:
-                # End of path - create ExecutionPath
-                steps = self._build_execution_steps(path_so_far + [current])
+                if not callees:
+                    # End of path - create ExecutionPath
+                    steps = self._build_execution_steps(path_so_far + [current])
 
-                paths.append(ExecutionPath(
-                    entry_point=entry_point,
-                    exit_point=current,
-                    steps=steps,
-                    total_functions=len(path_so_far) + 1,
-                    max_depth=depth,
-                    confidence=0.8
-                ))
-            else:
-                # Continue tracing
-                for callee in callees:
-                    if callee not in path_so_far:  # Avoid cycles
-                        queue.append((callee, path_so_far + [current], depth + 1))
+                    paths.append(ExecutionPath(
+                        entry_point=entry_point,
+                        exit_point=current,
+                        steps=steps,
+                        total_functions=len(path_so_far) + 1,
+                        max_depth=depth,
+                        confidence=0.8
+                    ))
+                else:
+                    # Continue tracing
+                    for callee in callees:
+                        if callee not in path_so_far:  # Avoid cycles
+                            queue.append((callee, path_so_far + [current], depth + 1))
 
-        return paths
+            return paths
 
     def find_path_between(
         self,

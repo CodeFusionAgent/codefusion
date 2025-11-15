@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from cf.knowledge.structural.schema import StructuralData, ClassNode, FunctionNode
+from cf.knowledge.metrics import KnowledgeLayerMetrics, register_layer_metrics
 
 
 class DesignPattern(Enum):
@@ -53,7 +54,7 @@ class PatternMatch:
         return f"{self.pattern.value} in {self.class_name} (confidence={self.confidence:.2f})"
 
 
-class DesignPatternDetector:
+class DesignPatternDetector(KnowledgeLayerMetrics):
     """
     Detects design patterns in code using heuristics and rules.
 
@@ -61,6 +62,10 @@ class DesignPatternDetector:
     """
 
     def __init__(self):
+        # Initialize metrics tracking
+        super().__init__('pattern_detection')
+        register_layer_metrics(self)
+
         self.patterns_found: List[PatternMatch] = []
 
     def detect_patterns(self, structural_data: StructuralData) -> List[PatternMatch]:
@@ -80,31 +85,33 @@ class DesignPatternDetector:
         Detect all design patterns in a list of classes.
 
         Args:
-            all_classes: List of ClassNode objects
+            all_classes: List[ClassNode] objects
 
         Returns:
             List of detected patterns
         """
-        patterns = []
+        # Track this operation (pattern detection is CPU-bound, no tokens/cost)
+        with self.track_operation(tokens=0, cost=0.0):
+            patterns = []
 
-        for class_node in all_classes:
-            # Detect creational patterns
-            patterns.extend(self._detect_singleton(class_node))
-            patterns.extend(self._detect_factory(class_node))
-            patterns.extend(self._detect_builder(class_node))
+            for class_node in all_classes:
+                # Detect creational patterns
+                patterns.extend(self._detect_singleton(class_node))
+                patterns.extend(self._detect_factory(class_node))
+                patterns.extend(self._detect_builder(class_node))
 
-            # Detect structural patterns
-            patterns.extend(self._detect_adapter(class_node))
-            patterns.extend(self._detect_decorator(class_node))
-            patterns.extend(self._detect_proxy(class_node))
+                # Detect structural patterns
+                patterns.extend(self._detect_adapter(class_node))
+                patterns.extend(self._detect_decorator(class_node))
+                patterns.extend(self._detect_proxy(class_node))
 
-            # Detect behavioral patterns
-            patterns.extend(self._detect_observer(class_node))
-            patterns.extend(self._detect_strategy(class_node))
-            patterns.extend(self._detect_command(class_node))
+                # Detect behavioral patterns
+                patterns.extend(self._detect_observer(class_node))
+                patterns.extend(self._detect_strategy(class_node))
+                patterns.extend(self._detect_command(class_node))
 
-        self.patterns_found.extend(patterns)
-        return patterns
+            self.patterns_found.extend(patterns)
+            return patterns
 
     # ========== Creational Patterns ==========
 
