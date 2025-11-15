@@ -787,22 +787,25 @@ class StructuralPipeline:
         """
         Resolve a high-level entry point name to actual qualified function names in KB.
 
+        Uses intelligent filtering to prioritize actual entry points (views, APIs, handlers)
+        over utility functions (managers, tasks, helpers).
+
         Args:
             entry_point: User-provided entry point (e.g., "student application", "user login")
 
         Returns:
-            List of qualified function names found in KB
+            List of qualified function names found in KB, sorted by relevance
         """
         if not self.is_kb_available():
             return []
 
-        resolved = []
+        candidates = []  # List of (qualified_name, file_path, score) tuples
 
         # Split entry point into keywords for searching
         keywords = entry_point.lower().split()
 
         try:
-            # Search for matching functions (exclude test files)
+            # Search for matching functions
             for keyword in keywords:
                 result = self.kb.search_by_name(keyword, self.repo_id, node_type='Function')
                 for node in result.nodes:
@@ -813,10 +816,10 @@ class StructuralPipeline:
                     if self._is_test_file(file_path):
                         continue
 
-                    if qualified_name and qualified_name not in resolved:
-                        resolved.append(qualified_name)
+                    if qualified_name:
+                        candidates.append((qualified_name, file_path))
 
-            # Also search for matching classes (entry points might be classes)
+            # Also search for matching classes (entry points might be classes like views/viewsets)
             for keyword in keywords:
                 result = self.kb.search_by_name(keyword, self.repo_id, node_type='Class')
                 for node in result.nodes:
@@ -827,10 +830,72 @@ class StructuralPipeline:
                     if self._is_test_file(file_path):
                         continue
 
-                    if qualified_name and qualified_name not in resolved:
-                        resolved.append(qualified_name)
+                    if qualified_name:
+                        candidates.append((qualified_name, file_path))
 
-            # If no non-test results, fall back to including tests
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_candidates = []
+            for qname, fpath in candidates:
+                if qname not in seen:
+                    seen.add(qname)
+                    unique_candidates.append((qname, fpath))
+
+            # Smart relevance scoring with path-based prioritization
+            def relevance_score(candidate_tuple):
+                qname, fpath = candidate_tuple
+                name_lower = qname.lower()
+                score = 0
+
+                # HIGHEST priority: Entry point files (views, API endpoints, handlers)
+                if self._is_entry_point_file(fpath):
+                    score += 100
+
+                # PENALTY: Utility files (managers, tasks, helpers)
+                if self._is_utility_file(fpath):
+                    score -= 50
+
+                # Name matching scores
+                # Exact match in any part
+                if any(kw in name_lower for kw in keywords):
+                    score += 10
+
+                # All keywords present (higher relevance)
+                if all(kw in name_lower for kw in keywords):
+                    score += 20
+
+                # Bonus for common entry point function names
+                entry_point_names = [
+                    'submit', 'create', 'register', 'process',
+                    'handle', 'view', 'endpoint', 'post', 'get'
+                ]
+                if any(ep_name in name_lower for ep_name in entry_point_names):
+                    score += 15
+
+                return score
+
+            # Sort by relevance score (highest first)
+            unique_candidates.sort(key=relevance_score, reverse=True)
+
+            # Debug logging AFTER sorting (not during)
+            if unique_candidates:
+                print(f"   📊 [KB_LIFEOFX] Scored {len(unique_candidates)} candidates:")
+                for qname, fpath in unique_candidates[:5]:  # Show top 5
+                    score = relevance_score((qname, fpath))
+                    is_entry = "🎯 ENTRY" if self._is_entry_point_file(fpath) else ""
+                    is_util = "⚠️ UTILITY" if self._is_utility_file(fpath) else ""
+                    print(f"      {score:4d} {is_entry}{is_util} {fpath}")
+
+            # Extract just the qualified names
+            resolved = [qname for qname, _ in unique_candidates]
+
+            # If no high-scoring results found, warn user
+            if resolved:
+                top_score = relevance_score(unique_candidates[0])
+                if top_score < 20:
+                    print(f"   ⚠️ [KB_LIFEOFX] Low confidence matches (score: {top_score}). May not be true entry points.")
+
+            # If nothing found, try fallback with tests
             if not resolved:
                 print("   ⚠️ [KB_LIFEOFX] No non-test matches found, including test files")
                 for keyword in keywords:
@@ -840,22 +905,10 @@ class StructuralPipeline:
                         if qualified_name and qualified_name not in resolved:
                             resolved.append(qualified_name)
 
-            # Sort by relevance - prefer exact matches
-            def relevance_score(qname):
-                name_lower = qname.lower()
-                score = 0
-                # Exact match in any part
-                if any(kw in name_lower for kw in keywords):
-                    score += 10
-                # All keywords present
-                if all(kw in name_lower for kw in keywords):
-                    score += 20
-                return score
-
-            resolved.sort(key=relevance_score, reverse=True)
-
         except Exception as e:
             print(f"⚠️ [KB_LIFEOFX] Entry point resolution failed: {e}")
+            import traceback
+            traceback.print_exc()
 
         return resolved[:10]  # Return top 10 matches
 
@@ -869,6 +922,55 @@ class StructuralPipeline:
                 path_lower.startswith('test') or
                 '_test.' in path_lower or
                 '.test.' in path_lower)
+
+    def _is_utility_file(self, file_path: str) -> bool:
+        """
+        Check if file is a utility/helper file (not main business logic entry point).
+
+        Utility files are important but typically don't contain entry points for
+        major application flows like "student application submission".
+        """
+        if not file_path:
+            return False
+        path_lower = file_path.lower()
+
+        # Utility directories and file patterns
+        utility_patterns = [
+            '/utils/', '/helpers/', '/common/utils/', '/lib/',
+            '/managers.py',  # Django model managers - data access, not entry points
+            '/tasks.py',      # Celery tasks - background jobs, not entry points
+            '/migrations/', '/admin.py', '/apps.py',
+            '/constants.py', '/config.py', '/settings.py',
+            '/serializers.py',  # DRF serializers - data transformation
+            '/permissions.py', '/middleware.py',
+            '/exceptions.py', '/validators.py'
+        ]
+
+        return any(pattern in path_lower for pattern in utility_patterns)
+
+    def _is_entry_point_file(self, file_path: str) -> bool:
+        """
+        Check if file likely contains entry points for application flows.
+
+        Entry point files typically contain HTTP endpoints, form handlers,
+        or main service orchestration logic.
+        """
+        if not file_path:
+            return False
+        path_lower = file_path.lower()
+
+        # Entry point directories and file patterns
+        # These are common patterns across Django, Flask, FastAPI, etc.
+        entry_patterns = [
+            '/views/', '/viewsets/', '/api/', '/endpoints/', '/routes/',
+            '/controllers/', '/handlers/', '/forms/',
+            'views.py', 'api.py', 'urls.py', 'routes.py',
+            '/services/',  # Service layer often contains orchestration
+            '/workflows/', '/processes/',
+            '/commands/',  # Management commands can be entry points
+        ]
+
+        return any(pattern in path_lower for pattern in entry_patterns)
 
     def _analyze_question(self, question: str, llm_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
