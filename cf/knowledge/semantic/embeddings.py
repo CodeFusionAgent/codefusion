@@ -16,6 +16,8 @@ from enum import Enum
 
 import numpy as np
 
+from cf.knowledge.metrics import KnowledgeLayerMetrics, register_layer_metrics
+
 
 class EmbeddingModel(Enum):
     """Available embedding models"""
@@ -46,7 +48,7 @@ class CodeEmbedding:
         return dot_product / (norm_a * norm_b)
 
 
-class CodeEmbedder:
+class CodeEmbedder(KnowledgeLayerMetrics):
     """
     Generates embeddings for code elements.
 
@@ -62,6 +64,10 @@ class CodeEmbedder:
             model: Embedding model to use
             config: Configuration (API keys, etc.)
         """
+        # Initialize metrics tracking
+        super().__init__('semantic_embeddings')
+        register_layer_metrics(self)
+
         self.model = model
         self.config = config or {}
         self.llm_client = llm_client
@@ -263,12 +269,26 @@ class CodeEmbedder:
         Returns:
             Embedding vector as numpy array
         """
-        if self.backend == "llm_client":
-            return self._embed_with_llm_client(text)
-        elif self.backend == "openai":
-            return self._embed_with_openai(text)
-        else:
-            return self._embed_with_local(text)
+        # Estimate tokens and cost
+        tokens = len(text) // 4  # Rough estimate
+        cost = 0.0
+
+        if self.backend == "openai":
+            # OpenAI pricing
+            if self.model == EmbeddingModel.OPENAI_SMALL:
+                cost = (tokens / 1_000_000) * 0.02  # $0.02 per 1M tokens
+            elif self.model == EmbeddingModel.OPENAI_LARGE:
+                cost = (tokens / 1_000_000) * 0.13  # $0.13 per 1M tokens
+        # Local models have zero cost
+
+        # Track the operation
+        with self.track_operation(tokens=tokens, cost=cost):
+            if self.backend == "llm_client":
+                return self._embed_with_llm_client(text)
+            elif self.backend == "openai":
+                return self._embed_with_openai(text)
+            else:
+                return self._embed_with_local(text)
 
     def _embed_with_llm_client(self, text: str) -> np.ndarray:
         """Generate embedding using provided LLMClient (provider/model defined in config)."""
