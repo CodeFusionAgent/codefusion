@@ -908,17 +908,45 @@ class StructuralPipeline:
             if not resolved:
                 print("   ⚠️ [KB_LIFEOFX] No entry point matches found, searching broader...")
 
-                # First pass: collect all candidates with their file paths
+                # Strategy 1: Search for functions by name
                 candidates = []
                 seen_qnames = set()
                 for keyword in keywords:
                     result = self.kb.search_by_name(keyword, self.repo_id, node_type='Function')
                     for node in result.nodes:
                         qualified_name = node.get('qualified_name')
-                        file_path = node.get('file_path')  # File path is already in the node
+                        file_path = node.get('file_path')
                         if qualified_name and qualified_name not in seen_qnames:
                             seen_qnames.add(qualified_name)
                             candidates.append((qualified_name, file_path))
+
+                # Strategy 2: Search for files by path, then get all their functions
+                # This catches entry points like "apps/applications/views.py::submit()"
+                # where the file path contains "application" but function name doesn't
+                for keyword in keywords:
+                    file_result = self.kb.search_by_name(keyword, self.repo_id, node_type='File')
+                    for file_node in file_result.nodes:
+                        file_path = file_node.get('file_path') or file_node.get('path')
+                        if not file_path or not self._is_entry_point_file(file_path):
+                            continue  # Skip non-entry-point files
+
+                        # Get all functions in this file
+                        func_result = self.kb.execute_query(
+                            """
+                            MATCH (f:Function {repo_id: $repo_id})
+                            WHERE f.file_path = $file_path
+                            RETURN f
+                            LIMIT 20
+                            """,
+                            {"repo_id": self.repo_id, "file_path": file_path}
+                        )
+                        for func_node in func_result.nodes:
+                            qualified_name = func_node.get('qualified_name')
+                            if qualified_name and qualified_name not in seen_qnames:
+                                seen_qnames.add(qualified_name)
+                                candidates.append((qualified_name, file_path))
+
+                print(f"   📊 [KB_LIFEOFX] Fallback found {len(candidates)} total candidates")
 
                 # Prioritize non-test files over test files
                 non_test_candidates = [(qname, fpath) for qname, fpath in candidates if not self._is_test_file(fpath)]
