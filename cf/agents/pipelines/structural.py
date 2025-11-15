@@ -925,15 +925,29 @@ class StructuralPipeline:
                             seen_qnames.add(qualified_name)
                             candidates.append((qualified_name, file_path))
 
+                print(f"   📊 [KB_LIFEOFX] Strategy 1 (function name search) found {len(candidates)} candidates")
+
                 # Strategy 2: Search for files by path, then get all their functions
                 # This catches entry points like "apps/applications/views.py::submit()"
                 # where the file path contains "application" but function name doesn't
+                files_found = 0
+                functions_from_files = 0
                 for keyword in keywords:
                     file_result = self.kb.search_by_name(keyword, self.repo_id, node_type='File')
+                    files_found += len(file_result.nodes)
+                    print(f"   📊 [KB_LIFEOFX] Strategy 2: keyword '{keyword}' found {len(file_result.nodes)} File nodes")
+
                     for file_node in file_result.nodes:
                         file_path = file_node.get('file_path') or file_node.get('path')
-                        if not file_path or not self._is_entry_point_file(file_path):
-                            continue  # Skip non-entry-point files
+                        print(f"   📊 [KB_LIFEOFX]   - File node: {file_path}")
+
+                        if not file_path:
+                            print(f"   ⚠️ [KB_LIFEOFX]     Skipped: no file_path property")
+                            continue
+
+                        if not self._is_entry_point_file(file_path):
+                            print(f"   ⚠️ [KB_LIFEOFX]     Skipped: not an entry point file")
+                            continue
 
                         # Get all functions in this file
                         func_result = self.kb.execute_query(
@@ -945,13 +959,17 @@ class StructuralPipeline:
                             """,
                             {"repo_id": self.repo_id, "file_path": file_path}
                         )
+                        print(f"   📊 [KB_LIFEOFX]     Found {len(func_result.nodes)} functions in this file")
+                        functions_from_files += len(func_result.nodes)
+
                         for func_node in func_result.nodes:
                             qualified_name = func_node.get('qualified_name')
                             if qualified_name and qualified_name not in seen_qnames:
                                 seen_qnames.add(qualified_name)
                                 candidates.append((qualified_name, file_path))
 
-                print(f"   📊 [KB_LIFEOFX] Fallback found {len(candidates)} total candidates")
+                print(f"   📊 [KB_LIFEOFX] Strategy 2 (file-path search) found {files_found} files, {functions_from_files} functions, added {len(candidates) - len([c for c,f in candidates if c in seen_qnames])} new candidates")
+                print(f"   📊 [KB_LIFEOFX] Total candidates after both strategies: {len(candidates)}")
 
                 # Prioritize non-test files over test files
                 non_test_candidates = [(qname, fpath) for qname, fpath in candidates if not self._is_test_file(fpath)]
