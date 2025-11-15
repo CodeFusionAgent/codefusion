@@ -959,18 +959,31 @@ class StructuralPipeline:
             return False
         path_lower = file_path.lower()
 
-        # Entry point directories and file patterns
-        # These are common patterns across Django, Flask, FastAPI, etc.
-        entry_patterns = [
+        # Directory patterns (check if directory is in path)
+        directory_patterns = [
             '/views/', '/viewsets/', '/api/', '/endpoints/', '/routes/',
             '/controllers/', '/handlers/', '/forms/',
-            'views.py', 'api.py', 'urls.py', 'routes.py',
             '/services/',  # Service layer often contains orchestration
             '/workflows/', '/processes/',
             '/commands/',  # Management commands can be entry points
         ]
 
-        return any(pattern in path_lower for pattern in entry_patterns)
+        # Filename patterns (check if path ends with these)
+        # Use endswith to avoid matching utility files like 'frontend_urls.py' or 'test_views.py'
+        filename_patterns = [
+            '/views.py', '/api.py', '/urls.py', '/routes.py',
+            '/forms.py', '/endpoints.py', '/handlers.py'
+        ]
+
+        # Check directory patterns (anywhere in path)
+        if any(pattern in path_lower for pattern in directory_patterns):
+            return True
+
+        # Check filename patterns (must end with pattern to avoid false matches)
+        if any(path_lower.endswith(pattern) for pattern in filename_patterns):
+            return True
+
+        return False
 
     def _analyze_question(self, question: str, llm_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """

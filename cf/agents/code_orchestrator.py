@@ -754,6 +754,7 @@ Files discovered: {len(self.discovered_files)}
             'confidence': self.results['confidence'],
             'insights': self.insights,
             'files_analyzed': len(self.file_summaries),
+            'analyzed_file_list': list(self.file_summaries.keys()),  # Add list of analyzed files
             'key_files': self.results.get('key_files', []),
             'validation': self.results.get('validation', {}),
             'metrics': {
