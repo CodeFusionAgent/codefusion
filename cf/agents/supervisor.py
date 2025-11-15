@@ -454,14 +454,15 @@ Return JSON confirming code agent will handle this:
     
     def _prepare_synthesis_data(self, question: str) -> Dict[str, Any]:
         """Prepare data summary for LLM synthesis"""
-        
+
         data = {
             'question': question,
             'agents_consulted': self.agents_completed,
             'total_insights': len(self.all_insights),
-            'specialist_summaries': {}
+            'specialist_summaries': {},
+            'analyzed_files': []  # Track which files were actually analyzed
         }
-        
+
         # Summarize each specialist's findings
         for agent_type in self.agents_completed:
             result = self.specialist_results.get(agent_type, {})
@@ -472,12 +473,16 @@ Return JSON confirming code agent will handle this:
                     'key_findings': [insight.get('content', '') for insight in result.get('insights', [])[:3]],
                     'confidence': result.get('confidence', 0.5)
                 }
+
+                # Extract analyzed file list from code agent for anti-hallucination
+                if agent_type == 'code' and 'analyzed_file_list' in result:
+                    data['analyzed_files'] = result['analyzed_file_list']
             else:
                 data['specialist_summaries'][agent_type] = {
                     'success': False,
                     'error': result.get('error', 'Unknown error')
                 }
-        
+
         return data
     
     def _synthesize_with_llm(self, question: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -491,8 +496,16 @@ Return JSON confirming code agent will handle this:
 Return a JSON response with:
 - title: Engaging title for the answer (use "Life of X" format if the question is about understanding how something works)
 - narrative: Comprehensive narrative combining all specialist insights
-- narrative_type: "life_of_x", "comparison", "analysis", or "standard" 
+- narrative_type: "life_of_x", "comparison", "analysis", or "standard"
 - confidence: Overall confidence score (0.0-1.0)
+
+🚨 CRITICAL ANTI-HALLUCINATION RULES:
+1. You MUST ONLY reference files that appear in the "ANALYZED FILES" section of the prompt
+2. You MUST NOT invent or fabricate file names like "application_controller.py", "validation.py", "workflow.py"
+3. You MUST NOT reference files that were not analyzed (e.g., generic names like "models.py", "views.py" unless explicitly listed)
+4. If the analyzed files don't fully answer the question, state what's missing rather than hallucinate
+5. Every file path in your narrative MUST be from the analyzed files list
+6. If you cannot provide a complete answer with the given analyzed files, say so explicitly
 
 For "Life of X" responses, structure the narrative like this:
 🏗️ **Architectural Overview:** Write a comprehensive 4-5 sentence paragraph that tells the complete story as a "Life of X" narrative describing the journey and flow of the feature from start to finish. Tell the story like: "When [trigger/input occurs], the journey begins with [entry point/component] receiving/handling this [input]. The [system/framework] relies on [underlying technology/framework] to [core process]. The process is initiated when [specific condition]. The entry point for handling [feature] is typically [specific component/class] defined in a file like '[actual_filename.py]'. This [component] uses [specific mechanism like decorators/methods/patterns] to [specific action]. For example, when [specific scenario], the [input] is directed to [specific function/method] [with actual code pattern like @decorator or function_name()]. This [mechanism] is responsible for [specific responsibility]. The actual [feature] logic is handled by [specific component/module], which leverages [specific technology/technique]. Once [condition is met], the corresponding [handler/processor] is executed. The [output/result] is then [processed/transformed] through [specific steps], completing the lifecycle." Include:
@@ -556,11 +569,18 @@ The Architecture & Flow section should be particularly rich - it's the heart of 
     
     def _build_synthesis_prompt(self, question: str, data: Dict[str, Any]) -> str:
         """Build prompt for LLM synthesis"""
-        
+
+        # Build analyzed files section for anti-hallucination
+        analyzed_files_section = ""
+        if data.get('analyzed_files'):
+            analyzed_files_section = "\n\n**ANALYZED FILES (only reference these):**\n"
+            for file_path in data['analyzed_files']:
+                analyzed_files_section += f"- {file_path}\n"
+
         prompt = f"""Please synthesize the following analysis results into a comprehensive answer:
 
 **User Question:** {question}
-
+{analyzed_files_section}
 **Analysis Summary:**
 - Agents consulted: {', '.join(data['agents_consulted'])}
 - Total insights gathered: {data['total_insights']}
