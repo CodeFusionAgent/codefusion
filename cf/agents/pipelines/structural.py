@@ -537,6 +537,9 @@ class StructuralPipeline:
 
                     if not resolved_entry_points:
                         print(f"⚠️ [KB_LIFEOFX] Could not resolve entry point: {entry_point}")
+                        print(f"   💡 [KB_LIFEOFX] Tip: Entry points like views.py or api.py may not exist,")
+                        print(f"   💡 [KB_LIFEOFX]      or they may not contain functions matching '{entry_point}'")
+                        print(f"   💡 [KB_LIFEOFX]      Other discovery strategies will try to find relevant files")
                     else:
                         print(f"✅ [KB_LIFEOFX] Resolved entry point '{entry_point}' to {len(resolved_entry_points)} function(s)")
 
@@ -889,10 +892,16 @@ class StructuralPipeline:
             # Extract just the qualified names
             resolved = [qname for qname, _ in unique_candidates]
 
-            # If no high-scoring results found, warn user
+            # If no high-scoring results found, warn user and potentially reject
             if resolved:
                 top_score = relevance_score(unique_candidates[0])
-                if top_score < 20:
+
+                # If ALL results are utilities (negative scores), reject and return empty
+                # This allows other discovery strategies to try finding better matches
+                if top_score < 0:
+                    print(f"   ⚠️ [KB_LIFEOFX] All matches are utilities (score: {top_score}). Rejecting to allow other strategies.")
+                    resolved = []  # Clear results to trigger other strategies
+                elif top_score < 20:
                     print(f"   ⚠️ [KB_LIFEOFX] Low confidence matches (score: {top_score}). May not be true entry points.")
 
             # If nothing found, try fallback with tests
