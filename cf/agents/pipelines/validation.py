@@ -315,17 +315,21 @@ class ValidationPipeline:
                 is_analyzed = mentioned_file in basenames or any(mentioned_file in fp for fp in analyzed_files)
 
             if not is_analyzed:
-                # This file was NOT analyzed - potential hallucination
-                severity = 'error' if mentioned_file in common_hallucinations else 'error'
-
+                # This file was NOT analyzed - hallucination detected
+                # All non-analyzed files are marked as errors (not warnings)
                 issues.append(ValidationIssue(
-                    severity=severity,
+                    severity='error',
                     issue_type='file_hallucination',
                     message=f'Narrative references "{mentioned_file}" which was NOT analyzed. This is likely a hallucination. Only reference files from the analyzed set.',
                     file_path=mentioned_file
                 ))
                 hallucinated_count += 1
-                print(f"   🚨 [HALLUCINATION] Found reference to non-analyzed file: {mentioned_file}")
+
+                # Special logging for known common hallucinations
+                if mentioned_file in common_hallucinations:
+                    print(f"   🚨 [HALLUCINATION] Common hallucinated file: {mentioned_file}")
+                else:
+                    print(f"   🚨 [HALLUCINATION] Found reference to non-analyzed file: {mentioned_file}")
 
         if hallucinated_count > 0:
             print(f"   ❌ Found {hallucinated_count} hallucinated file references")

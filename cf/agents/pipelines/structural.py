@@ -850,12 +850,10 @@ class StructuralPipeline:
                 # HIGHEST priority: Entry point files (views, API endpoints, handlers)
                 if self._is_entry_point_file(fpath):
                     score += 100
-                    print(f"   🎯 [KB_LIFEOFX] Entry point file bonus: {fpath} (+100)")
 
                 # PENALTY: Utility files (managers, tasks, helpers)
                 if self._is_utility_file(fpath):
                     score -= 50
-                    print(f"   ⚠️ [KB_LIFEOFX] Utility file penalty: {fpath} (-50)")
 
                 # Name matching scores
                 # Exact match in any part
@@ -878,6 +876,15 @@ class StructuralPipeline:
 
             # Sort by relevance score (highest first)
             unique_candidates.sort(key=relevance_score, reverse=True)
+
+            # Debug logging AFTER sorting (not during)
+            if unique_candidates:
+                print(f"   📊 [KB_LIFEOFX] Scored {len(unique_candidates)} candidates:")
+                for qname, fpath in unique_candidates[:5]:  # Show top 5
+                    score = relevance_score((qname, fpath))
+                    is_entry = "🎯 ENTRY" if self._is_entry_point_file(fpath) else ""
+                    is_util = "⚠️ UTILITY" if self._is_utility_file(fpath) else ""
+                    print(f"      {score:4d} {is_entry}{is_util} {fpath}")
 
             # Extract just the qualified names
             resolved = [qname for qname, _ in unique_candidates]
