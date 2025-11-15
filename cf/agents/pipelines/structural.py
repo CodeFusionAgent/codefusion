@@ -915,9 +915,9 @@ class StructuralPipeline:
                     result = self.kb.search_by_name(keyword, self.repo_id, node_type='Function')
                     for node in result.nodes:
                         qualified_name = node.get('qualified_name')
+                        file_path = node.get('file_path')  # File path is already in the node
                         if qualified_name and qualified_name not in seen_qnames:
                             seen_qnames.add(qualified_name)
-                            file_path = self.kb.get_file_path_for_qualified_name(qualified_name, self.repo_id)
                             candidates.append((qualified_name, file_path))
 
                 # Prioritize non-test files over test files
