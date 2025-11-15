@@ -850,12 +850,17 @@ class StructuralPipeline:
                 name_lower = qname.lower()
                 score = 0
 
+                # Check utility FIRST - utilities should not get entry point bonus
+                is_utility = self._is_utility_file(fpath)
+                is_entry_point = self._is_entry_point_file(fpath)
+
                 # HIGHEST priority: Entry point files (views, API endpoints, handlers)
-                if self._is_entry_point_file(fpath):
+                # But NOT if they're also utilities (factories, management commands)
+                if is_entry_point and not is_utility:
                     score += 100
 
-                # PENALTY: Utility files (managers, tasks, helpers)
-                if self._is_utility_file(fpath):
+                # PENALTY: Utility files (managers, tasks, helpers, factories, commands)
+                if is_utility:
                     score -= 50
 
                 # Name matching scores
@@ -999,7 +1004,9 @@ class StructuralPipeline:
             '/constants.py', '/config.py', '/settings.py',
             '/serializers.py',  # DRF serializers - data transformation
             '/permissions.py', '/middleware.py',
-            '/exceptions.py', '/validators.py'
+            '/exceptions.py', '/validators.py',
+            '/factories/',    # Factory pattern files - create objects, not entry points
+            '/management/commands/',  # Django management commands - CLI, not HTTP endpoints
         ]
 
         return any(pattern in path_lower for pattern in utility_patterns)
