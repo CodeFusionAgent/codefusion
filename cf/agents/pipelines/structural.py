@@ -854,31 +854,50 @@ class StructuralPipeline:
                 is_utility = self._is_utility_file(fpath)
                 is_entry_point = self._is_entry_point_file(fpath)
 
+                # DEBUG: Log ALL file paths being scored to diagnose pattern matching
+                if '/factories/' in (fpath or '').lower() or '/management/commands/' in (fpath or '').lower():
+                    print(f"   🔍 [SCORE_DEBUG] Scoring: {qname}")
+                    print(f"        file_path: '{fpath}'")
+                    print(f"        is_utility: {is_utility}, is_entry_point: {is_entry_point}")
+
                 # HIGHEST priority: Entry point files (views, API endpoints, handlers)
                 # But NOT if they're also utilities (factories, management commands)
+                entry_point_bonus = 0
                 if is_entry_point and not is_utility:
+                    entry_point_bonus = 100
                     score += 100
 
                 # PENALTY: Utility files (managers, tasks, helpers, factories, commands)
+                utility_penalty = 0
                 if is_utility:
+                    utility_penalty = -50
                     score -= 50
 
                 # Name matching scores
                 # Exact match in any part
+                keyword_bonus = 0
                 if any(kw in name_lower for kw in keywords):
+                    keyword_bonus += 10
                     score += 10
 
                 # All keywords present (higher relevance)
                 if all(kw in name_lower for kw in keywords):
+                    keyword_bonus += 20
                     score += 20
 
                 # Bonus for common entry point function names
+                name_bonus = 0
                 entry_point_names = [
                     'submit', 'create', 'register', 'process',
                     'handle', 'view', 'endpoint', 'post', 'get'
                 ]
                 if any(ep_name in name_lower for ep_name in entry_point_names):
+                    name_bonus = 15
                     score += 15
+
+                # DEBUG: Show score breakdown for problematic files
+                if '/factories/' in (fpath or '').lower() or '/management/commands/' in (fpath or '').lower():
+                    print(f"        score breakdown: entry_point={entry_point_bonus}, utility={utility_penalty}, keyword={keyword_bonus}, name={name_bonus}, total={score}")
 
                 return score
 
@@ -971,12 +990,65 @@ class StructuralPipeline:
                 print(f"   📊 [KB_LIFEOFX] Strategy 2 (file-path search) found {files_found} files, {functions_from_files} functions, added {len(candidates) - len([c for c,f in candidates if c in seen_qnames])} new candidates")
                 print(f"   📊 [KB_LIFEOFX] Total candidates after both strategies: {len(candidates)}")
 
+                # Apply the SAME scoring logic as the main path
+                # This ensures utilities get penalized even in fallback
+                def fallback_score(candidate_tuple):
+                    qname, fpath = candidate_tuple
+                    name_lower = qname.lower()
+                    score = 0
+
+                    # Check utility FIRST - utilities should not get entry point bonus
+                    is_utility = self._is_utility_file(fpath)
+                    is_entry_point = self._is_entry_point_file(fpath)
+
+                    # Entry point bonus (but not for utilities)
+                    if is_entry_point and not is_utility:
+                        score += 100
+
+                    # Utility penalty
+                    if is_utility:
+                        score -= 50
+
+                    # Keyword matches
+                    if any(kw in name_lower for kw in keywords):
+                        score += 10
+                    if all(kw in name_lower for kw in keywords):
+                        score += 20
+
+                    # Entry point function names
+                    entry_point_names = [
+                        'submit', 'create', 'register', 'process',
+                        'handle', 'view', 'endpoint', 'post', 'get'
+                    ]
+                    if any(ep_name in name_lower for ep_name in entry_point_names):
+                        score += 15
+
+                    return score
+
+                # Sort candidates by score (highest first)
+                candidates.sort(key=fallback_score, reverse=True)
+
+                # Log top candidates with scores
+                if candidates:
+                    print(f"   📊 [KB_LIFEOFX_FALLBACK] Scored {len(candidates)} candidates:")
+                    for qname, fpath in candidates[:5]:  # Show top 5
+                        score = fallback_score((qname, fpath))
+                        is_entry = "🎯 ENTRY" if self._is_entry_point_file(fpath) else ""
+                        is_util = "⚠️ UTILITY" if self._is_utility_file(fpath) else ""
+                        print(f"      {score:4d} {is_entry}{is_util} {fpath}")
+
                 # Prioritize non-test files over test files
                 non_test_candidates = [(qname, fpath) for qname, fpath in candidates if not self._is_test_file(fpath)]
                 test_candidates = [(qname, fpath) for qname, fpath in candidates if self._is_test_file(fpath)]
 
-                if non_test_candidates:
-                    print(f"   ✅ [KB_LIFEOFX] Found {len(non_test_candidates)} non-test function(s), prioritizing these over {len(test_candidates)} test files")
+                # Also filter out utilities with negative scores
+                non_test_non_utility = [(qname, fpath) for qname, fpath in non_test_candidates if fallback_score((qname, fpath)) >= 0]
+
+                if non_test_non_utility:
+                    print(f"   ✅ [KB_LIFEOFX] Found {len(non_test_non_utility)} non-test, non-utility function(s)")
+                    resolved = [qname for qname, _ in non_test_non_utility]
+                elif non_test_candidates:
+                    print(f"   ⚠️ [KB_LIFEOFX] Found {len(non_test_candidates)} non-test function(s) but they're all utilities (allowing for now)")
                     resolved = [qname for qname, _ in non_test_candidates]
                 elif test_candidates:
                     print(f"   ⚠️ [KB_LIFEOFX] No non-test matches found, falling back to {len(test_candidates)} test file(s)")
@@ -1010,6 +1082,7 @@ class StructuralPipeline:
         major application flows like "student application submission".
         """
         if not file_path:
+            print(f"   🔍 [UTILITY_DEBUG] _is_utility_file called with EMPTY file_path!")
             return False
         path_lower = file_path.lower()
 
@@ -1027,7 +1100,31 @@ class StructuralPipeline:
             '/management/commands/',  # Django management commands - CLI, not HTTP endpoints
         ]
 
-        return any(pattern in path_lower for pattern in utility_patterns)
+        result = any(pattern in path_lower for pattern in utility_patterns)
+
+        # DEBUG: Log for ALL files that look like they should be utilities
+        # Also log if path contains expected keywords but doesn't match
+        has_factory_keyword = 'factory' in path_lower or 'factories' in path_lower
+        has_command_keyword = 'command' in path_lower or 'commands' in path_lower
+        should_debug = (
+            '/factories/' in path_lower or
+            '/management/commands/' in path_lower or
+            (has_factory_keyword and not result) or
+            (has_command_keyword and not result)
+        )
+
+        if should_debug:
+            print(f"   🔍 [UTILITY_DEBUG] _is_utility_file('{file_path}') = {result}")
+            print(f"        path_lower: '{path_lower}'")
+            print(f"        has '/factories/' in path: {'/factories/' in path_lower}")
+            print(f"        has '/management/commands/' in path: {'/management/commands/' in path_lower}")
+            matched_patterns = [p for p in utility_patterns if p in path_lower]
+            if matched_patterns:
+                print(f"        ✓ Matched patterns: {matched_patterns}")
+            else:
+                print(f"        ✗ No patterns matched (expected one to match!)")
+
+        return result
 
     def _is_entry_point_file(self, file_path: str) -> bool:
         """
