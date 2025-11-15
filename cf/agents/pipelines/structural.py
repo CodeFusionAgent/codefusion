@@ -470,9 +470,25 @@ class StructuralPipeline:
         file_scores = {}  # Track relevance scores for ranking
 
         # Strategy 1: Semantic Search (PRIMARY - uses vector embeddings)
-        if self.semantic_config.get('enabled', False):
+        if self.semantic_config.get('enabled', False) and self.semantic_search is not None:
             try:
-                semantic_results = self.search_by_natural_language(question, top_k=max_results)
+                # Call semantic search layer directly (no wrapper)
+                min_similarity = self.semantic_config.get('similarity_threshold', 0.7)
+                raw_results = self.semantic_search.search_by_natural_language(
+                    question, top_k=max_results, min_similarity=min_similarity
+                )
+
+                # Convert SimilarityResult objects to dicts
+                semantic_results = [
+                    {
+                        'element_id': r.element_id,
+                        'similarity_score': r.similarity_score,
+                        'element_type': r.element_type,
+                        'text': r.text,
+                        'metadata': r.metadata
+                    }
+                    for r in raw_results
+                ]
 
                 # Validate semantic search results
                 if not isinstance(semantic_results, list):
@@ -526,8 +542,29 @@ class StructuralPipeline:
 
                         all_paths = []
                         for resolved_ep in resolved_entry_points[:3]:  # Limit to 3 entry points
-                            paths = self.trace_execution_path(resolved_ep, max_depth=10, max_paths=5)
-                            all_paths.extend(paths)
+                            # Call execution path tracer directly (no wrapper)
+                            raw_paths = self.execution_path_tracer.trace_from_entry_point(
+                                resolved_ep, max_depth=10, max_paths=5
+                            )
+
+                            # Convert ExecutionPath objects to dicts
+                            for p in raw_paths:
+                                all_paths.append({
+                                    'entry_point': p.entry_point,
+                                    'exit_point': p.exit_point,
+                                    'total_functions': p.total_functions,
+                                    'max_depth': p.max_depth,
+                                    'confidence': p.confidence,
+                                    'steps': [
+                                        {
+                                            'function_name': s.function_name,
+                                            'qualified_name': s.qualified_name,
+                                            'step_type': s.step_type,
+                                            'metadata': s.metadata
+                                        }
+                                        for s in p.steps
+                                    ]
+                                })
 
                         print(f"✅ [KB_LIFEOFX] Found {len(all_paths)} execution paths")
 
@@ -621,8 +658,26 @@ class StructuralPipeline:
                     })
                     all_classes = [record['c'] for record in result.nodes]
 
-                    # Detect patterns
-                    patterns = self.detect_design_patterns(all_classes)
+                    # Call design pattern detector directly (no wrapper)
+                    if self.design_pattern_detector is None:
+                        patterns = []
+                    else:
+                        if not self.patterns_config.get('detect_design_patterns', True):
+                            patterns = []
+                        else:
+                            raw_matches = self.design_pattern_detector.detect_all_patterns(all_classes)
+
+                            # Convert PatternMatch objects to dicts
+                            patterns = [
+                                {
+                                    'pattern': match.pattern.value,
+                                    'class_name': match.class_name,
+                                    'confidence': match.confidence,
+                                    'evidence': match.evidence
+                                }
+                                for match in raw_matches
+                            ]
+
                     for pattern in patterns:
                         # Extract file path from class metadata
                         file_path = pattern.get('evidence', {}).get('file_path')
