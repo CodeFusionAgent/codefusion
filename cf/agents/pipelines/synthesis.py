@@ -383,6 +383,16 @@ You have analyzed {len(file_summaries)} files and gathered the following insight
 ANALYZED FILE PATHS (use these exact paths in your narrative):
 {file_paths_list}
 
+🚨 CRITICAL - ANTI-HALLUCINATION RULES:
+1. You MUST ONLY reference files listed above in "ANALYZED FILE PATHS"
+2. You MUST NOT invent or make up file names like "ApplicationController.py" or "ApplicationService.py"
+3. You MUST NOT reference files that were not analyzed (e.g., "views.py", "models.py", "services.py")
+4. If the analyzed files don't fully answer the question, explicitly state what's missing
+5. Every file path in your narrative MUST be from the list above
+6. If you cannot provide a complete answer with the given files, say so rather than hallucinate
+
+⚠️  If you reference ANY file not in the "ANALYZED FILE PATHS" list above, your answer will be REJECTED.
+
 KEY FILES ANALYZED:
 {summaries_text}
 
@@ -394,6 +404,7 @@ INSIGHTS:
 {relationships_text}
 {feedback_text}
 TASK: Write a detailed technical narrative that explains HOW the system works, not just WHAT it does.
+Use ONLY the analyzed files above. If they don't fully answer the question, acknowledge the limitation.
 
 REQUIREMENTS:
 1. Length: MINIMUM {target_min} words (aim for {target_max} words for comprehensive coverage)
