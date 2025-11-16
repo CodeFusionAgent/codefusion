@@ -116,6 +116,7 @@ agents:
     min_confidence: 0.3  # Minimum confidence for accepting results
     min_insights_for_pass: 2  # Minimum insights required before moving to next pass
     loop_detection_min_actions: 3  # Minimum actions before checking for loops
+    min_relevance_score: 0.3  # Minimum relevance score for file inclusion (0.0-1.0)
 
     # Validation thresholds
     # ADJUSTED: Line coverage lowered to 0.10 based on real-world testing (9-14% is typical for quality narratives)
