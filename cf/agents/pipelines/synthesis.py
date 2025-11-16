@@ -196,10 +196,36 @@ class SynthesisPipeline:
         )
 
     def _select_key_files(self, file_summaries: Dict[str, Any], max_files: int) -> List[str]:
-        """Select most relevant files to cite"""
-        # Sort by relevance if available, otherwise just take first N
-        files = list(file_summaries.keys())[:max_files]
-        return files
+        """
+        Select most relevant files to cite, prioritizing production files.
+
+        Args:
+            file_summaries: Dict mapping file_path -> FileSummary (or dict with 'file_type')
+            max_files: Maximum files to select
+
+        Returns:
+            List of file paths, prioritized: production > test > utility
+        """
+        # Separate files by type
+        production_files = []
+        test_files = []
+        utility_files = []
+
+        for path, summary in file_summaries.items():
+            # Handle both FileSummary objects and dict representations
+            file_type = summary.get('file_type', 'production') if isinstance(summary, dict) else getattr(summary, 'file_type', 'production')
+
+            if file_type == 'production':
+                production_files.append(path)
+            elif file_type == 'test':
+                test_files.append(path)
+            else:  # utility
+                utility_files.append(path)
+
+        # Combine prioritized: production first, then test, then utility
+        prioritized = production_files + test_files + utility_files
+
+        return prioritized[:max_files]
 
     def _build_synthesis_prompt(self,
                                 question: str,
@@ -215,14 +241,32 @@ class SynthesisPipeline:
                                 cross_file_relationships: Dict[str, Any] = None) -> str:
         """Build prompt for synthesis"""
 
-        # Prepare file summaries text
+        # Prepare file summaries text - GROUPED BY FILE TYPE
         summaries_text = ""
 
         # DEBUG: Log what we're receiving
         print(f"   [DEBUG SYNTHESIS] Building prompt with {len(key_files)} key files")
 
+        # Separate files by type for structured narrative
+        production_files = []
+        test_files = []
+        utility_files = []
+
         for file_path in key_files:
             summary = file_summaries.get(file_path, {})
+            file_type = summary.get('file_type', 'production') if isinstance(summary, dict) else getattr(summary, 'file_type', 'production')
+
+            if file_type == 'production':
+                production_files.append(file_path)
+            elif file_type == 'test':
+                test_files.append(file_path)
+            else:
+                utility_files.append(file_path)
+
+        # Build summaries by type with clear section headers
+        def format_file_summary(file_path: str, summary: Any) -> str:
+            """Format a single file summary with functions/classes"""
+            text = f"\n\n## {file_path}\n"
 
             # DEBUG: Log summary structure
             print(f"   [DEBUG SYNTHESIS] File: {file_path}")
@@ -235,29 +279,37 @@ class SynthesisPipeline:
                 if summary.get('classes'):
                     print(f"   [DEBUG SYNTHESIS]   First class: {summary['classes'][0]}")
 
-            if isinstance(summary, dict):
-                summaries_text += f"\n\n## {file_path}\n"
-                summaries_text += f"Key Features: {', '.join(summary.get('key_features', []))}\n"
-                summaries_text += f"Architecture: {summary.get('architectural_insights', '')}\n"
+                text += f"Key Features: {', '.join(summary.get('key_features', []))}\n"
+                text += f"Architecture: {summary.get('architectural_insights', '')}\n"
 
                 # Include function/class info with line numbers
-                # IMPORTANT: Make it crystal clear which file these line numbers belong to
                 functions = summary.get('functions', [])
                 classes = summary.get('classes', [])
                 if functions:
-                    summaries_text += f"Functions in {file_path}:\n"
+                    text += f"Functions in {file_path}:\n"
                     for f in functions[:5]:
                         func_name = f.get('name', 'unknown')
                         func_line = f.get('line', '?')
-                        summaries_text += f"  - {func_name} at line {func_line}\n"
+                        text += f"  - {func_name} at line {func_line}\n"
                     print(f"   [DEBUG SYNTHESIS]   Generated {len(functions[:5])} function refs for {file_path}")
                 if classes:
-                    summaries_text += f"Classes in {file_path}:\n"
+                    text += f"Classes in {file_path}:\n"
                     for c in classes[:5]:
                         class_name = c.get('name', 'unknown')
                         class_line = c.get('line', '?')
-                        summaries_text += f"  - {class_name} at line {class_line}\n"
+                        text += f"  - {class_name} at line {class_line}\n"
                     print(f"   [DEBUG SYNTHESIS]   Generated {len(classes[:5])} class refs for {file_path}")
+
+            return text
+
+        # Section 1: Production Files (Main Implementation)
+        if production_files:
+            summaries_text += "\n\n# MAIN IMPLEMENTATION FILES (Production Code)\n"
+            summaries_text += "These files contain the core business logic and main implementation:\n"
+            for file_path in production_files:
+                summary = file_summaries.get(file_path, {})
+                if isinstance(summary, dict):
+                    summaries_text += format_file_summary(file_path, summary)
 
                 # Include test information if available (test-aware analysis)
                 test_info = summary.get('test_info', {})
@@ -275,6 +327,24 @@ class SynthesisPipeline:
                         summaries_text += "Edge Cases Tested:\n"
                         for ec in edge_cases[:3]:
                             summaries_text += f"  - {ec}\n"
+
+        # Section 2: Test Files (Concrete Examples)
+        if test_files:
+            summaries_text += "\n\n# TEST FILES (Concrete Usage Examples)\n"
+            summaries_text += "These files show how the production code is used in practice:\n"
+            for file_path in test_files:
+                summary = file_summaries.get(file_path, {})
+                if isinstance(summary, dict):
+                    summaries_text += format_file_summary(file_path, summary)
+
+        # Section 3: Utility Files (Supporting Infrastructure)
+        if utility_files:
+            summaries_text += "\n\n# UTILITY FILES (Supporting Infrastructure)\n"
+            summaries_text += "These files provide supporting functionality:\n"
+            for file_path in utility_files:
+                summary = file_summaries.get(file_path, {})
+                if isinstance(summary, dict):
+                    summaries_text += format_file_summary(file_path, summary)
 
         # Prepare insights text
         insights_text = ""
@@ -395,6 +465,17 @@ ANALYZED FILE PATHS (use these exact paths in your narrative):
 
 KEY FILES ANALYZED:
 {summaries_text}
+
+📂 FILE TYPE GUIDANCE:
+The files above are organized by type to help you structure your narrative:
+- **MAIN IMPLEMENTATION FILES**: Use these to explain HOW the system works (core business logic)
+- **TEST FILES**: Use these to provide CONCRETE EXAMPLES of execution flow and usage patterns
+- **UTILITY FILES**: Use these to explain supporting infrastructure
+
+STRUCTURE YOUR NARRATIVE:
+1. First, explain the main implementation using production files
+2. Then, illustrate with concrete examples from test files (if available)
+3. Finally, mention supporting utilities that assist the main logic
 
 INSIGHTS:
 {insights_text}

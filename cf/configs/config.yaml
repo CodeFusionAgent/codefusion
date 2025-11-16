@@ -16,11 +16,11 @@ llm:
       use_cases: ["file_summaries", "classification", "coordination"]
       cost_per_1m: 0.25
     standard:
-      model: "gpt-5"  # Full GPT-4.1 for better analysis quality
+      model: "gpt-4.1-mini"  # Full GPT-4.1 for better analysis quality
       use_cases: ["general_analysis", "moderate_reasoning"]
       cost_per_1m: 2.50
     advanced:
-      model: "gpt-5"  # Full GPT-4.1 for better instruction-following on synthesis
+      model: "gpt-4.1-mini"  # Full GPT-4.1 for better instruction-following on synthesis
       use_cases: ["final_synthesis", "deep_reasoning"]
       cost_per_1m: 3.00
   # Per-Model Configurations
@@ -82,6 +82,7 @@ agents:
   max_iterations: 20  # Increased from 10 to support 3 passes with 3 agents (worst case: 13 iterations + margin)
   timeout: 300  # seconds
   max_files_to_analyze: 50  # Maximum files for discovery pipeline
+  min_files_threshold: 8  # Minimum files needed for comprehensive analysis (increased from 3)
 
   # Parallel Processing Settings (NEW)
   # Dramatically improves performance for file analysis
@@ -115,6 +116,7 @@ agents:
     min_confidence: 0.3  # Minimum confidence for accepting results
     min_insights_for_pass: 2  # Minimum insights required before moving to next pass
     loop_detection_min_actions: 3  # Minimum actions before checking for loops
+    min_relevance_score: 0.3  # Minimum relevance score for file inclusion (0.0-1.0)
 
     # Validation thresholds
     # ADJUSTED: Line coverage lowered to 0.10 based on real-world testing (9-14% is typical for quality narratives)
@@ -425,3 +427,12 @@ knowledge_base:
     max_paths: 10  # Maximum execution paths to return
     detect_long_chains: true  # Detect long call chains
     min_chain_length: 10  # Minimum chain length to report
+
+    # Entry Point Scoring Configuration
+    # Used by _resolve_entry_point() to rank candidate functions
+    scoring:
+      entry_point_bonus: 100  # Bonus for files containing entry points (views, api, routes, handlers)
+      utility_penalty: -50  # Penalty for utility files (managers, tasks, helpers, factories)
+      keyword_match_bonus: 10  # Bonus when any keyword matches function name
+      all_keywords_bonus: 20  # Bonus when all keywords match function name
+      entry_point_name_bonus: 15  # Bonus for common entry point function names (submit, create, handle, etc)
