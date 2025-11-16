@@ -16,11 +16,11 @@ llm:
       use_cases: ["file_summaries", "classification", "coordination"]
       cost_per_1m: 0.25
     standard:
-      model: "gpt-5"  # Full GPT-4.1 for better analysis quality
+      model: "gpt-4.1-mini"  # Full GPT-4.1 for better analysis quality
       use_cases: ["general_analysis", "moderate_reasoning"]
       cost_per_1m: 2.50
     advanced:
-      model: "gpt-5"  # Full GPT-4.1 for better instruction-following on synthesis
+      model: "gpt-4.1-mini"  # Full GPT-4.1 for better instruction-following on synthesis
       use_cases: ["final_synthesis", "deep_reasoning"]
       cost_per_1m: 3.00
   # Per-Model Configurations
@@ -82,6 +82,7 @@ agents:
   max_iterations: 20  # Increased from 10 to support 3 passes with 3 agents (worst case: 13 iterations + margin)
   timeout: 300  # seconds
   max_files_to_analyze: 50  # Maximum files for discovery pipeline
+  min_files_threshold: 8  # Minimum files needed for comprehensive analysis (increased from 3)
 
   # Parallel Processing Settings (NEW)
   # Dramatically improves performance for file analysis
