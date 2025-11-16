@@ -425,3 +425,12 @@ knowledge_base:
     max_paths: 10  # Maximum execution paths to return
     detect_long_chains: true  # Detect long call chains
     min_chain_length: 10  # Minimum chain length to report
+
+    # Entry Point Scoring Configuration
+    # Used by _resolve_entry_point() to rank candidate functions
+    scoring:
+      entry_point_bonus: 100  # Bonus for files containing entry points (views, api, routes, handlers)
+      utility_penalty: -50  # Penalty for utility files (managers, tasks, helpers, factories)
+      keyword_match_bonus: 10  # Bonus when any keyword matches function name
+      all_keywords_bonus: 20  # Bonus when all keywords match function name
+      entry_point_name_bonus: 15  # Bonus for common entry point function names (submit, create, handle, etc)

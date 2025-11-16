@@ -844,6 +844,14 @@ class StructuralPipeline:
                     seen.add(qname)
                     unique_candidates.append((qname, fpath))
 
+            # Load scoring configuration from config
+            scoring_config = self.config.get('knowledge_base', {}).get('lifeofx', {}).get('scoring', {})
+            entry_point_bonus_value = scoring_config.get('entry_point_bonus', 100)
+            utility_penalty_value = scoring_config.get('utility_penalty', -50)
+            keyword_match_bonus_value = scoring_config.get('keyword_match_bonus', 10)
+            all_keywords_bonus_value = scoring_config.get('all_keywords_bonus', 20)
+            entry_point_name_bonus_value = scoring_config.get('entry_point_name_bonus', 15)
+
             # Smart relevance scoring with path-based prioritization
             def relevance_score(candidate_tuple):
                 qname, fpath = candidate_tuple
@@ -864,26 +872,26 @@ class StructuralPipeline:
                 # But NOT if they're also utilities (factories, management commands)
                 entry_point_bonus = 0
                 if is_entry_point and not is_utility:
-                    entry_point_bonus = 100
-                    score += 100
+                    entry_point_bonus = entry_point_bonus_value
+                    score += entry_point_bonus_value
 
                 # PENALTY: Utility files (managers, tasks, helpers, factories, commands)
                 utility_penalty = 0
                 if is_utility:
-                    utility_penalty = -50
-                    score -= 50
+                    utility_penalty = utility_penalty_value
+                    score += utility_penalty_value  # Already negative
 
                 # Name matching scores
                 # Exact match in any part
                 keyword_bonus = 0
                 if any(kw in name_lower for kw in keywords):
-                    keyword_bonus += 10
-                    score += 10
+                    keyword_bonus += keyword_match_bonus_value
+                    score += keyword_match_bonus_value
 
                 # All keywords present (higher relevance)
                 if all(kw in name_lower for kw in keywords):
-                    keyword_bonus += 20
-                    score += 20
+                    keyword_bonus += all_keywords_bonus_value
+                    score += all_keywords_bonus_value
 
                 # Bonus for common entry point function names
                 name_bonus = 0
@@ -892,8 +900,8 @@ class StructuralPipeline:
                     'handle', 'view', 'endpoint', 'post', 'get'
                 ]
                 if any(ep_name in name_lower for ep_name in entry_point_names):
-                    name_bonus = 15
-                    score += 15
+                    name_bonus = entry_point_name_bonus_value
+                    score += entry_point_name_bonus_value
 
                 # DEBUG: Show score breakdown for problematic files
                 if '/factories/' in (fpath or '').lower() or '/management/commands/' in (fpath or '').lower():
@@ -981,7 +989,10 @@ class StructuralPipeline:
                         print(f"   📊 [KB_LIFEOFX]     Found {len(func_result.nodes)} functions in this file")
                         functions_from_files += len(func_result.nodes)
 
-                        for func_node in func_result.nodes:
+                        for node_wrapper in func_result.nodes:
+                            # execute_query returns nodes wrapped in dict: {'f': {...}}
+                            # Extract the actual Function node
+                            func_node = node_wrapper.get('f', {})
                             qualified_name = func_node.get('qualified_name')
                             if qualified_name and qualified_name not in seen_qnames:
                                 seen_qnames.add(qualified_name)
@@ -990,49 +1001,15 @@ class StructuralPipeline:
                 print(f"   📊 [KB_LIFEOFX] Strategy 2 (file-path search) found {files_found} files, {functions_from_files} functions, added {len(candidates) - len([c for c,f in candidates if c in seen_qnames])} new candidates")
                 print(f"   📊 [KB_LIFEOFX] Total candidates after both strategies: {len(candidates)}")
 
-                # Apply the SAME scoring logic as the main path
-                # This ensures utilities get penalized even in fallback
-                def fallback_score(candidate_tuple):
-                    qname, fpath = candidate_tuple
-                    name_lower = qname.lower()
-                    score = 0
-
-                    # Check utility FIRST - utilities should not get entry point bonus
-                    is_utility = self._is_utility_file(fpath)
-                    is_entry_point = self._is_entry_point_file(fpath)
-
-                    # Entry point bonus (but not for utilities)
-                    if is_entry_point and not is_utility:
-                        score += 100
-
-                    # Utility penalty
-                    if is_utility:
-                        score -= 50
-
-                    # Keyword matches
-                    if any(kw in name_lower for kw in keywords):
-                        score += 10
-                    if all(kw in name_lower for kw in keywords):
-                        score += 20
-
-                    # Entry point function names
-                    entry_point_names = [
-                        'submit', 'create', 'register', 'process',
-                        'handle', 'view', 'endpoint', 'post', 'get'
-                    ]
-                    if any(ep_name in name_lower for ep_name in entry_point_names):
-                        score += 15
-
-                    return score
-
                 # Sort candidates by score (highest first)
-                candidates.sort(key=fallback_score, reverse=True)
+                # Reuse the same relevance_score function from main path
+                candidates.sort(key=relevance_score, reverse=True)
 
                 # Log top candidates with scores
                 if candidates:
                     print(f"   📊 [KB_LIFEOFX_FALLBACK] Scored {len(candidates)} candidates:")
                     for qname, fpath in candidates[:5]:  # Show top 5
-                        score = fallback_score((qname, fpath))
+                        score = relevance_score((qname, fpath))
                         is_entry = "🎯 ENTRY" if self._is_entry_point_file(fpath) else ""
                         is_util = "⚠️ UTILITY" if self._is_utility_file(fpath) else ""
                         print(f"      {score:4d} {is_entry}{is_util} {fpath}")
@@ -1042,7 +1019,7 @@ class StructuralPipeline:
                 test_candidates = [(qname, fpath) for qname, fpath in candidates if self._is_test_file(fpath)]
 
                 # Also filter out utilities with negative scores
-                non_test_non_utility = [(qname, fpath) for qname, fpath in non_test_candidates if fallback_score((qname, fpath)) >= 0]
+                non_test_non_utility = [(qname, fpath) for qname, fpath in non_test_candidates if relevance_score((qname, fpath)) >= 0]
 
                 if non_test_non_utility:
                     print(f"   ✅ [KB_LIFEOFX] Found {len(non_test_non_utility)} non-test, non-utility function(s)")
@@ -1177,6 +1154,21 @@ class StructuralPipeline:
         Returns:
             Dictionary with intent type and entities (LLM-extracted)
         """
+        # OPTIMIZATION: If supervisor already classified the question, use that classification
+        # and only extract entities with LLM (avoids duplicate LLM call)
+        if llm_context and 'analysis_type' in llm_context:
+            analysis_type = llm_context['analysis_type']
+            print(f"✅ [KB_QUERY] Using supervisor's classification: {analysis_type}")
+
+            # If it's life_of_x, we still need to extract the entry point
+            if analysis_type == 'life_of_x':
+                # Extract entry point from question using simple LLM call
+                return self._extract_entry_point(question)
+            elif analysis_type in ['standard', 'summary']:
+                # For standard/summary, treat as semantic search
+                return {'type': 'search', 'term': question, 'llm_classified': True}
+
+        # Fallback: Full LLM classification if supervisor didn't provide it
         # Check if we have access to LLM client
         if not hasattr(self, '_llm_client'):
             # Initialize on first use
@@ -1246,6 +1238,52 @@ Include only relevant fields for the question type."""
         # If LLM fails, return generic search (no hardcoded patterns!)
         print("⚠️ [KB_QUERY] LLM classification failed, defaulting to semantic search")
         return {'type': 'search', 'term': question, 'llm_classified': False}
+
+    def _extract_entry_point(self, question: str) -> Dict[str, Any]:
+        """
+        Extract entry point from a life-of-x question using LLM.
+
+        Args:
+            question: User question
+
+        Returns:
+            Dictionary with type='life_of_x' and extracted entry_point
+        """
+        prompt = f"""Extract the entry point (main function/process/feature name) from this question:
+
+Question: "{question}"
+
+Return ONLY a JSON object with the entry point:
+{{"entry_point": "the main process/feature name"}}
+
+Example:
+Question: "How does student application submission work?"
+Response: {{"entry_point": "student application submission"}}"""
+
+        try:
+            response = self._llm_client.generate_fast(
+                prompt=prompt,
+                system_prompt="You are extracting entry points from questions. Return only valid JSON.",
+                temperature=0.1,
+                max_tokens=50
+            )
+
+            if response.get('success'):
+                content = response.get('content', '{}').strip()
+                start = content.find('{')
+                end = content.rfind('}') + 1
+                if start >= 0 and end > start:
+                    json_str = content[start:end]
+                    result = json.loads(json_str)
+                    if 'entry_point' in result:
+                        print(f"✅ [KB_QUERY] Extracted entry point: {result['entry_point']}")
+                        return {'type': 'life_of_x', 'entry_point': result['entry_point'], 'llm_classified': True}
+
+        except Exception as e:
+            print(f"⚠️ [KB_QUERY] Entry point extraction failed: {e}")
+
+        # Fallback: use the whole question as entry point
+        return {'type': 'life_of_x', 'entry_point': question, 'llm_classified': False}
 
     def get_repository_stats(self) -> Dict[str, Any]:
         """
