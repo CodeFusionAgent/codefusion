@@ -572,6 +572,9 @@ class StructuralPipeline:
                         print(f"✅ [KB_LIFEOFX] Found {len(all_paths)} execution paths")
 
                         files_extracted = 0
+                        broken_links = 0
+                        total_steps = 0
+
                         for path_info in all_paths:
                             steps = path_info.get('steps', [])
 
@@ -579,18 +582,34 @@ class StructuralPipeline:
                                 # qualified_name format: "module.Class.function" (dot notation)
                                 # Need to lookup file_path from KB using qualified_name
                                 qualified_name = step.get('qualified_name', '')
+                                total_steps += 1
 
                                 if qualified_name:
                                     # Query KB for file_path of this function
                                     file_path = self._lookup_file_path(qualified_name)
+
                                     if file_path:
-                                        # High relevance for execution flow files
-                                        file_scores[file_path] = max(file_scores.get(file_path, 0), 0.9)
-                                        file_paths.append(file_path)
-                                        files_extracted += 1
+                                        # Validate that file actually exists in repository
+                                        if self._validate_file_path(file_path):
+                                            # High relevance for execution flow files
+                                            file_scores[file_path] = max(file_scores.get(file_path, 0), 0.9)
+                                            file_paths.append(file_path)
+                                            files_extracted += 1
+                                        else:
+                                            broken_links += 1
+                                            print(f"⚠️ [KB_LIFEOFX] Invalid path from KB: {file_path} (does not exist)")
 
                         if files_extracted > 0:
                             print(f"✅ [KB_LIFEOFX] Extracted {files_extracted} files from execution paths")
+
+                        if broken_links > 0:
+                            broken_percentage = (broken_links / total_steps * 100) if total_steps > 0 else 0
+                            print(f"⚠️ [KB_LIFEOFX] Found {broken_links} broken links ({broken_percentage:.1f}% of execution path)")
+
+                            # If >20% of execution path has broken links, KB may be out of sync
+                            if broken_percentage > 20:
+                                print(f"⚠️ [KB_LIFEOFX] High broken link rate detected - KB may be out of sync with filesystem")
+                                print(f"   💡 [KB_LIFEOFX] Consider rebuilding KB or falling back to keyword search")
 
             except Exception as e:
                 print(f"⚠️ [KB_LIFEOFX] Execution tracing failed: {e}")
@@ -785,6 +804,36 @@ class StructuralPipeline:
             print(f"⚠️ [KB_LIFEOFX] File path lookup failed for {qualified_name}: {e}")
 
         return None
+
+    def _validate_file_path(self, file_path: str) -> bool:
+        """
+        Validate that a file path exists in the repository and is readable.
+
+        Args:
+            file_path: Relative path from repo root
+
+        Returns:
+            True if file exists and is readable, False otherwise
+        """
+        if not file_path:
+            return False
+
+        # Construct absolute path
+        abs_path = os.path.join(self.repo_path, file_path)
+
+        # Check if file exists
+        if not os.path.exists(abs_path):
+            return False
+
+        # Check if it's a file (not directory)
+        if not os.path.isfile(abs_path):
+            return False
+
+        # Check if it's readable
+        if not os.access(abs_path, os.R_OK):
+            return False
+
+        return True
 
     def _resolve_entry_point(self, entry_point: str) -> List[str]:
         """

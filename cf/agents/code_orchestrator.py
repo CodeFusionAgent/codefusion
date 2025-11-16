@@ -79,6 +79,7 @@ class CodeOrchestrator(BaseAgent):
         self.current_state = AnalysisState.INIT
         self.path_map = {}
         self.discovered_files = []
+        self.file_types = {}  # Maps file_path -> file_type ('production', 'test', 'utility')
         self.file_summaries = {}
         self.kb_initialized = False  # Track KB initialization
 
@@ -124,6 +125,7 @@ class CodeOrchestrator(BaseAgent):
         # Clear question-specific state
         self.current_state = AnalysisState.INIT if not self.path_map else AnalysisState.REPO_READY
         self.discovered_files = []
+        self.file_types = {}
         self.file_summaries = {}
         self.results = {}
         self.insights = []
@@ -533,10 +535,19 @@ class CodeOrchestrator(BaseAgent):
                 question_context=self.question_context  # Pass LLM classification
             )
 
-            # Store discovered files
+            # Store discovered files with type information
             self.discovered_files = [f.path for f in discovery_result.files]
+            self.file_types = {f.path: f.file_type for f in discovery_result.files}
+
+            # Count by type
+            type_counts = {
+                'production': len(discovery_result.production_files),
+                'test': len(discovery_result.test_files),
+                'utility': len(discovery_result.utility_files)
+            }
 
             print(f"✅ [ORCHESTRATOR] Discovered {len(self.discovered_files)} relevant files")
+            print(f"   Production: {type_counts['production']}, Test: {type_counts['test']}, Utility: {type_counts['utility']}")
             print(f"   Strategies used: {', '.join(discovery_result.strategies_used)}")
 
             self.add_insight(
@@ -556,8 +567,8 @@ class CodeOrchestrator(BaseAgent):
         try:
             print("📄 [ORCHESTRATOR] Analyzing files...")
 
-            # Run analysis pipeline
-            analysis_result = self.analysis.analyze(self.discovered_files, question)
+            # Run analysis pipeline with file type information
+            analysis_result = self.analysis.analyze(self.discovered_files, question, self.file_types)
 
             # Store file summaries
             self.file_summaries = analysis_result.file_summaries
