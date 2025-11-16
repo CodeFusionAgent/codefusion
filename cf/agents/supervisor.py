@@ -67,7 +67,7 @@ class SupervisorAgent(BaseAgent):
         # Backward-compatibility shim for existing SupervisorAgent logic that still
         # references pass-related attributes directly (pending full migration to
         # MultiPassCoordinator). These ensure attributes exist to prevent AttributeError.
-        self.pass_config = {'standard': {'max_passes': 3}, 'summary': {'max_passes': 2}}
+        self.pass_config = {'standard': {'max_passes': 3}, 'summary': {'max_passes': 2}, 'life_of_x': {'max_passes': 2}}
         self.pass_number = 1
         self.current_pass_attempt = 1
         self.max_pass_attempts = 3
@@ -639,15 +639,17 @@ The Architecture & Flow section should be particularly rich - it's the heart of 
 Question: "{question}"
 
 Determine if this is:
-- "standard": Specific technical questions, debugging, how-to questions, feature explanations
-- "summary": Repository overviews, architecture analysis, project understanding, code organization
+- "life_of_x": Questions asking about process flows, execution paths, how something works end-to-end (e.g., "How does authentication work?", "What happens when a user submits a form?", "Trace the request flow")
+- "standard": Specific technical questions, debugging, what-is questions, feature explanations (e.g., "What is class X?", "Where is function Y defined?")
+- "summary": Repository overviews, architecture analysis, project understanding, code organization (e.g., "What is this codebase?", "Explain the architecture")
 
 Provide JSON response with:
-- analysis_type: "standard" or "summary"  
+- analysis_type: "life_of_x", "standard", or "summary"
 - reasoning: Brief explanation of why this type was chosen
 """
-        
+
         system_prompt = """You are an analysis coordinator. Classify questions as:
+- "life_of_x": Process flow questions about how things work end-to-end
 - "standard": Specific technical questions about implementation, usage, debugging
 - "summary": Questions about overall project structure, architecture, organization, overview
 
