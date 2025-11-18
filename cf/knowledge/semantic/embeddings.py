@@ -10,6 +10,7 @@ Supports multiple embedding providers:
 """
 
 import hashlib
+import pickle
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
@@ -17,6 +18,19 @@ from enum import Enum
 import numpy as np
 
 from cf.knowledge.metrics import KnowledgeLayerMetrics, register_layer_metrics
+
+# Optional dependencies - try to import but don't fail if missing
+try:
+    import litellm
+    LITELLM_AVAILABLE = True
+except ImportError:
+    LITELLM_AVAILABLE = False
+
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 
 class EmbeddingModel(Enum):
@@ -102,26 +116,24 @@ class CodeEmbedder(KnowledgeLayerMetrics):
 
     def _init_openai(self):
         """Initialize OpenAI embeddings via LiteLLM"""
-        try:
-            import litellm
-            self.litellm = litellm
-            self.backend = "openai"
-            print(f"✅ Initialized OpenAI embeddings: {self.model.value}")
-        except ImportError:
+        if not LITELLM_AVAILABLE:
             raise RuntimeError("litellm not available. Install with: pip install litellm")
+
+        self.litellm = litellm
+        self.backend = "openai"
+        print(f"✅ Initialized OpenAI embeddings: {self.model.value}")
 
     def _init_local(self):
         """Initialize local sentence-transformers"""
-        try:
-            from sentence_transformers import SentenceTransformer
-            self.local_model = SentenceTransformer(self.model.value)
-            self.backend = "local"
-            print(f"✅ Initialized local embeddings: {self.model.value}")
-        except ImportError:
+        if not SENTENCE_TRANSFORMERS_AVAILABLE:
             raise RuntimeError(
                 "sentence-transformers not available. "
                 "Install with: pip install sentence-transformers"
             )
+
+        self.local_model = SentenceTransformer(self.model.value)
+        self.backend = "local"
+        print(f"✅ Initialized local embeddings: {self.model.value}")
 
     def embed_function(self, function_node: Any) -> CodeEmbedding:
         """
@@ -494,7 +506,6 @@ class EmbeddingCache:
             return
 
         try:
-            import pickle
             with open(self.cache_file, 'rb') as f:
                 self.cache = pickle.load(f)
             print(f"✅ Loaded {len(self.cache)} embeddings from cache")
@@ -509,7 +520,6 @@ class EmbeddingCache:
             return
 
         try:
-            import pickle
             with open(self.cache_file, 'wb') as f:
                 pickle.dump(self.cache, f)
             print(f"✅ Saved {len(self.cache)} embeddings to cache")

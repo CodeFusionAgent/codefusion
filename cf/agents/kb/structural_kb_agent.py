@@ -12,11 +12,48 @@ Exposes all KB query capabilities as tools:
 Updated to use KnowledgeBaseProtocol for loose coupling.
 """
 
+import os
 import time
 from typing import Dict, List, Any, Callable
 
 from cf.agents.knowledge_base import KnowledgeAgent, AgentResult
 from cf.agents.protocols import KnowledgeBaseProtocol
+
+
+# Tool name constants for external reference (eliminates fragile dynamic resolution)
+class StructuralKBTools:
+    """Tool name constants for StructuralKBAgent (prefixed by registry)"""
+    # High-level discovery
+    FIND_FILES_FOR_QUESTION = 'find_files_for_question'
+
+    # Semantic layer
+    SEARCH_BY_SEMANTICS = 'search_by_semantics'
+    SEARCH_BY_FUNCTIONALITY = 'search_by_functionality'
+    FIND_SIMILAR_COMPONENTS = 'find_similar_components'
+    DETECT_DUPLICATE_CODE = 'detect_duplicate_code'
+    SEARCH_BY_EXAMPLE = 'search_by_example'
+
+    # Pattern layer
+    FIND_DESIGN_PATTERNS = 'find_design_patterns'
+    DETECT_CODE_SMELLS = 'detect_code_smells'
+
+    # Architecture layer
+    GET_ARCHITECTURE_OVERVIEW = 'get_architecture_overview'
+    GET_MODULE_BOUNDARIES = 'get_module_boundaries'
+    IDENTIFY_CROSS_CUTTING_CONCERNS = 'identify_cross_cutting_concerns'
+    FIND_LAYER_COMPONENTS = 'find_layer_components'
+
+    # Code navigation
+    FIND_CALLERS = 'find_callers'
+    FIND_CALLEES = 'find_callees'
+    FIND_USAGES = 'find_usages'
+    FIND_RELATED_TESTS = 'find_related_tests'
+    FIND_IMPLEMENTATIONS = 'find_implementations'
+
+    # Life-of-X layer
+    TRACE_EXECUTION_PATH = 'trace_execution_path'
+    TRACE_DATA_FLOW = 'trace_data_flow'
+    TRACE_REQUEST_LIFECYCLE = 'trace_request_lifecycle'
 
 
 class StructuralKBAgent(KnowledgeAgent):
@@ -46,6 +83,32 @@ class StructuralKBAgent(KnowledgeAgent):
         self.patterns_config = kb_config.get('patterns', {})
         self.lifeofx_config = kb_config.get('lifeofx', {})
 
+        # Load KB agent tool defaults from config
+        agent_config = config.get('agents', {}) if config else {}
+        kb_agent_config = agent_config.get('structural_kb_agent', {})
+
+        # Semantic search defaults
+        self.default_search_limit = kb_agent_config.get('default_search_limit', 10)
+        self.default_similar_components_limit = kb_agent_config.get('default_similar_components_limit', 10)
+        self.default_example_search_limit = kb_agent_config.get('default_example_search_limit', 10)
+        self.duplicate_code_similarity_threshold = kb_agent_config.get('duplicate_code_similarity_threshold', 0.8)
+        self.snippet_preview_length = kb_agent_config.get('snippet_preview_length', 100)
+
+        # Code navigation defaults
+        self.default_callers_limit = kb_agent_config.get('default_callers_limit', 20)
+        self.default_callees_limit = kb_agent_config.get('default_callees_limit', 20)
+        self.default_usages_limit = kb_agent_config.get('default_usages_limit', 30)
+
+        # Execution tracing defaults
+        self.trace_execution_max_depth = kb_agent_config.get('trace_execution_max_depth', 10)
+        self.trace_execution_max_paths = kb_agent_config.get('trace_execution_max_paths', 5)
+        self.trace_dataflow_max_depth = kb_agent_config.get('trace_dataflow_max_depth', 20)
+        self.trace_lifecycle_max_depth = kb_agent_config.get('trace_lifecycle_max_depth', 20)
+
+        # File discovery defaults
+        self.default_file_discovery_limit = kb_agent_config.get('default_file_discovery_limit', 50)
+        self.query_result_limit = kb_agent_config.get('query_result_limit', 1000)
+
     def get_capabilities(self) -> List[str]:
         """Get list of capabilities this agent provides"""
         capabilities = ['kb_queries']
@@ -62,12 +125,33 @@ class StructuralKBAgent(KnowledgeAgent):
 
         return capabilities
 
+    def get_tool_name(self, tool_constant: str, prefixed: bool = True) -> str:
+        """
+        Get tool name with optional prefix.
+
+        Args:
+            tool_constant: Tool name from StructuralKBTools class
+            prefixed: Whether to include agent prefix (default: True)
+
+        Returns:
+            Tool name (prefixed or unprefixed)
+
+        Example:
+            >>> agent.get_tool_name(StructuralKBTools.FIND_FILES_FOR_QUESTION)
+            'structural_kb_find_files_for_question'
+            >>> agent.get_tool_name(StructuralKBTools.FIND_FILES_FOR_QUESTION, prefixed=False)
+            'find_files_for_question'
+        """
+        if prefixed:
+            return f"{self.agent_name}_{tool_constant}"
+        return tool_constant
+
     def register_tools(self) -> Dict[str, Callable]:
         """Register all KB query tools (unprefixed - registry will prefix)"""
         tools = {}
 
         # High-Level Discovery Tool (combines multiple strategies)
-        tools['find_files_for_question'] = self._find_files_for_question
+        tools[StructuralKBTools.FIND_FILES_FOR_QUESTION] = self._find_files_for_question
 
         # Semantic Layer Tools
         if self.semantic_config.get('enabled', False):
@@ -88,6 +172,13 @@ class StructuralKBAgent(KnowledgeAgent):
         tools['get_module_boundaries'] = self._get_module_boundaries
         tools['identify_cross_cutting_concerns'] = self._identify_cross_cutting_concerns
         tools['find_layer_components'] = self._find_layer_components
+
+        # Code Navigation Tools (NEW)
+        tools['find_callers'] = self._find_callers
+        tools['find_callees'] = self._find_callees
+        tools['find_usages'] = self._find_usages
+        tools['find_related_tests'] = self._find_related_tests
+        tools['find_implementations'] = self._find_implementations
 
         # Life-of-X Tools
         if self.lifeofx_config.get('enabled', False):
@@ -268,6 +359,86 @@ class StructuralKBAgent(KnowledgeAgent):
             }
         ])
 
+        # Code Navigation tools (NEW)
+        schemas.extend([
+            {
+                'type': 'function',
+                'function': {
+                    'name': self.get_prefixed_tool_name('find_callers'),
+                    'description': 'Find all functions that call a given function',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'function_name': {'type': 'string', 'description': 'Qualified name of the function to find callers for'},
+                            'max_results': {'type': 'integer', 'description': 'Maximum callers to return', 'default': 20}
+                        },
+                        'required': ['function_name']
+                    }
+                }
+            },
+            {
+                'type': 'function',
+                'function': {
+                    'name': self.get_prefixed_tool_name('find_callees'),
+                    'description': 'Find all functions called by a given function',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'function_name': {'type': 'string', 'description': 'Qualified name of the function to find callees for'},
+                            'max_results': {'type': 'integer', 'description': 'Maximum callees to return', 'default': 20}
+                        },
+                        'required': ['function_name']
+                    }
+                }
+            },
+            {
+                'type': 'function',
+                'function': {
+                    'name': self.get_prefixed_tool_name('find_usages'),
+                    'description': 'Find all usages of a class, function, or variable across the codebase',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'symbol_name': {'type': 'string', 'description': 'Name of the symbol to find usages for'},
+                            'symbol_type': {'type': 'string', 'description': 'Type of symbol (function, class, variable)', 'enum': ['function', 'class', 'variable', 'any']},
+                            'max_results': {'type': 'integer', 'description': 'Maximum usages to return', 'default': 30}
+                        },
+                        'required': ['symbol_name']
+                    }
+                }
+            },
+            {
+                'type': 'function',
+                'function': {
+                    'name': self.get_prefixed_tool_name('find_related_tests'),
+                    'description': 'Find test files that test a given production file',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'file_path': {'type': 'string', 'description': 'Path to the production file'},
+                            'include_indirect': {'type': 'boolean', 'description': 'Include tests that indirectly test this file', 'default': False}
+                        },
+                        'required': ['file_path']
+                    }
+                }
+            },
+            {
+                'type': 'function',
+                'function': {
+                    'name': self.get_prefixed_tool_name('find_implementations'),
+                    'description': 'Find all implementations of an interface, abstract class, or base class',
+                    'parameters': {
+                        'type': 'object',
+                        'properties': {
+                            'interface_name': {'type': 'string', 'description': 'Name of the interface or abstract class'},
+                            'include_indirect': {'type': 'boolean', 'description': 'Include indirect implementations (subclasses of implementations)', 'default': False}
+                        },
+                        'required': ['interface_name']
+                    }
+                }
+            }
+        ])
+
         # Life-of-X tools
         if self.lifeofx_config.get('enabled', False):
             schemas.extend([
@@ -323,7 +494,7 @@ class StructuralKBAgent(KnowledgeAgent):
 
     # ========== Semantic Layer Tool Implementations ==========
 
-    def _search_by_semantics(self, query: str, scope: str = 'all', limit: int = 10) -> Dict[str, Any]:
+    def _search_by_semantics(self, query: str, scope: str = 'all', limit: int = None) -> Dict[str, Any]:
         """Search using semantic/vector search"""
         start_time = time.time()
         try:
@@ -331,6 +502,7 @@ class StructuralKBAgent(KnowledgeAgent):
             if self.kb.semantic_search is None:
                 return {'success': False, 'error': 'Semantic search not enabled'}
 
+            limit = limit if limit is not None else self.default_search_limit
             min_similarity = self.semantic_config.get('similarity_threshold', 0.7)
             raw_results = self.kb.semantic_search.search_by_natural_language(
                 query, top_k=limit, min_similarity=min_similarity
@@ -364,11 +536,12 @@ class StructuralKBAgent(KnowledgeAgent):
             self._record_call(time_taken=time.time() - start_time, error=True)
             return {'success': False, 'error': str(e)}
 
-    def _search_by_functionality(self, description: str, limit: int = 10) -> Dict[str, Any]:
+    def _search_by_functionality(self, description: str, limit: int = None) -> Dict[str, Any]:
         """Search by functional description (alias for semantic search)"""
+        limit = limit if limit is not None else self.default_search_limit
         return self._search_by_semantics(description, scope='all', limit=limit)
 
-    def _find_similar_components(self, component_id: str, limit: int = 10) -> Dict[str, Any]:
+    def _find_similar_components(self, component_id: str, limit: int = None) -> Dict[str, Any]:
         """Find similar code components"""
         start_time = time.time()
         try:
@@ -376,6 +549,7 @@ class StructuralKBAgent(KnowledgeAgent):
             if self.kb.semantic_search is None:
                 return {'success': False, 'error': 'Semantic search not enabled'}
 
+            limit = limit if limit is not None else self.default_similar_components_limit
             raw_results = self.kb.semantic_search.find_similar_functions(component_id, top_k=limit)
 
             # Convert SimilarityResult objects to dicts
@@ -402,7 +576,7 @@ class StructuralKBAgent(KnowledgeAgent):
             self._record_call(time_taken=time.time() - start_time, error=True)
             return {'success': False, 'error': str(e)}
 
-    def _detect_duplicate_code(self, similarity_threshold: float = 0.8) -> Dict[str, Any]:
+    def _detect_duplicate_code(self, similarity_threshold: float = None) -> Dict[str, Any]:
         """Detect duplicate code"""
         start_time = time.time()
         try:
@@ -410,6 +584,7 @@ class StructuralKBAgent(KnowledgeAgent):
             if self.kb.semantic_search is None:
                 return {'success': False, 'error': 'Semantic search not enabled'}
 
+            similarity_threshold = similarity_threshold if similarity_threshold is not None else self.duplicate_code_similarity_threshold
             clusters = self.kb.semantic_search.cluster_similar_code(similarity_threshold)
 
             self._record_call(time_taken=time.time() - start_time, error=False)
@@ -424,7 +599,7 @@ class StructuralKBAgent(KnowledgeAgent):
             self._record_call(time_taken=time.time() - start_time, error=True)
             return {'success': False, 'error': str(e)}
 
-    def _search_by_example(self, code_snippet: str, limit: int = 10) -> Dict[str, Any]:
+    def _search_by_example(self, code_snippet: str, limit: int = None) -> Dict[str, Any]:
         """Find code similar to a given example snippet using semantic search"""
         start_time = time.time()
         try:
@@ -432,6 +607,7 @@ class StructuralKBAgent(KnowledgeAgent):
             if self.kb.semantic_search is None:
                 return {'success': False, 'error': 'Semantic search not enabled'}
 
+            limit = limit if limit is not None else self.default_example_search_limit
             min_similarity = self.semantic_config.get('similarity_threshold', 0.7)
             raw_results = self.kb.semantic_search.search_by_natural_language(
                 code_snippet, top_k=limit, min_similarity=min_similarity
@@ -455,7 +631,7 @@ class StructuralKBAgent(KnowledgeAgent):
                 'success': True,
                 'results': results,
                 'count': len(results),
-                'snippet': code_snippet[:100] + '...' if len(code_snippet) > 100 else code_snippet
+                'snippet': code_snippet[:self.snippet_preview_length] + '...' if len(code_snippet) > 100 else code_snippet
             }
         except Exception as e:
             self._record_call(time_taken=time.time() - start_time, error=True)
@@ -749,7 +925,7 @@ class StructuralKBAgent(KnowledgeAgent):
 
     # ========== Life-of-X Tool Implementations ==========
 
-    def _trace_execution_path(self, entry_point: str, max_depth: int = 10, max_paths: int = 5) -> Dict[str, Any]:
+    def _trace_execution_path(self, entry_point: str, max_depth: int = None, max_paths: int = None) -> Dict[str, Any]:
         """Trace execution path"""
         start_time = time.time()
         try:
@@ -757,6 +933,8 @@ class StructuralKBAgent(KnowledgeAgent):
             if self.kb.execution_path_tracer is None:
                 return {'success': False, 'error': 'Execution path tracing not enabled'}
 
+            max_depth = max_depth if max_depth is not None else self.trace_execution_max_depth
+            max_paths = max_paths if max_paths is not None else self.trace_execution_max_paths
             raw_paths = self.kb.execution_path_tracer.trace_from_entry_point(
                 entry_point, max_depth=max_depth, max_paths=max_paths
             )
@@ -794,7 +972,7 @@ class StructuralKBAgent(KnowledgeAgent):
             self._record_call(time_taken=time.time() - start_time, error=True)
             return {'success': False, 'error': str(e)}
 
-    def _trace_data_flow(self, start_element: str, max_depth: int = 20) -> Dict[str, Any]:
+    def _trace_data_flow(self, start_element: str, max_depth: int = None) -> Dict[str, Any]:
         """Trace data flow"""
         start_time = time.time()
         try:
@@ -802,6 +980,7 @@ class StructuralKBAgent(KnowledgeAgent):
             if self.kb.dataflow_analyzer is None:
                 return {'success': False, 'error': 'Data flow analysis not enabled'}
 
+            max_depth = max_depth if max_depth is not None else self.trace_dataflow_max_depth
             raw_paths = self.kb.dataflow_analyzer.trace_data_flow(start_element, max_depth=max_depth)
 
             # Convert DataFlowPath objects to dicts
@@ -829,7 +1008,7 @@ class StructuralKBAgent(KnowledgeAgent):
             self._record_call(time_taken=time.time() - start_time, error=True)
             return {'success': False, 'error': str(e)}
 
-    def _trace_request_lifecycle(self, endpoint_function: str, max_depth: int = 20) -> Dict[str, Any]:
+    def _trace_request_lifecycle(self, endpoint_function: str, max_depth: int = None) -> Dict[str, Any]:
         """Trace request lifecycle"""
         start_time = time.time()
         try:
@@ -837,6 +1016,7 @@ class StructuralKBAgent(KnowledgeAgent):
             if self.kb.execution_path_tracer is None:
                 return {'success': False, 'error': 'Execution path tracing not enabled'}
 
+            max_depth = max_depth if max_depth is not None else self.trace_lifecycle_max_depth
             raw_path = self.kb.execution_path_tracer.trace_request_lifecycle(endpoint_function, max_depth=max_depth)
 
             if raw_path is None:
@@ -873,7 +1053,7 @@ class StructuralKBAgent(KnowledgeAgent):
 
     # ========== High-Level Discovery Tool ==========
 
-    def _find_files_for_question(self, question: str, max_results: int = 50,
+    def _find_files_for_question(self, question: str, max_results: int = None,
                                  question_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Find relevant files for a question using all KB strategies.
@@ -894,6 +1074,9 @@ class StructuralKBAgent(KnowledgeAgent):
         """
         start_time = time.time()
         try:
+            # Apply default max_results
+            max_results = max_results if max_results is not None else self.default_file_discovery_limit
+            
             # Check if KB has find_files_for_question method (StructuralPipeline does)
             if hasattr(self.kb, 'find_files_for_question'):
                 file_paths = self.kb.find_files_for_question(
@@ -926,3 +1109,317 @@ class StructuralKBAgent(KnowledgeAgent):
         except Exception as e:
             self._record_call(time_taken=time.time() - start_time, error=True)
             return {'success': False, 'error': str(e), 'file_paths': []}
+
+    # ========== Code Navigation Tools (NEW) ==========
+
+    def _find_callers(self, function_name: str, max_results: int = None) -> Dict[str, Any]:
+        """
+        Find all functions that call a given function.
+
+        Uses CALLS relationship in knowledge graph to find caller functions.
+
+        Args:
+            function_name: Qualified name of function (e.g., "module.Class.method")
+            max_results: Maximum number of callers to return
+
+        Returns:
+            Dict with success status and list of callers with file/line info
+        """
+        start_time = time.time()
+        try:
+            # Apply default max_results
+            max_results = max_results if max_results is not None else self.default_callers_limit
+            
+            # Query KB for caller relationships
+            query = """
+            MATCH (caller:Function)-[:CALLS]->(target:Function)
+            WHERE target.qualified_name = $function_name OR target.name = $function_name
+            RETURN caller.qualified_name as caller_name,
+                   caller.file_path as file_path,
+                   caller.start_line as line,
+                   caller.name as simple_name
+            LIMIT $limit
+            """
+
+            results = self.kb.execute_query(query, {
+                'function_name': function_name,
+                'limit': max_results
+            })
+
+            callers = []
+            for record in results.records:
+                callers.append({
+                    'caller': record['caller_name'],
+                    'simple_name': record['simple_name'],
+                    'file_path': record['file_path'],
+                    'line': record['line']
+                })
+
+            self._record_call(time_taken=time.time() - start_time, error=False)
+            return {
+                'success': True,
+                'function': function_name,
+                'callers': callers,
+                'count': len(callers)
+            }
+        except Exception as e:
+            self._record_call(time_taken=time.time() - start_time, error=True)
+            return {'success': False, 'error': str(e), 'callers': []}
+
+    def _find_callees(self, function_name: str, max_results: int = None) -> Dict[str, Any]:
+        """
+        Find all functions called by a given function.
+
+        Uses CALLS relationship in knowledge graph to find callee functions.
+
+        Args:
+            function_name: Qualified name of function
+            max_results: Maximum number of callees to return
+
+        Returns:
+            Dict with success status and list of callees with file/line info
+        """
+        start_time = time.time()
+        try:
+            # Apply default max_results
+            max_results = max_results if max_results is not None else self.default_callees_limit
+            
+            query = """
+            MATCH (caller:Function)-[:CALLS]->(callee:Function)
+            WHERE caller.qualified_name = $function_name OR caller.name = $function_name
+            RETURN callee.qualified_name as callee_name,
+                   callee.file_path as file_path,
+                   callee.start_line as line,
+                   callee.name as simple_name
+            LIMIT $limit
+            """
+
+            results = self.kb.execute_query(query, {
+                'function_name': function_name,
+                'limit': max_results
+            })
+
+            callees = []
+            for record in results.records:
+                callees.append({
+                    'callee': record['callee_name'],
+                    'simple_name': record['simple_name'],
+                    'file_path': record['file_path'],
+                    'line': record['line']
+                })
+
+            self._record_call(time_taken=time.time() - start_time, error=False)
+            return {
+                'success': True,
+                'function': function_name,
+                'callees': callees,
+                'count': len(callees)
+            }
+        except Exception as e:
+            self._record_call(time_taken=time.time() - start_time, error=True)
+            return {'success': False, 'error': str(e), 'callees': []}
+
+    def _find_usages(self, symbol_name: str, symbol_type: str = 'any', max_results: int = None) -> Dict[str, Any]:
+        """
+        Find all usages of a class, function, or variable.
+
+        Searches across imports, calls, and references.
+
+        Args:
+            symbol_name: Name of the symbol
+            symbol_type: Type of symbol (function, class, variable, any)
+            max_results: Maximum usages to return
+
+        Returns:
+            Dict with success status and list of usages
+        """
+        start_time = time.time()
+        try:
+            # Apply default max_results
+            max_results = max_results if max_results is not None else self.default_usages_limit
+
+            usages = []
+
+            # Build query based on symbol type
+            if symbol_type == 'function' or symbol_type == 'any':
+                # Find function calls
+                query = """
+                MATCH (caller:Function)-[:CALLS]->(target:Function)
+                WHERE target.name = $symbol_name
+                RETURN 'call' as usage_type,
+                       caller.qualified_name as location,
+                       caller.file_path as file_path,
+                       caller.start_line as line
+                LIMIT $limit
+                """
+                results = self.kb.execute_query(query, {'symbol_name': symbol_name, 'limit': max_results})
+                for record in results.records:
+                    usages.append({
+                        'type': record['usage_type'],
+                        'location': record['location'],
+                        'file_path': record['file_path'],
+                        'line': record['line']
+                    })
+
+            if symbol_type == 'class' or symbol_type == 'any':
+                # Find class usages (imports, inheritance)
+                query = """
+                MATCH (c:Class)
+                WHERE c.name = $symbol_name
+                OPTIONAL MATCH (c)<-[:INHERITS]-(subclass:Class)
+                OPTIONAL MATCH (f:File)-[:IMPORTS]->(m:Module)
+                WHERE m.name CONTAINS $symbol_name
+                RETURN 'inheritance' as usage_type,
+                       subclass.qualified_name as location,
+                       subclass.file_path as file_path,
+                       subclass.start_line as line
+                LIMIT $limit
+                """
+                results = self.kb.execute_query(query, {'symbol_name': symbol_name, 'limit': max_results - len(usages)})
+                for record in results.records:
+                    if record['location']:  # Only if we found actual usages
+                        usages.append({
+                            'type': record['usage_type'],
+                            'location': record['location'],
+                            'file_path': record['file_path'],
+                            'line': record['line']
+                        })
+
+            self._record_call(time_taken=time.time() - start_time, error=False)
+            return {
+                'success': True,
+                'symbol': symbol_name,
+                'symbol_type': symbol_type,
+                'usages': usages,
+                'count': len(usages)
+            }
+        except Exception as e:
+            self._record_call(time_taken=time.time() - start_time, error=True)
+            return {'success': False, 'error': str(e), 'usages': []}
+
+    def _find_related_tests(self, file_path: str, include_indirect: bool = False) -> Dict[str, Any]:
+        """
+        Find test files that test a given production file.
+
+        Looks for:
+        1. Test files with matching names (test_<name>.py, <name>_test.py)
+        2. Test files that import the production file
+        3. (Optional) Indirect tests that test dependencies
+
+        Args:
+            file_path: Path to production file
+            include_indirect: Include tests that indirectly test this file
+
+        Returns:
+            Dict with success status and list of related test files
+        """
+        start_time = time.time()
+        try:
+            test_files = []
+
+            # Pattern 1: Name-based matching
+            # Extract base name from file_path
+            base_name = os.path.basename(file_path).replace('.py', '')
+            test_patterns = [
+                f'test_{base_name}',
+                f'{base_name}_test',
+                f'test{base_name}',
+                f'{base_name}test'
+            ]
+
+            # Find test files matching patterns
+            for pattern in test_patterns:
+                query = """
+                MATCH (f:File)
+                WHERE f.path CONTAINS $pattern AND f.path CONTAINS 'test'
+                RETURN f.path as test_file
+                LIMIT 10
+                """
+                results = self.kb.execute_query(query, {'pattern': pattern})
+                for record in results.records:
+                    if record['test_file'] not in [t['file_path'] for t in test_files]:
+                        test_files.append({
+                            'file_path': record['test_file'],
+                            'relationship': 'name_match',
+                            'confidence': 0.9
+                        })
+
+            # Pattern 2: Import-based matching
+            # Find test files that import this file
+            query = """
+            MATCH (test_file:File)-[:IMPORTS]->(m:Module)
+            WHERE test_file.path CONTAINS 'test' AND m.name CONTAINS $base_name
+            RETURN test_file.path as test_file
+            LIMIT 10
+            """
+            results = self.kb.execute_query(query, {'base_name': base_name})
+            for record in results.records:
+                if record['test_file'] not in [t['file_path'] for t in test_files]:
+                    test_files.append({
+                        'file_path': record['test_file'],
+                        'relationship': 'imports',
+                        'confidence': 0.8
+                    })
+
+            self._record_call(time_taken=time.time() - start_time, error=False)
+            return {
+                'success': True,
+                'production_file': file_path,
+                'test_files': test_files,
+                'count': len(test_files)
+            }
+        except Exception as e:
+            self._record_call(time_taken=time.time() - start_time, error=True)
+            return {'success': False, 'error': str(e), 'test_files': []}
+
+    def _find_implementations(self, interface_name: str, include_indirect: bool = False) -> Dict[str, Any]:
+        """
+        Find all implementations of an interface or abstract class.
+
+        Uses INHERITS relationship to find direct and indirect subclasses.
+
+        Args:
+            interface_name: Name of interface or abstract class
+            include_indirect: Include indirect implementations (subclasses of subclasses)
+
+        Returns:
+            Dict with success status and list of implementations
+        """
+        start_time = time.time()
+        try:
+            # Find direct implementations
+            depth = '*1..3' if include_indirect else '*1'
+            query = f"""
+            MATCH (base:Class)-[:INHERITS{depth}]-(impl:Class)
+            WHERE base.name = $interface_name OR base.qualified_name = $interface_name
+            RETURN impl.qualified_name as implementation,
+                   impl.file_path as file_path,
+                   impl.start_line as line,
+                   impl.name as simple_name,
+                   impl.is_abstract as is_abstract
+            LIMIT 50
+            """
+
+            results = self.kb.execute_query(query, {'interface_name': interface_name})
+
+            implementations = []
+            for record in results.records:
+                # Filter out abstract classes from results (they're not concrete implementations)
+                if not record.get('is_abstract', False):
+                    implementations.append({
+                        'implementation': record['implementation'],
+                        'simple_name': record['simple_name'],
+                        'file_path': record['file_path'],
+                        'line': record['line']
+                    })
+
+            self._record_call(time_taken=time.time() - start_time, error=False)
+            return {
+                'success': True,
+                'interface': interface_name,
+                'implementations': implementations,
+                'count': len(implementations)
+            }
+        except Exception as e:
+            self._record_call(time_taken=time.time() - start_time, error=True)
+            return {'success': False, 'error': str(e), 'implementations': []}

@@ -5,6 +5,7 @@ Visualizes trace files with ASCII timelines and HTML reports.
 """
 
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
@@ -448,8 +449,6 @@ class TraceViewer:
 
 # Command-line interface
 if __name__ == "__main__":
-    import sys
-
     viewer = TraceViewer()
 
     if len(sys.argv) < 2:

@@ -12,11 +12,13 @@ Example tier configuration:
 All models are fully configurable via config.yaml - no hardcoded defaults.
 """
 
+import json
 from typing import Dict, Any, Optional, List
 from enum import Enum
 import time
 
 from cf.llm.factory import LLMFactory
+from cf.utils.llm_parser import LLMResponseParser
 
 
 class ModelTier(Enum):
@@ -202,10 +204,13 @@ REQUIREMENTS:
 
 Return ONLY valid JSON, no additional text."""
 
+        operation_limits = self.llm_config.get('operation_limits', {})
+        max_tokens = operation_limits.get('file_summary', 500)
+
         return self.generate(
             prompt=prompt,
             tier=ModelTier.FAST,
-            max_tokens=500
+            max_tokens=max_tokens
         )
 
     def classify_question(self, question: str) -> Dict[str, Any]:
@@ -239,26 +244,25 @@ Return JSON only:
     "focus": "brief description"
 }}"""
 
+        operation_limits = self.llm_config.get('operation_limits', {})
+        max_tokens = operation_limits.get('question_classification', 200)
+
         response = self.generate(
             prompt=prompt,
             tier=ModelTier.FAST,
-            max_tokens=200
+            max_tokens=max_tokens
         )
 
         # Parse JSON response (accept dict or string)
-        import json
-        if isinstance(response, dict):
-            return response
-        try:
-            return json.loads(str(response))
-        except Exception:
-            # Fallback classification
-            return {
+        return LLMResponseParser.parse_response_to_dict(
+            response,
+            fallback={
                 'type': 'standard',
                 'confidence': 0.5,
                 'key_entities': [],
                 'focus': question[:100]
             }
+        )
 
     def decide_coordination(
         self,
@@ -297,26 +301,27 @@ Return JSON only:
     "reasoning": "brief explanation"
 }}"""
 
+        operation_limits = self.llm_config.get('operation_limits', {})
+        max_tokens = operation_limits.get('coordination_decision', 150)
+
         response = self.generate(
             prompt=prompt,
             tier=ModelTier.FAST,
-            max_tokens=150
+            max_tokens=max_tokens
         )
 
         # Parse JSON response (accept dict or string)
-        import json
-        if isinstance(response, dict):
-            return response
-        try:
-            return json.loads(str(response))
-        except Exception:
-            # Fallback heuristics
-            if len(insights) < 2 and pass_num < max_passes:
-                return {'action': 'retry', 'confidence': 0.7, 'reasoning': 'Too few insights'}
-            elif pass_num >= max_passes or len(insights) >= 5:
-                return {'action': 'complete', 'confidence': 0.8, 'reasoning': 'Sufficient data'}
-            else:
-                return {'action': 'next_pass', 'confidence': 0.6, 'reasoning': 'Continue discovery'}
+        result = LLMResponseParser.parse_response_to_dict(response)
+        if result:
+            return result
+
+        # Fallback heuristics if parsing failed
+        if len(insights) < 2 and pass_num < max_passes:
+            return {'action': 'retry', 'confidence': 0.7, 'reasoning': 'Too few insights'}
+        elif pass_num >= max_passes or len(insights) >= 5:
+            return {'action': 'complete', 'confidence': 0.8, 'reasoning': 'Sufficient data'}
+        else:
+            return {'action': 'next_pass', 'confidence': 0.6, 'reasoning': 'Continue discovery'}
 
     def synthesize_answer(
         self,
@@ -355,10 +360,13 @@ Context:
 
 Provide a comprehensive, well-structured answer that directly addresses the question."""
 
+        operation_limits = self.llm_config.get('operation_limits', {})
+        max_tokens = operation_limits.get('answer_synthesis', 2000)
+
         response = self.generate(
             prompt=prompt,
             tier=ModelTier.ADVANCED,
-            max_tokens=2000
+            max_tokens=max_tokens
         )
         # Coerce to string for downstream usage
         if isinstance(response, dict):

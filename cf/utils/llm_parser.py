@@ -54,6 +54,7 @@ class LLMResponseParser:
             try:
                 return json.loads(content)
             except json.JSONDecodeError:
+                # Failed direct parsing, try markdown extraction
                 pass
 
         # Strategy 2: Extract from markdown code blocks
@@ -92,6 +93,7 @@ class LLMResponseParser:
                 try:
                     return json.loads(json_str)
                 except json.JSONDecodeError:
+                    # Failed all parsing strategies, return fallback
                     pass
 
         # All strategies failed
@@ -205,6 +207,7 @@ class LLMResponseParser:
             try:
                 return json.loads(content)
             except json.JSONDecodeError:
+                # Failed direct list parsing, try extracting from object
                 pass
 
         # Try extracting from {...} if it contains a list field
@@ -216,3 +219,60 @@ class LLMResponseParser:
                     return json_obj[key]
 
         return fallback if fallback else []
+
+    @staticmethod
+    def parse_response_to_dict(
+        response: Union[Dict, str, Any],
+        fallback: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Universal parser for LLM responses that may be dict or string.
+
+        This method handles the common pattern where LLM responses could be:
+        - Already parsed dict (return as-is)
+        - JSON string that needs parsing
+        - Other type that needs stringification then parsing
+
+        Args:
+            response: LLM response in any format
+            fallback: Default value if parsing fails
+
+        Returns:
+            Parsed JSON dict or fallback value
+
+        Example:
+            >>> # Case 1: Already a dict
+            >>> response = {"type": "search", "term": "auth"}
+            >>> result = LLMResponseParser.parse_response_to_dict(response)
+            >>> result
+            {'type': 'search', 'term': 'auth'}
+
+            >>> # Case 2: JSON string
+            >>> response = '{"type": "search", "term": "auth"}'
+            >>> result = LLMResponseParser.parse_response_to_dict(response)
+            >>> result
+            {'type': 'search', 'term': 'auth'}
+
+            >>> # Case 3: With fallback
+            >>> response = "invalid json"
+            >>> result = LLMResponseParser.parse_response_to_dict(
+            ...     response,
+            ...     fallback={'type': 'unknown'}
+            ... )
+            >>> result
+            {'type': 'unknown'}
+        """
+        # If already a dict, return it
+        if isinstance(response, dict):
+            return response
+
+        # Try to parse as JSON string
+        try:
+            if isinstance(response, str):
+                return LLMResponseParser.extract_json(response, fallback)
+            else:
+                # Try stringifying and then parsing
+                return LLMResponseParser.extract_json(str(response), fallback)
+        except Exception:
+            return fallback if fallback else {}
+

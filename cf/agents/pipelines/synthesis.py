@@ -13,6 +13,8 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
 from cf.llm.model_tiers import ModelTier
+from cf.agents.utils import calculate_word_count_targets
+from cf.utils.llm_parser import LLMResponseParser
 
 
 @dataclass
@@ -37,6 +39,25 @@ class SynthesisPipeline:
         self.llm = llm_client
         self.tiered_llm = tiered_llm  # Optional tiered LLM manager
         self.kb = kb_client  # Optional KB for pattern detection
+
+        # Load synthesis display limits from config
+        synthesis_config = config.get('agents', {}).get('synthesis', {})
+        self.max_functions_per_file = synthesis_config.get('max_functions_per_file', 5)
+        self.max_classes_per_file = synthesis_config.get('max_classes_per_file', 5)
+        self.max_usage_examples = synthesis_config.get('max_usage_examples', 3)
+        self.max_edge_cases = synthesis_config.get('max_edge_cases', 3)
+        self.max_pattern_files = synthesis_config.get('max_pattern_files', 3)
+        self.max_entry_points = synthesis_config.get('max_entry_points', 3)
+        self.max_core_abstractions = synthesis_config.get('max_core_abstractions', 3)
+        self.max_execution_paths = synthesis_config.get('max_execution_paths', 3)
+        self.max_steps_per_path = synthesis_config.get('max_steps_per_path', 10)
+        self.max_shared_abstractions = synthesis_config.get('max_shared_abstractions', 5)
+        self.max_files_per_abstraction = synthesis_config.get('max_files_per_abstraction', 2)
+        self.max_dependencies = synthesis_config.get('max_dependencies', 5)
+        self.max_data_flows = synthesis_config.get('max_data_flows', 5)
+        self.max_validation_errors = synthesis_config.get('max_validation_errors', 5)
+        self.max_validation_warnings = synthesis_config.get('max_validation_warnings', 5)
+        self.max_insights = synthesis_config.get('max_insights', 20)
 
         # Compile regex patterns for validation performance (ISSUE #9 fix)
         # Single pass through narrative instead of multiple findall() calls
@@ -80,20 +101,13 @@ class SynthesisPipeline:
             key_files = self._select_key_files(file_summaries, max_files)
 
             # Calculate word count targets proportional to file count (NEW)
-            file_count = len(key_files)
+            # Use total files analyzed, not just key files, to align with validation
+            file_count = len(file_summaries)
+            target_min, target_max = calculate_word_count_targets(file_count, self.config)
+
+            # Get words per file for logging
             words_per_file_min = synthesis_config.get('words_per_file_min', 400)
             words_per_file_max = synthesis_config.get('words_per_file_max', 700)
-
-            # Proportional calculation
-            calculated_min = file_count * words_per_file_min
-            calculated_max = file_count * words_per_file_max
-
-            # Apply absolute limits
-            absolute_min = synthesis_config.get('target_narrative_min', 1200)
-            absolute_max = synthesis_config.get('target_narrative_max', 5000)
-
-            target_min = max(absolute_min, min(calculated_min, absolute_max))
-            target_max = min(absolute_max, max(calculated_max, absolute_min))
 
             print(f"   Target word count: {target_min}-{target_max} words (for {file_count} files)")
             print(f"   ({words_per_file_min}-{words_per_file_max} words per file)")
@@ -135,10 +149,12 @@ class SynthesisPipeline:
             if self.tiered_llm:
                 # Use the detailed prompt we built with line number requirements
                 # instead of letting synthesize_answer create its own generic prompt
+                synthesis_config = self.config.get('agents', {}).get('synthesis', {})
+                max_tokens = synthesis_config.get('narrative_max_tokens', 2000)
                 response = self.tiered_llm.generate(
                     prompt=prompt,
                     tier=ModelTier.ADVANCED,
-                    max_tokens=2000
+                    max_tokens=max_tokens
                 )
                 # Coerce response to string
                 if isinstance(response, dict):
@@ -227,27 +243,18 @@ class SynthesisPipeline:
 
         return prioritized[:max_files]
 
-    def _build_synthesis_prompt(self,
-                                question: str,
-                                key_files: List[str],
-                                file_summaries: Dict[str, Any],
-                                insights: List[Dict[str, Any]],
-                                target_min: int,
-                                target_max: int,
-                                detected_patterns: List[Dict[str, Any]] = None,
-                                architectural_analysis=None,
-                                execution_paths: List[Dict[str, Any]] = None,
-                                validation_issues: List[Dict[str, Any]] = None,
-                                cross_file_relationships: Dict[str, Any] = None) -> str:
-        """Build prompt for synthesis"""
+    def _format_file_summaries_by_type(self, key_files: List[str], file_summaries: Dict[str, Any]) -> str:
+        """
+        Format file summaries grouped by type (production/test/utility).
 
-        # Prepare file summaries text - GROUPED BY FILE TYPE
-        summaries_text = ""
+        Args:
+            key_files: List of file paths to format
+            file_summaries: Dict mapping file_path -> summary
 
-        # DEBUG: Log what we're receiving
-        print(f"   [DEBUG SYNTHESIS] Building prompt with {len(key_files)} key files")
-
-        # Separate files by type for structured narrative
+        Returns:
+            Formatted summaries text with sections
+        """
+        # Separate files by type
         production_files = []
         test_files = []
         utility_files = []
@@ -263,22 +270,12 @@ class SynthesisPipeline:
             else:
                 utility_files.append(file_path)
 
-        # Build summaries by type with clear section headers
+        # Helper to format a single file
         def format_file_summary(file_path: str, summary: Any) -> str:
             """Format a single file summary with functions/classes"""
             text = f"\n\n## {file_path}\n"
 
-            # DEBUG: Log summary structure
-            print(f"   [DEBUG SYNTHESIS] File: {file_path}")
-            print(f"   [DEBUG SYNTHESIS]   Summary type: {type(summary)}")
             if isinstance(summary, dict):
-                print(f"   [DEBUG SYNTHESIS]   Functions: {len(summary.get('functions', []))} items")
-                if summary.get('functions'):
-                    print(f"   [DEBUG SYNTHESIS]   First function: {summary['functions'][0]}")
-                print(f"   [DEBUG SYNTHESIS]   Classes: {len(summary.get('classes', []))} items")
-                if summary.get('classes'):
-                    print(f"   [DEBUG SYNTHESIS]   First class: {summary['classes'][0]}")
-
                 text += f"Key Features: {', '.join(summary.get('key_features', []))}\n"
                 text += f"Architecture: {summary.get('architectural_insights', '')}\n"
 
@@ -287,22 +284,23 @@ class SynthesisPipeline:
                 classes = summary.get('classes', [])
                 if functions:
                     text += f"Functions in {file_path}:\n"
-                    for f in functions[:5]:
+                    for f in functions[:self.max_functions_per_file]:
                         func_name = f.get('name', 'unknown')
                         func_line = f.get('line', '?')
                         text += f"  - {func_name} at line {func_line}\n"
-                    print(f"   [DEBUG SYNTHESIS]   Generated {len(functions[:5])} function refs for {file_path}")
                 if classes:
                     text += f"Classes in {file_path}:\n"
-                    for c in classes[:5]:
+                    for c in classes[:self.max_classes_per_file]:
                         class_name = c.get('name', 'unknown')
                         class_line = c.get('line', '?')
                         text += f"  - {class_name} at line {class_line}\n"
-                    print(f"   [DEBUG SYNTHESIS]   Generated {len(classes[:5])} class refs for {file_path}")
 
             return text
 
-        # Section 1: Production Files (Main Implementation)
+        # Build summaries by type
+        summaries_text = ""
+
+        # Section 1: Production Files
         if production_files:
             summaries_text += "\n\n# MAIN IMPLEMENTATION FILES (Production Code)\n"
             summaries_text += "These files contain the core business logic and main implementation:\n"
@@ -311,24 +309,24 @@ class SynthesisPipeline:
                 if isinstance(summary, dict):
                     summaries_text += format_file_summary(file_path, summary)
 
-                # Include test information if available (test-aware analysis)
-                test_info = summary.get('test_info', {})
-                if test_info.get('has_tests'):
-                    summaries_text += f"\nTest Coverage: {test_info.get('test_count', 0)} tests\n"
+                    # Include test information if available
+                    test_info = summary.get('test_info', {})
+                    if test_info.get('has_tests'):
+                        summaries_text += f"\nTest Coverage: {test_info.get('test_count', 0)} tests\n"
 
-                    usage_examples = test_info.get('usage_examples', [])
-                    if usage_examples:
-                        summaries_text += "Usage Examples:\n"
-                        for ex in usage_examples[:3]:
-                            summaries_text += f"  - {ex}\n"
+                        usage_examples = test_info.get('usage_examples', [])
+                        if usage_examples:
+                            summaries_text += "Usage Examples:\n"
+                            for ex in usage_examples[:self.max_usage_examples]:
+                                summaries_text += f"  - {ex}\n"
 
-                    edge_cases = test_info.get('edge_cases', [])
-                    if edge_cases:
-                        summaries_text += "Edge Cases Tested:\n"
-                        for ec in edge_cases[:3]:
-                            summaries_text += f"  - {ec}\n"
+                        edge_cases = test_info.get('edge_cases', [])
+                        if edge_cases:
+                            summaries_text += "Edge Cases Tested:\n"
+                            for ec in edge_cases[:self.max_edge_cases]:
+                                summaries_text += f"  - {ec}\n"
 
-        # Section 2: Test Files (Concrete Examples)
+        # Section 2: Test Files
         if test_files:
             summaries_text += "\n\n# TEST FILES (Concrete Usage Examples)\n"
             summaries_text += "These files show how the production code is used in practice:\n"
@@ -337,7 +335,7 @@ class SynthesisPipeline:
                 if isinstance(summary, dict):
                     summaries_text += format_file_summary(file_path, summary)
 
-        # Section 3: Utility Files (Supporting Infrastructure)
+        # Section 3: Utility Files
         if utility_files:
             summaries_text += "\n\n# UTILITY FILES (Supporting Infrastructure)\n"
             summaries_text += "These files provide supporting functionality:\n"
@@ -346,103 +344,146 @@ class SynthesisPipeline:
                 if isinstance(summary, dict):
                     summaries_text += format_file_summary(file_path, summary)
 
-        # Prepare insights text
+        return summaries_text
+
+    def _build_patterns_text(self, detected_patterns: List[Dict[str, Any]]) -> str:
+        """Build text describing detected design patterns."""
+        if not detected_patterns:
+            return ""
+
+        text = "\n\nDETECTED DESIGN PATTERNS:\n"
+        for pattern in detected_patterns:
+            text += f"- {pattern.get('name', 'Unknown')}: {pattern.get('description', '')}\n"
+            if pattern.get('files'):
+                text += f"  Files: {', '.join(pattern['files'][:self.max_pattern_files])}\n"
+        return text
+
+    def _build_architectural_text(self, architectural_analysis) -> str:
+        """Build text describing architectural summary."""
+        if not architectural_analysis:
+            return ""
+
+        text = f"\n\nARCHITECTURAL SUMMARY:\n{architectural_analysis.architectural_summary}\n"
+        if architectural_analysis.entry_points:
+            text += f"\nEntry Points: {', '.join([e.name for e in architectural_analysis.entry_points[:self.max_entry_points]])}\n"
+        if architectural_analysis.core_abstractions:
+            text += f"Core Abstractions: {', '.join([a.name for a in architectural_analysis.core_abstractions[:self.max_core_abstractions]])}\n"
+        return text
+
+    def _build_execution_paths_text(self, execution_paths: List[Dict[str, Any]]) -> str:
+        """Build text describing execution paths traced."""
+        if not execution_paths:
+            return ""
+
+        text = "\n\nEXECUTION PATHS TRACED:\n"
+        for i, path in enumerate(execution_paths[:self.max_execution_paths], 1):
+            text += f"\nPath {i}: {path.get('name', 'Unknown flow')}\n"
+            steps = path.get('steps', [])
+            for step in steps[:self.max_steps_per_path]:
+                text += f"  → {step.get('function', 'unknown')} ({step.get('file', '')}:{step.get('line', '?')})\n"
+            if len(steps) > self.max_steps_per_path:
+                text += f"  ... ({len(steps) - self.max_steps_per_path} more steps)\n"
+        return text
+
+    def _build_relationships_text(self, cross_file_relationships: Dict[str, Any]) -> str:
+        """Build text describing cross-file relationships."""
+        if not cross_file_relationships:
+            return ""
+
+        text = "\n\nCROSS-FILE ARCHITECTURE:\n"
+
+        shared = cross_file_relationships.get('shared_abstractions', [])
+        if shared:
+            text += "\nShared Abstractions (used across files):\n"
+            for abstraction in shared[:self.max_shared_abstractions]:
+                name = abstraction.get('name', 'unknown')
+                files = abstraction.get('files', [])
+                text += f"  - {name}: used in {', '.join(files[:self.max_files_per_abstraction])}\n"
+
+        deps = cross_file_relationships.get('dependencies', [])
+        if deps:
+            text += "\nComponent Dependencies:\n"
+            for dep in deps[:self.max_dependencies]:
+                from_file = dep.get('from', '')
+                to_file = dep.get('to', '')
+                rel_type = dep.get('relationship', '')
+                text += f"  - {from_file} → {to_file} ({rel_type})\n"
+
+        flows = cross_file_relationships.get('data_flow', [])
+        if flows:
+            text += "\nData Flow Roles:\n"
+            for flow in flows[:self.max_data_flows]:
+                file = flow.get('file', '')
+                role = flow.get('role', '')
+                text += f"  - {file}: {role}\n"
+
+        return text
+
+    def _build_validation_feedback_text(self, validation_issues: List[Dict[str, Any]]) -> str:
+        """Build text with validation feedback from previous attempt."""
+        if not validation_issues:
+            return ""
+
+        text = "\n\n🚨 VALIDATION FEEDBACK FROM PREVIOUS ATTEMPT:\n"
+        text += "Your previous narrative had the following issues that MUST be fixed:\n\n"
+
+        # Group issues by type
+        errors = [issue for issue in validation_issues if issue.get('severity') == 'error']
+        warnings = [issue for issue in validation_issues if issue.get('severity') == 'warning']
+
+        if errors:
+            text += "CRITICAL ERRORS (must fix):\n"
+            for i, issue in enumerate(errors[:self.max_validation_errors], 1):
+                text += f"  {i}. {issue.get('message', 'Unknown error')}\n"
+
+        if warnings:
+            text += "\nWARNINGS (should fix):\n"
+            for i, issue in enumerate(warnings[:self.max_validation_warnings], 1):
+                text += f"  {i}. {issue.get('message', 'Unknown warning')}\n"
+
+        text += "\n⚠️  IMPORTANT: Address ALL errors above in your new narrative.\n"
+        text += "Pay special attention to word count and line number coverage requirements.\n\n"
+
+        return text
+
+    def _build_synthesis_prompt(self,
+                                question: str,
+                                key_files: List[str],
+                                file_summaries: Dict[str, Any],
+                                insights: List[Dict[str, Any]],
+                                target_min: int,
+                                target_max: int,
+                                detected_patterns: List[Dict[str, Any]] = None,
+                                architectural_analysis=None,
+                                execution_paths: List[Dict[str, Any]] = None,
+                                validation_issues: List[Dict[str, Any]] = None,
+                                cross_file_relationships: Dict[str, Any] = None) -> str:
+        """Build prompt for synthesis (refactored to use helper methods)"""
+
+        print(f"   [DEBUG SYNTHESIS] Building prompt with {len(key_files)} key files")
+
+        # Use helper methods to build each section (refactored for readability)
+        summaries_text = self._format_file_summaries_by_type(key_files, file_summaries)
+
+        # Build insights text
         insights_text = ""
-        for insight in insights[:20]:  # Limit insights
+        for insight in insights[:self.max_insights]:
             content = insight.get('content', '')
             if content:
                 insights_text += f"- {content}\n"
 
-        # Prepare patterns text (NEW)
-        patterns_text = ""
-        if detected_patterns:
-            patterns_text = "\n\nDETECTED DESIGN PATTERNS:\n"
-            for pattern in detected_patterns:
-                patterns_text += f"- {pattern.get('name', 'Unknown')}: {pattern.get('description', '')}\n"
-                if pattern.get('files'):
-                    patterns_text += f"  Files: {', '.join(pattern['files'][:3])}\n"
+        # Build additional context sections using helper methods
+        patterns_text = self._build_patterns_text(detected_patterns)
+        arch_text = self._build_architectural_text(architectural_analysis)
+        paths_text = self._build_execution_paths_text(execution_paths)
+        relationships_text = self._build_relationships_text(cross_file_relationships)
+        feedback_text = self._build_validation_feedback_text(validation_issues)
 
-        # Prepare architectural summary (NEW)
-        arch_text = ""
-        if architectural_analysis:
-            arch_text = f"\n\nARCHITECTURAL SUMMARY:\n{architectural_analysis.architectural_summary}\n"
-            if architectural_analysis.entry_points:
-                arch_text += f"\nEntry Points: {', '.join([e.name for e in architectural_analysis.entry_points[:3]])}\n"
-            if architectural_analysis.core_abstractions:
-                arch_text += f"Core Abstractions: {', '.join([a.name for a in architectural_analysis.core_abstractions[:3]])}\n"
-
-        # Prepare execution paths (NEW - Life-of-X integration)
-        paths_text = ""
-        if execution_paths:
-            paths_text = "\n\nEXECUTION PATHS TRACED:\n"
-            for i, path in enumerate(execution_paths[:3], 1):  # Limit to 3 paths
-                paths_text += f"\nPath {i}: {path.get('name', 'Unknown flow')}\n"
-                steps = path.get('steps', [])
-                for step in steps[:10]:  # Limit to 10 steps per path
-                    paths_text += f"  → {step.get('function', 'unknown')} ({step.get('file', '')}:{step.get('line', '?')})\n"
-                if len(steps) > 10:
-                    paths_text += f"  ... ({len(steps) - 10} more steps)\n"
-
-        # Prepare cross-file relationships (NEW - Architectural context)
-        relationships_text = ""
-        if cross_file_relationships:
-            relationships_text = "\n\nCROSS-FILE ARCHITECTURE:\n"
-
-            shared = cross_file_relationships.get('shared_abstractions', [])
-            if shared:
-                relationships_text += "\nShared Abstractions (used across files):\n"
-                for abstraction in shared[:5]:
-                    name = abstraction.get('name', 'unknown')
-                    files = abstraction.get('files', [])
-                    relationships_text += f"  - {name}: used in {', '.join(files[:2])}\n"
-
-            deps = cross_file_relationships.get('dependencies', [])
-            if deps:
-                relationships_text += "\nComponent Dependencies:\n"
-                for dep in deps[:5]:
-                    from_file = dep.get('from', '')
-                    to_file = dep.get('to', '')
-                    rel_type = dep.get('relationship', '')
-                    relationships_text += f"  - {from_file} → {to_file} ({rel_type})\n"
-
-            flows = cross_file_relationships.get('data_flow', [])
-            if flows:
-                relationships_text += "\nData Flow Roles:\n"
-                for flow in flows[:5]:
-                    file = flow.get('file', '')
-                    role = flow.get('role', '')
-                    relationships_text += f"  - {file}: {role}\n"
-
-        # Build list of valid file paths for the LLM to reference
+        # Build list of valid file paths for LLM reference
         file_paths_list = "\n".join([f"  - {fp}" for fp in key_files])
 
-        # DEBUG: Show snippet of summaries_text that will go in prompt
-        print(f"   [DEBUG SYNTHESIS] summaries_text snippet (first 500 chars):")
-        print(f"   {summaries_text[:500]}")
-        print(f"   [DEBUG SYNTHESIS] Total summaries_text length: {len(summaries_text)} chars")
-
-        # Prepare validation feedback (if this is a retry)
-        feedback_text = ""
-        if validation_issues:
-            feedback_text = "\n\n🚨 VALIDATION FEEDBACK FROM PREVIOUS ATTEMPT:\n"
-            feedback_text += "Your previous narrative had the following issues that MUST be fixed:\n\n"
-
-            # Group issues by type for clarity
-            errors = [issue for issue in validation_issues if issue.get('severity') == 'error']
-            warnings = [issue for issue in validation_issues if issue.get('severity') == 'warning']
-
-            if errors:
-                feedback_text += "CRITICAL ERRORS (must fix):\n"
-                for i, issue in enumerate(errors[:5], 1):  # Limit to 5 most important
-                    feedback_text += f"  {i}. {issue.get('message', 'Unknown error')}\n"
-
-            if warnings:
-                feedback_text += "\nWARNINGS (should fix):\n"
-                for i, issue in enumerate(warnings[:5], 1):
-                    feedback_text += f"  {i}. {issue.get('message', 'Unknown warning')}\n"
-
-            feedback_text += "\n⚠️  IMPORTANT: Address ALL errors above in your new narrative.\n"
-            feedback_text += "Pay special attention to word count and line number coverage requirements.\n\n"
+        # DEBUG logging
+        print(f"   [DEBUG SYNTHESIS] summaries_text length: {len(summaries_text)} chars")
 
         prompt = f"""Generate a comprehensive technical narrative answering this question:
 
@@ -611,12 +652,15 @@ Generate the narrative now:"""
         try:
             print("🔍 [SYNTHESIS] Evaluating completeness...")
 
+            synthesis_config = self.config.get('agents', {}).get('synthesis', {})
+            eval_chars = synthesis_config.get('completeness_eval_chars', 2000)
+
             prompt = f"""Evaluate if this technical narrative fully answers the question.
 
 QUESTION: "{question}"
 
 NARRATIVE:
-{narrative[:2000]}  # First 2000 chars
+{narrative[:eval_chars]}
 
 TASK: Assess completeness and identify missing components.
 
@@ -635,15 +679,13 @@ If >= 0.7, return empty missing_components array."""
 
             if response.get('success'):
                 content = response.get('content', '').strip()
-                try:
-                    start = content.find('{')
-                    end = content.rfind('}') + 1
-                    if start >= 0 and end > start:
-                        result = json.loads(content[start:end])
-                        print(f"✅ [SYNTHESIS] Completeness: {result.get('completeness_score', 0):.2f}")
-                        return result
-                except json.JSONDecodeError:
-                    pass
+                result = LLMResponseParser.extract_json(
+                    content,
+                    fallback={'completeness_score': 0.6, 'fully_answers': True, 'missing_components': []}
+                )
+                if result:
+                    print(f"✅ [SYNTHESIS] Completeness: {result.get('completeness_score', 0):.2f}")
+                    return result
 
         except Exception as e:
             print(f"⚠️ [SYNTHESIS] Completeness evaluation failed: {e}")
@@ -822,9 +864,11 @@ If >= 0.7, return empty missing_components array."""
                 LIMIT $limit
                 """
                 repo_id = getattr(self.kb, 'repo_id', 'default')
+                synthesis_config = self.config.get('agents', {}).get('synthesis', {})
+                query_limit = synthesis_config.get('kb_pattern_query_limit', 500)
                 result = self.kb.kb.execute_query(query, {
                     'repo_id': repo_id,
-                    'limit': 500
+                    'limit': query_limit
                 })
                 all_classes = [record['c'] for record in result.nodes]
 
@@ -914,7 +958,8 @@ If >= 0.7, return empty missing_components array."""
                     try:
                         # Trace execution path from entry function (direct layer call)
                         max_depth = self.config.get('agents', {}).get('max_execution_trace_depth', 10)
-                        max_paths = 10
+                        synthesis_config = self.config.get('agents', {}).get('synthesis', {})
+                        max_paths = synthesis_config.get('kb_execution_max_paths', 10)
 
                         traced_paths = self.kb.execution_path_tracer.trace_from_entry_point(
                             entry_point=entry_func,

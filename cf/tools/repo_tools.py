@@ -5,6 +5,7 @@ Clean, efficient file operations with grep-based searching and comprehensive met
 """
 
 import os
+import re
 import time
 import subprocess
 import mimetypes
@@ -250,8 +251,6 @@ class RepoTools:
     
     def _python_search_fallback(self, pattern: str, file_types: Optional[List[str]], max_results: int) -> Dict[str, Any]:
         """Fallback Python-based search when grep is not available"""
-        import re
-        
         matches = []
         pattern_re = re.compile(pattern, re.IGNORECASE)
         
@@ -292,6 +291,7 @@ class RepoTools:
                         except (UnicodeDecodeError, PermissionError):
                             continue
             except PermissionError:
+                # Skip directories without read permission
                 pass
         
         _search_directory(self.repo_path)
@@ -443,8 +443,6 @@ class RepoTools:
     
     def parse_python_structure(self, content: str, lines: List[str]) -> Dict[str, Any]:
         """Parse Python file structure from content"""
-        import re
-        
         components = []
         imports = []
         
@@ -478,8 +476,6 @@ class RepoTools:
     
     def parse_js_structure(self, content: str, lines: List[str]) -> Dict[str, Any]:
         """Parse JavaScript/TypeScript file structure from content"""
-        import re
-        
         components = []
         imports = []
         
@@ -553,8 +549,6 @@ class RepoTools:
     
     def _analyze_python_complexity(self, content: str) -> Dict[str, Any]:
         """Analyze Python code complexity"""
-        import re
-        
         functions = len(re.findall(r'^\s*def\s+\w+\s*\(', content, re.MULTILINE))
         classes = len(re.findall(r'^\s*class\s+\w+\s*[:\(]', content, re.MULTILINE))
         imports = len(re.findall(r'^\s*(?:from\s+.+\s+)?import\s+', content, re.MULTILINE))
@@ -568,8 +562,6 @@ class RepoTools:
     
     def _analyze_js_complexity(self, content: str) -> Dict[str, Any]:
         """Analyze JavaScript/TypeScript code complexity"""
-        import re
-        
         functions = len(re.findall(r'function\s+\w+\s*\(|const\s+\w+\s*=\s*\([^)]*\)\s*=>', content, re.MULTILINE))
         classes = len(re.findall(r'class\s+\w+\s*{', content, re.MULTILINE))
         imports = len(re.findall(r'^\s*(?:import|export)', content, re.MULTILINE))

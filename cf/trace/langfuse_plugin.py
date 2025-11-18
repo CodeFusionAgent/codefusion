@@ -20,7 +20,10 @@ Usage:
     tracer = Tracer("my_agent", config, plugins=[plugin])
 """
 
+import json
 from typing import Dict, Any, Optional
+from pathlib import Path
+
 from cf.trace.tracer import TracerPlugin, TraceEvent
 
 
@@ -68,10 +71,10 @@ class LangfusePlugin(TracerPlugin):
             )
             print(" Langfuse plugin initialized")
         except ImportError:
-            print("  Langfuse not installed. Run: pip install langfuse")
+            print("ï¿½ Langfuse not installed. Run: pip install langfuse")
             self.enabled = False
         except Exception as e:
-            print(f"  Failed to initialize Langfuse: {e}")
+            print(f"ï¿½ Failed to initialize Langfuse: {e}")
             self.enabled = False
 
     def start_session(self, session_id: str, metadata: Dict[str, Any] = None):
@@ -87,7 +90,7 @@ class LangfusePlugin(TracerPlugin):
             )
             self._traces[session_id] = trace
         except Exception as e:
-            print(f"  Langfuse start_session error: {e}")
+            print(f"ï¿½ Langfuse start_session error: {e}")
 
     def end_session(self, session_id: str, metadata: Dict[str, Any] = None):
         """End a Langfuse trace"""
@@ -102,7 +105,7 @@ class LangfusePlugin(TracerPlugin):
                     trace.update(metadata=metadata)
                 del self._traces[session_id]
         except Exception as e:
-            print(f"  Langfuse end_session error: {e}")
+            print(f"ï¿½ Langfuse end_session error: {e}")
 
     def log_event(self, event: TraceEvent):
         """Log event to Langfuse"""
@@ -174,7 +177,7 @@ class LangfusePlugin(TracerPlugin):
                 )
 
         except Exception as e:
-            print(f"  Langfuse log_event error: {e}")
+            print(f"ï¿½ Langfuse log_event error: {e}")
 
     def flush(self):
         """Flush pending events to Langfuse"""
@@ -184,7 +187,7 @@ class LangfusePlugin(TracerPlugin):
         try:
             self._langfuse.flush()
         except Exception as e:
-            print(f"  Langfuse flush error: {e}")
+            print(f"ï¿½ Langfuse flush error: {e}")
 
 
 class LocalFilePlugin(TracerPlugin):
@@ -195,9 +198,6 @@ class LocalFilePlugin(TracerPlugin):
     """
 
     def __init__(self, output_dir: str = "cf_trace_plugin"):
-        from pathlib import Path
-        import json
-
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         self.sessions = {}  # session_id -> events list
@@ -214,8 +214,6 @@ class LocalFilePlugin(TracerPlugin):
         """End session and save to file"""
         if session_id not in self.sessions:
             return
-
-        import json
 
         session_data = self.sessions[session_id]
         if metadata:

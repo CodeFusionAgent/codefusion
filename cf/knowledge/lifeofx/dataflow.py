@@ -10,7 +10,7 @@ Tracks how data flows through the codebase:
 
 from typing import List, Dict, Any, Set, Optional, Tuple
 from dataclasses import dataclass, field
-from collections import defaultdict
+from collections import defaultdict, deque
 
 from cf.knowledge.structural.schema import StructuralData, FunctionNode, Relationship, RelationType
 from cf.knowledge.structural.dependency_graph import DependencyGraphBuilder
@@ -164,8 +164,6 @@ class DataFlowAnalyzer:
         Returns:
             List of data flow paths
         """
-        from collections import deque
-
         paths = []
         queue = deque([(start_element, [start_element], [])])
         visited = set()

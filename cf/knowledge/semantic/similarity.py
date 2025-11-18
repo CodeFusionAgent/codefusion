@@ -7,6 +7,7 @@ Provides semantic search capabilities for code:
 - Code snippet similarity
 """
 
+import pickle
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
@@ -34,15 +35,24 @@ class SemanticSearch:
     Uses vector embeddings to find semantically similar code elements.
     """
 
-    def __init__(self, embedder: CodeEmbedder):
+    def __init__(self, embedder: CodeEmbedder, config: Dict[str, Any] = None):
         """
         Initialize semantic search.
 
         Args:
             embedder: Code embedder instance
+            config: Optional configuration dictionary
         """
         self.embedder = embedder
         self.index: List[CodeEmbedding] = []
+
+        # Load semantic search defaults from config
+        semantic_config = (config or {}).get('knowledge_base', {}).get('semantic', {})
+        self.default_top_k = semantic_config.get('default_top_k', 10)
+        self.default_min_similarity = semantic_config.get('default_min_similarity', 0.5)
+        self.function_search_min_similarity = semantic_config.get('function_search_min_similarity', 0.7)
+        self.class_search_min_similarity = semantic_config.get('class_search_min_similarity', 0.7)
+        self.duplicate_code_threshold = semantic_config.get('duplicate_code_threshold', 0.8)
 
     def add_embedding(self, embedding: CodeEmbedding):
         """
@@ -93,8 +103,8 @@ class SemanticSearch:
     def search_by_code(
         self,
         code_snippet: str,
-        top_k: int = 10,
-        min_similarity: float = 0.5,
+        top_k: int = None,
+        min_similarity: float = None,
         element_type: Optional[str] = None
     ) -> List[SimilarityResult]:
         """
@@ -109,6 +119,10 @@ class SemanticSearch:
         Returns:
             List of similar code elements, sorted by similarity
         """
+        # Apply defaults from config
+        top_k = top_k if top_k is not None else self.default_top_k
+        min_similarity = min_similarity if min_similarity is not None else self.default_min_similarity
+
         # Generate embedding for query code
         query_embedding = self.embedder.embed_code_snippet(code_snippet)
 
@@ -117,8 +131,8 @@ class SemanticSearch:
     def search_by_natural_language(
         self,
         query: str,
-        top_k: int = 10,
-        min_similarity: float = 0.5,
+        top_k: int = None,
+        min_similarity: float = None,
         element_type: Optional[str] = None
     ) -> List[SimilarityResult]:
         """
@@ -138,6 +152,10 @@ class SemanticSearch:
         Returns:
             List of matching code elements
         """
+        # Apply defaults from config
+        top_k = top_k if top_k is not None else self.default_top_k
+        min_similarity = min_similarity if min_similarity is not None else self.default_min_similarity
+
         # Generate embedding for natural language query
         query_vector = self.embedder.embed_natural_language(query)
 
@@ -155,8 +173,8 @@ class SemanticSearch:
     def find_similar_functions(
         self,
         function_id: str,
-        top_k: int = 10,
-        min_similarity: float = 0.7
+        top_k: int = None,
+        min_similarity: float = None
     ) -> List[SimilarityResult]:
         """
         Find functions similar to a specific function.
@@ -169,6 +187,10 @@ class SemanticSearch:
         Returns:
             List of similar functions
         """
+        # Apply defaults from config
+        top_k = top_k if top_k is not None else self.default_top_k
+        min_similarity = min_similarity if min_similarity is not None else self.function_search_min_similarity
+
         # Find the function in index
         query_embedding = None
         for emb in self.index:
@@ -189,8 +211,8 @@ class SemanticSearch:
     def find_similar_classes(
         self,
         class_id: str,
-        top_k: int = 10,
-        min_similarity: float = 0.7
+        top_k: int = None,
+        min_similarity: float = None
     ) -> List[SimilarityResult]:
         """
         Find classes similar to a specific class.
@@ -203,6 +225,10 @@ class SemanticSearch:
         Returns:
             List of similar classes
         """
+        # Apply defaults from config
+        top_k = top_k if top_k is not None else self.default_top_k
+        min_similarity = min_similarity if min_similarity is not None else self.class_search_min_similarity
+
         # Find the class in index
         query_embedding = None
         for emb in self.index:
@@ -222,7 +248,7 @@ class SemanticSearch:
 
     def cluster_similar_code(
         self,
-        similarity_threshold: float = 0.8
+        similarity_threshold: float = None
     ) -> List[List[str]]:
         """
         Find clusters of similar code (potential duplicates).
@@ -233,6 +259,9 @@ class SemanticSearch:
         Returns:
             List of clusters (each cluster is a list of element IDs)
         """
+        # Apply default from config
+        similarity_threshold = similarity_threshold if similarity_threshold is not None else self.duplicate_code_threshold
+
         if len(self.index) == 0:
             return []
 
@@ -344,7 +373,6 @@ class SemanticSearch:
             file_path: Path to save index
         """
         try:
-            import pickle
             with open(file_path, 'wb') as f:
                 pickle.dump(self.index, f)
             print(f"✅ Saved semantic index ({len(self.index)} elements) to {file_path}")
@@ -359,7 +387,6 @@ class SemanticSearch:
             file_path: Path to load index from
         """
         try:
-            import pickle
             with open(file_path, 'rb') as f:
                 self.index = pickle.load(f)
             print(f"✅ Loaded semantic index ({len(self.index)} elements) from {file_path}")

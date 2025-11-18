@@ -243,11 +243,11 @@ class MultiLanguageParser:
                         name=func_name,
                         qualified_name=f"{rel_path}::{func_name}",
                         file_path=rel_path,
-                        repo_id=self.repo_id,
+                        start_line=match.start(),
+                        end_line=match.end(),
                         parameters=[],  # Simplified - not parsing parameters
                         return_type='unknown',
                         docstring='',
-                        decorators=[],
                         is_async=False
                     ))
                     function_names.add(func_name)
@@ -261,11 +261,11 @@ class MultiLanguageParser:
                         name=func_name,
                         qualified_name=f"{rel_path}::{func_name}",
                         file_path=rel_path,
-                        repo_id=self.repo_id,
+                        start_line=match.start(),
+                        end_line=match.end(),
                         parameters=[],
                         return_type='unknown',
                         docstring='',
-                        decorators=[],
                         is_async=False
                     ))
                     function_names.add(func_name)
@@ -283,11 +283,10 @@ class MultiLanguageParser:
                         name=class_name,
                         qualified_name=f"{rel_path}::{class_name}",
                         file_path=rel_path,
-                        repo_id=self.repo_id,
+                        start_line=match.start(),
+                        end_line=match.end(),
                         base_classes=[base_class] if base_class else [],
-                        methods=[],
-                        docstring='',
-                        decorators=[]
+                        docstring=''
                     ))
                     class_names.add(class_name)
 
@@ -300,11 +299,10 @@ class MultiLanguageParser:
                         name=struct_name,
                         qualified_name=f"{rel_path}::{struct_name}",
                         file_path=rel_path,
-                        repo_id=self.repo_id,
+                        start_line=match.start(),
+                        end_line=match.end(),
                         base_classes=[],
-                        methods=[],
-                        docstring='',
-                        decorators=[]
+                        docstring=''
                     ))
                     class_names.add(struct_name)
 
@@ -325,23 +323,25 @@ class MultiLanguageParser:
         )
 
         # Create file node
+        file_stat = os.stat(file_path)
         file_node = FileNode(
             path=rel_path,
             repo_id=self.repo_id,
-            file_hash=file_hash,
+            hash=file_hash,
             language=language,
-            lines_of_code=len(content.splitlines())
+            lines_of_code=len(content.splitlines()),
+            size=file_stat.st_size,
+            last_modified=file_stat.st_mtime
         )
 
         # Create structural data
         return StructuralData(
-            file=file_node,
+            file_node=file_node,
             functions=functions,
             classes=classes,
             variables=[],  # Simplified - not extracting variables
             modules=[],
-            relationships=relationships,
-            imports=imports
+            relationships=relationships
         )
 
     def _extract_function_calls(
@@ -380,13 +380,8 @@ class MultiLanguageParser:
         known_classes = {c.name for c in classes}
 
         # Extract method names from classes
+        # Note: ClassNode doesn't have .methods attribute in simplified parser
         known_methods = set()
-        for cls in classes:
-            for method in cls.methods:
-                if isinstance(method, dict):
-                    known_methods.add(method.get('name', ''))
-                elif hasattr(method, 'name'):
-                    known_methods.add(method.name)
 
         # For each function, find what it calls
         for func in functions:
@@ -415,10 +410,9 @@ class MultiLanguageParser:
                 # Create relationship for known internal calls
                 if is_internal_call:
                     relationships.append(Relationship(
-                        from_node=func.qualified_name,
-                        to_node=f"{file_path}::{base_name}",
-                        relationship_type=RelationType.CALLS,
-                        repo_id=self.repo_id
+                        rel_type=RelationType.CALLS,
+                        source_id=func.qualified_name,
+                        target_id=f"{file_path}::{base_name}"
                     ))
                     func_calls_seen.add(called_name)
 

@@ -85,12 +85,12 @@ class CodeOrchestrator(BaseAgent):
 
         # Adaptive discovery config
         self.discovery_attempt = 0
-        self.max_discovery_attempts = 3
-        self.min_files_threshold = 3  # Minimum files needed for good analysis
+        self.max_discovery_attempts = config.get('agents', {}).get('discovery', {}).get('max_attempts', 3)
+        self.min_files_threshold = config.get('agents', {}).get('min_files_threshold', 3)
 
         # Quality feedback loop config
         self.synthesis_retry_count = 0
-        self.max_synthesis_retries = 2  # Max retries if validation fails
+        self.max_synthesis_retries = config.get('agents', {}).get('synthesis_retries', {}).get('max_attempts', 2)
         self.last_validation_issues = None  # Store validation issues for retry feedback
 
         # Question context from supervisor (LLM classification)
@@ -373,8 +373,8 @@ class CodeOrchestrator(BaseAgent):
                         # Debug: show a snapshot of registered tools
                         sample = list(available_tools.keys())[:30]
                         print(f"🔧 [ORCHESTRATOR] ToolRegistry now has {len(available_tools)} tools. Sample: {sample}")
-                    except Exception as _:
-                        pass
+                    except Exception as e:
+                        self.logger.error(f'Failed to refresh agent tools: {e}')
                 print("✅ [ORCHESTRATOR] Registered StructuralKBAgent with tool registry")
 
                 if self.structural.is_kb_available():
@@ -538,6 +538,10 @@ class CodeOrchestrator(BaseAgent):
             # Store discovered files with type information
             self.discovered_files = [f.path for f in discovery_result.files]
             self.file_types = {f.path: f.file_type for f in discovery_result.files}
+
+            # Store domain_info for use in KB queries (entry point resolution)
+            if discovery_result.domain_info:
+                self.question_context['domain_info'] = discovery_result.domain_info
 
             # Count by type
             type_counts = {

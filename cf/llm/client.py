@@ -7,6 +7,7 @@ Includes retry logic with exponential backoff for rate limiting.
 
 import json
 import os
+import re
 import time
 import requests
 from typing import Dict, List, Any, Optional, Callable
@@ -245,6 +246,7 @@ class LLMClient:
             'model': model,
             'messages': user_messages,
             'max_tokens': kwargs.get('max_tokens', self.max_tokens),
+            'timeout': kwargs.get('timeout', self.timeout),  # Add timeout support
         }
 
         # Add system message if present
@@ -294,6 +296,7 @@ class LLMClient:
             'model': model,
             'messages': messages,
             'max_completion_tokens': kwargs.get('max_tokens', self.max_tokens),
+            'timeout': kwargs.get('timeout', self.timeout),  # Add timeout support
         }
 
         # Add temperature if specified
@@ -336,7 +339,6 @@ class LLMClient:
 
         # Extract endpoint and API version from URL
         # URL format: https://{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={version}
-        import re
         endpoint_match = re.match(r'(https://[^/]+)', api_url)
         version_match = re.search(r'api-version=([^&]+)', api_url)
 
@@ -356,6 +358,7 @@ class LLMClient:
             'model': deployment,  # Azure uses deployment name
             'messages': messages,
             'max_completion_tokens': kwargs.get('max_tokens', self.max_tokens),
+            'timeout': kwargs.get('timeout', self.timeout),  # Add timeout support
         }
 
         # Add temperature if specified
@@ -559,7 +562,8 @@ class LLMClient:
             # Quick test call with minimal tokens
             response = self.generate("Hi", max_tokens=10)
             return response.get('success', False)
-        except:
+        except Exception:
+            # Any error means client is not available
             return False
 
     def get_model_info(self) -> Dict[str, Any]:

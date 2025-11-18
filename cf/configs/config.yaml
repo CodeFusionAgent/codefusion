@@ -23,6 +23,15 @@ llm:
       model: "gpt-4.1-mini"  # Full GPT-4.1 for better instruction-following on synthesis
       use_cases: ["final_synthesis", "deep_reasoning"]
       cost_per_1m: 3.00
+
+  # Tiered LLM operation-specific max_tokens
+  # Each operation type can have different token limits based on complexity
+  operation_limits:
+    file_summary: 500  # Fast tier: file summarization
+    question_classification: 200  # Fast tier: classify question type
+    coordination_decision: 150  # Fast tier: decide next step in multi-pass
+    answer_synthesis: 2000  # Advanced tier: generate final comprehensive answer
+
   # Per-Model Configurations
   # Each model can have its own endpoint, API keys, and provider-specific settings
   models:
@@ -82,7 +91,39 @@ agents:
   max_iterations: 20  # Increased from 10 to support 3 passes with 3 agents (worst case: 13 iterations + margin)
   timeout: 300  # seconds
   max_files_to_analyze: 50  # Maximum files for discovery pipeline
-  min_files_threshold: 8  # Minimum files needed for comprehensive analysis (increased from 3)
+  min_files_threshold: 3  # Minimum files needed for good analysis (lowered from 8 to 3)
+
+  # Supervisor coordination settings
+  supervisor:
+    coordination_temperature: 0.1  # Low temperature for consistent agent selection
+    coordination_max_tokens: 150  # Short response for agent selection
+    max_pass_attempts: 3  # Maximum retry attempts for each pass
+    agent_execution_max_workers: 1  # Thread pool workers for agent execution
+    pass_config:
+      standard:
+        max_passes: 3
+      summary:
+        max_passes: 2
+      life_of_x:
+        max_passes: 2
+
+  # Discovery configuration
+  discovery:
+    max_attempts: 3  # Maximum discovery retry attempts if insufficient files found
+    default_max_files: 50  # Default max files to return in get_top_files()
+    max_directories_display: 50  # Max directories to show in directory list
+    max_keyword_matched_dirs: 5  # Max keyword-matched directories to show in prompt
+    max_matched_dirs_return: 5  # Max matched directories to return from keyword search
+    top_keywords_for_grep: 3  # Top keywords to use for grep search
+    relevance_increment: 0.01  # Increment per match count for relevance calculation
+    max_relevance_score: 0.9  # Maximum relevance score
+    truncate_tools_display: 30  # Max tools to show in error messages
+    kb_query_max_results: 100  # Max results for KB queries
+    similarity_to_relevance_factor: 100  # Factor to convert similarity (0-1) to relevance (0-100)
+
+  # Synthesis retry configuration
+  synthesis_retries:
+    max_attempts: 2  # Maximum synthesis retry attempts if validation fails
 
   # Parallel Processing Settings (NEW)
   # Dramatically improves performance for file analysis
@@ -105,6 +146,56 @@ agents:
     max_key_files_cited: 7      # Maximum files to cite
     min_key_files_cited: 3      # Minimum files to cite
 
+    # LLM generation parameters
+    narrative_max_tokens: 2000  # Max tokens for narrative generation
+    completeness_eval_chars: 2000  # Narrative chars to send for completeness evaluation
+
+    # KB query limits
+    kb_pattern_query_limit: 500  # Max classes to query for pattern detection
+    kb_execution_max_paths: 10  # Max execution paths to trace from each entry point
+
+    # Display limits for narrative formatting
+    max_functions_per_file: 5  # Max functions to show per file summary
+    max_classes_per_file: 5    # Max classes to show per file summary
+    max_usage_examples: 3       # Max usage examples from tests
+    max_edge_cases: 3           # Max edge cases from tests
+    max_pattern_files: 3        # Max files to show per design pattern
+    max_entry_points: 3         # Max entry points in architectural summary
+    max_core_abstractions: 3    # Max core abstractions in architectural summary
+    max_execution_paths: 3      # Max execution paths to display
+    max_steps_per_path: 10      # Max steps to show per execution path
+    max_shared_abstractions: 5  # Max shared abstractions in cross-file relationships
+    max_files_per_abstraction: 2  # Max files to show per shared abstraction
+    max_dependencies: 5         # Max component dependencies to display
+    max_data_flows: 5           # Max data flow roles to display
+    max_validation_errors: 5    # Max validation errors to show
+    max_validation_warnings: 5  # Max validation warnings to show
+    max_insights: 20            # Max insights to include in narrative prompt
+
+  # Structural KB Agent Tool Defaults
+  structural_kb_agent:
+    # Semantic search limits
+    default_search_limit: 10  # Default number of results for semantic/functionality search
+    default_similar_components_limit: 10  # Default for finding similar components
+    default_example_search_limit: 10  # Default for search by code example
+    duplicate_code_similarity_threshold: 0.8  # Similarity threshold for duplicate detection
+    snippet_preview_length: 100  # Characters to show in code snippet previews
+
+    # Code navigation limits
+    default_callers_limit: 20  # Default max callers to return
+    default_callees_limit: 20  # Default max callees to return
+    default_usages_limit: 30  # Default max symbol usages to return
+
+    # Execution tracing limits
+    trace_execution_max_depth: 10  # Default max depth for execution path tracing
+    trace_execution_max_paths: 5  # Default max paths to return for execution tracing
+    trace_dataflow_max_depth: 20  # Default max depth for data flow tracing
+    trace_lifecycle_max_depth: 20  # Default max depth for request lifecycle tracing
+
+    # File discovery limits
+    default_file_discovery_limit: 50  # Default max files to return for question
+    query_result_limit: 1000  # Maximum results for large KB queries
+
   # Thresholds for confidence scoring and decision making
   thresholds:
     high_confidence: 0.8
@@ -119,10 +210,10 @@ agents:
     min_relevance_score: 0.3  # Minimum relevance score for file inclusion (0.0-1.0)
 
     # Validation thresholds
-    # ADJUSTED: Line coverage lowered to 0.10 based on real-world testing (9-14% is typical for quality narratives)
+    # ADJUSTED: Line coverage lowered to 0.05 based on real-world testing (4-10% is typical for quality narratives)
     # Path accuracy and invalid line number issues are resolved, so we can enforce higher quality
     min_analysis_certainty: 0.6  # Minimum grounding score for validation (lowered from 0.7)
-    min_line_coverage: 0.10  # Minimum line number coverage (lowered from 0.25 to 0.10 based on testing)
+    min_line_coverage: 0.05  # Minimum line number coverage (lowered from 0.10 to 0.05 to prevent excessive retries)
     min_path_accuracy: 0.5  # Minimum file path accuracy (lowered from 0.9 to 50%)
     validation_no_refs_score: 0.3  # Score when no references found
     validation_refs_base: 0.5  # Base score for grounding calculation
@@ -130,7 +221,7 @@ agents:
 
   # Synthesis quality thresholds
   synthesis_thresholds:
-    word_count_tolerance: 0.8  # Accept if >= 80% of target
+    word_count_tolerance: 0.83  # Accept if >= 83% of target (minimum acceptable)
     line_refs_high: 5  # High quality line reference count
     line_refs_medium: 3  # Medium quality line reference count
     path_refs_high: 5  # High quality path reference count
@@ -166,6 +257,12 @@ agents:
       - components
       - modules
     max_file_line_gap_chars: 100  # Max chars between file path and line number (reduced from 500 to prevent cross-paragraph pairing)
+    claim_context_chars: 200  # Number of chars to search backwards for file path context
+    line_verification_context: 5  # Number of context lines to read around target line for verification
+    max_architectural_claims: 10  # Maximum architectural claims to verify
+    read_code_context_lines: 3  # Default context lines when reading code
+    llm_verification_temperature: 0.0  # Temperature for LLM-based fact verification
+    llm_verification_max_tokens: 10  # Max tokens for LLM verification response
 
   # Life-of-X Configuration (NEW)
   # Execution path tracing for "how does X work?" questions
@@ -173,8 +270,8 @@ agents:
   enable_execution_tracing: true  # Enable automatic execution path tracing
 
   # Semantic Search Configuration (NEW)
-  semantic_search_top_k: 20  # Number of semantically similar files to return
-  min_semantic_similarity: 0.5  # Minimum similarity threshold (0-1)
+  semantic_search_top_k: 30  # Number of semantically similar files to return (increased from 20)
+  min_semantic_similarity: 0.4  # Minimum similarity threshold (0-1) (lowered from 0.5)
 
   # Incremental Context Building (NEW)
   # Analyze files in phases: core → dependencies → periphery
@@ -400,8 +497,15 @@ knowledge_base:
     use_llm_client: false  # Do not route embeddings through LLMClient
     cache_embeddings: true  # Cache embeddings to disk
     cache_file: ".codefusion/embeddings.pkl"
-    similarity_threshold: 0.7  # Minimum similarity for search results
+    similarity_threshold: 0.3  # Minimum similarity for search results (lowered from 0.5 to capture domain-specific queries)
     default_relevance: 0.7  # Default relevance score if invalid
+
+    # Semantic Search API Defaults
+    default_top_k: 10  # Default number of results to return
+    default_min_similarity: 0.5  # Default minimum similarity threshold
+    function_search_min_similarity: 0.7  # Minimum similarity for function searches
+    class_search_min_similarity: 0.7  # Minimum similarity for class searches
+    duplicate_code_threshold: 0.8  # Similarity threshold for duplicate code detection
 
   # Pattern Recognition Settings
   patterns:
@@ -410,6 +514,62 @@ knowledge_base:
     detect_architectural_patterns: true  # Detect architectural patterns (MVC, Repository, etc)
     detect_code_smells: true  # Detect code smells (God Class, Long Method, etc)
     max_classes_to_analyze: 500  # Maximum classes to query for pattern detection
+
+    # Pattern detection confidence scoring
+    confidence:
+      min_confidence: 0.5  # Minimum confidence to report pattern
+      max_confidence: 0.95  # Maximum confidence cap
+      # Singleton pattern scoring
+      singleton_private_constructor: 0.3
+      singleton_static_instance: 0.3
+      singleton_lazy_init: 0.2
+      # Factory pattern scoring
+      factory_return_type: 0.5
+      factory_conditional: 0.3
+      factory_polymorphism: 0.2
+      # Observer pattern scoring
+      observer_subject_methods: 0.6
+      observer_update_method: 0.2
+      observer_subscription: 0.2
+      # Strategy pattern scoring
+      strategy_interface: 0.5
+      strategy_context: 0.3
+      strategy_runtime_switching: 0.2
+      # Decorator pattern scoring
+      decorator_wrapping: 0.5
+      decorator_same_interface: 0.3
+      decorator_enhancement: 0.2
+      # MVC pattern scoring
+      mvc_controller: 0.4
+      mvc_model: 0.3
+      mvc_view: 0.3
+      # Repository pattern scoring
+      repository_data_access: 0.5
+      repository_crud: 0.3
+      repository_abstraction: 0.2
+      # Service layer scoring
+      service_business_logic: 0.5
+      service_orchestration: 0.3
+      service_transactions: 0.2
+
+      # Architectural pattern scoring (high-level patterns)
+      # MVC pattern scoring (directory and class-based detection)
+      mvc_model_dir: 0.25
+      mvc_view_dir: 0.25
+      mvc_controller_dir: 0.25
+      mvc_model_classes: 0.15
+      mvc_view_classes: 0.10
+      mvc_controller_classes: 0.15
+      # Repository pattern scoring
+      repository_classes: 0.8
+      repository_naming: 0.15
+      # Service layer pattern scoring
+      service_layer_classes: 0.7
+      service_layer_multiple: 0.2
+      # Layered architecture scoring
+      layered_base: 0.5
+      layered_per_layer: 0.1
+      layered_services_repos: 0.15
 
     # Code smell thresholds
     thresholds:

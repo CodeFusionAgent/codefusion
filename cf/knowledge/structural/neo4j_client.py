@@ -185,7 +185,9 @@ class Neo4jKnowledgeBase:
 
         try:
             with self.driver.session(database=self.database) as session:
-                session.run(query, path=path, repo_id=repo_id, props=props)
+                def _insert(tx):
+                    tx.run(query, path=path, repo_id=repo_id, props=props)
+                session.execute_write(_insert)
             return True
         except Exception as e:
             print(f"❌ Failed to insert file node {file_node.path}: {e}")
@@ -215,13 +217,15 @@ class Neo4jKnowledgeBase:
 
         try:
             with self.driver.session(database=self.database) as session:
-                session.run(
-                    query,
-                    file_path=file_path,
-                    repo_id=repo_id,
-                    qualified_name=qualified_name,
-                    props={**props, 'repo_id': repo_id}
-                )
+                def _insert(tx):
+                    tx.run(
+                        query,
+                        file_path=file_path,
+                        repo_id=repo_id,
+                        qualified_name=qualified_name,
+                        props={**props, 'repo_id': repo_id}
+                    )
+                session.execute_write(_insert)
             return True
         except Exception as e:
             print(f"❌ Failed to insert function {function.name}: {e}")
@@ -251,13 +255,15 @@ class Neo4jKnowledgeBase:
 
         try:
             with self.driver.session(database=self.database) as session:
-                session.run(
-                    query,
-                    file_path=file_path,
-                    repo_id=repo_id,
-                    qualified_name=qualified_name,
-                    props={**props, 'repo_id': repo_id}
-                )
+                def _insert(tx):
+                    tx.run(
+                        query,
+                        file_path=file_path,
+                        repo_id=repo_id,
+                        qualified_name=qualified_name,
+                        props={**props, 'repo_id': repo_id}
+                    )
+                session.execute_write(_insert)
             return True
         except Exception as e:
             print(f"❌ Failed to insert class {class_node.name}: {e}")
@@ -284,7 +290,9 @@ class Neo4jKnowledgeBase:
 
         try:
             with self.driver.session(database=self.database) as session:
-                session.run(query, name=name, props=props)
+                def _insert(tx):
+                    tx.run(query, name=name, props=props)
+                session.execute_write(_insert)
             return True
         except Exception as e:
             print(f"❌ Failed to insert module {module.name}: {e}")
@@ -340,13 +348,15 @@ class Neo4jKnowledgeBase:
 
         try:
             with self.driver.session(database=self.database) as session:
-                session.run(
-                    query,
-                    source_id=rel.source_id,
-                    target_id=rel.target_id,
-                    repo_id=repo_id,
-                    metadata=rel.metadata
-                )
+                def _insert(tx):
+                    tx.run(
+                        query,
+                        source_id=rel.source_id,
+                        target_id=rel.target_id,
+                        repo_id=repo_id,
+                        metadata=rel.metadata
+                    )
+                session.execute_write(_insert)
             return True
         except Exception as e:
             print(f"❌ Failed to create relationship {rel.rel_type.value}: {e}")

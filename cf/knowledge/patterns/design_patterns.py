@@ -59,14 +59,72 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
     Detects design patterns in code using heuristics and rules.
 
     Uses class structure, method names, and relationships to identify patterns.
+    All confidence scoring thresholds are configurable via config.yaml.
     """
 
-    def __init__(self):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize pattern detector.
+
+        Args:
+            config: Configuration dictionary with pattern detection settings
+        """
         # Initialize metrics tracking
         super().__init__('pattern_detection')
         register_layer_metrics(self)
 
         self.patterns_found: List[PatternMatch] = []
+
+        # Load pattern detection configuration
+        self.config = config or {}
+        pattern_config = self.config.get('knowledge_base', {}).get('patterns', {}).get('confidence', {})
+
+        # Load all confidence thresholds from config (with fallback defaults for safety)
+        self.min_confidence = pattern_config.get('min_confidence', 0.5)
+        self.max_confidence = pattern_config.get('max_confidence', 0.95)
+
+        # Singleton pattern scoring
+        self.singleton_name_score = pattern_config.get('singleton_private_constructor', 0.3)
+        self.singleton_method_score = pattern_config.get('singleton_static_instance', 0.2)
+        self.singleton_doc_score = pattern_config.get('singleton_lazy_init', 0.3)
+
+        # Factory pattern scoring
+        self.factory_name_score = pattern_config.get('factory_return_type', 0.5)
+        self.factory_inheritance_score = pattern_config.get('factory_conditional', 0.3)
+        self.factory_doc_score = pattern_config.get('factory_polymorphism', 0.2)
+
+        # Builder pattern scoring
+        self.builder_name_score = pattern_config.get('strategy_interface', 0.6)  # Reusing strategy_interface
+        self.builder_methods_score = pattern_config.get('decorator_enhancement', 0.2)
+        self.builder_doc_score = pattern_config.get('observer_subscription', 0.2)
+
+        # Adapter pattern scoring
+        self.adapter_name_score = pattern_config.get('observer_subject_methods', 0.7)  # Reusing observer score
+        self.adapter_wrapper_score = pattern_config.get('factory_return_type', 0.5)
+        self.adapter_doc_score = pattern_config.get('observer_subscription', 0.2)
+
+        # Decorator pattern scoring
+        self.decorator_name_score = pattern_config.get('decorator_wrapping', 0.7)
+        self.decorator_interface_score = pattern_config.get('decorator_same_interface', 0.2)
+        self.decorator_doc_score = pattern_config.get('decorator_enhancement', 0.2)
+
+        # Proxy pattern scoring
+        self.proxy_name_score = pattern_config.get('service_business_logic', 0.8)  # Reusing service score
+        self.proxy_doc_score = pattern_config.get('observer_subscription', 0.2)
+
+        # Observer pattern scoring
+        self.observer_name_score = pattern_config.get('observer_subject_methods', 0.7)
+        self.observer_listener_score = pattern_config.get('observer_subject_methods', 0.6)
+        self.observer_doc_score = pattern_config.get('observer_update_method', 0.2)
+
+        # Strategy pattern scoring
+        self.strategy_name_score = pattern_config.get('strategy_interface', 0.7)
+        self.strategy_interface_score = pattern_config.get('strategy_context', 0.2)
+        self.strategy_doc_score = pattern_config.get('strategy_runtime_switching', 0.2)
+
+        # Command pattern scoring
+        self.command_name_score = pattern_config.get('service_business_logic', 0.8)  # Reusing service score
+        self.command_doc_score = pattern_config.get('observer_update_method', 0.2)
 
     def detect_patterns(self, structural_data: StructuralData) -> List[PatternMatch]:
         """
@@ -130,7 +188,7 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
         # Check class name
         if 'singleton' in class_node.name.lower():
             evidence.append("Class name contains 'singleton'")
-            confidence += 0.3
+            confidence += self.singleton_name_score
 
         # Check for getInstance/instance method
         # (Would need method info from structural data)
@@ -138,17 +196,17 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
             # Heuristic: if class has few methods and one is likely getInstance
             if class_node.num_methods <= 3:
                 evidence.append("Class has few methods (typical for Singleton)")
-                confidence += 0.2
+                confidence += self.singleton_method_score
 
         # Check docstring
         if class_node.docstring and 'singleton' in class_node.docstring.lower():
             evidence.append("Docstring mentions singleton")
-            confidence += 0.3
+            confidence += self.singleton_doc_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [PatternMatch(
                 pattern=DesignPattern.SINGLETON,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 class_name=class_node.name,
                 qualified_name=class_node.qualified_name,
                 file_path=class_node.file_path,
@@ -173,24 +231,24 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
         # Check class name
         if 'factory' in class_node.name.lower():
             evidence.append("Class name contains 'factory'")
-            confidence += 0.5
+            confidence += self.factory_name_score
 
         # Check base classes
         if any('factory' in base.lower() for base in class_node.base_classes):
             evidence.append("Inherits from factory class")
-            confidence += 0.3
+            confidence += self.factory_inheritance_score
 
         # Check docstring
         if class_node.docstring:
             doc_lower = class_node.docstring.lower()
             if any(word in doc_lower for word in ['factory', 'creates', 'builds']):
                 evidence.append("Docstring suggests factory behavior")
-                confidence += 0.2
+                confidence += self.factory_doc_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [PatternMatch(
                 pattern=DesignPattern.FACTORY,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 class_name=class_node.name,
                 qualified_name=class_node.qualified_name,
                 file_path=class_node.file_path,
@@ -215,22 +273,22 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
         # Check class name
         if 'builder' in class_node.name.lower():
             evidence.append("Class name contains 'builder'")
-            confidence += 0.6
+            confidence += self.builder_name_score
 
         # Check for typical builder method count (many setters + build)
         if class_node.num_methods >= 5:
             evidence.append(f"Has many methods ({class_node.num_methods}), typical for builder")
-            confidence += 0.2
+            confidence += self.builder_methods_score
 
         # Check docstring
         if class_node.docstring and 'builder' in class_node.docstring.lower():
             evidence.append("Docstring mentions builder")
-            confidence += 0.2
+            confidence += self.builder_doc_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [PatternMatch(
                 pattern=DesignPattern.BUILDER,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 class_name=class_node.name,
                 qualified_name=class_node.qualified_name,
                 file_path=class_node.file_path,
@@ -257,22 +315,22 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
         name_lower = class_node.name.lower()
         if 'adapter' in name_lower:
             evidence.append("Class name contains 'adapter'")
-            confidence += 0.7
+            confidence += self.adapter_name_score
         elif 'wrapper' in name_lower:
             evidence.append("Class name contains 'wrapper'")
-            confidence += 0.5
+            confidence += self.adapter_wrapper_score
 
         # Check docstring
         if class_node.docstring:
             doc_lower = class_node.docstring.lower()
             if 'adapt' in doc_lower or 'wrapper' in doc_lower:
                 evidence.append("Docstring suggests adapter behavior")
-                confidence += 0.2
+                confidence += self.adapter_doc_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [PatternMatch(
                 pattern=DesignPattern.ADAPTER,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 class_name=class_node.name,
                 qualified_name=class_node.qualified_name,
                 file_path=class_node.file_path,
@@ -296,22 +354,22 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
         # Check class name
         if 'decorator' in class_node.name.lower():
             evidence.append("Class name contains 'decorator'")
-            confidence += 0.7
+            confidence += self.decorator_name_score
 
         # Check inheritance (if has same interface as another class)
         if len(class_node.base_classes) > 0:
             evidence.append("Implements interface (typical for decorator)")
-            confidence += 0.2
+            confidence += self.decorator_interface_score
 
         # Check docstring
         if class_node.docstring and 'decorator' in class_node.docstring.lower():
             evidence.append("Docstring mentions decorator")
-            confidence += 0.2
+            confidence += self.decorator_doc_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [PatternMatch(
                 pattern=DesignPattern.DECORATOR,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 class_name=class_node.name,
                 qualified_name=class_node.qualified_name,
                 file_path=class_node.file_path,
@@ -335,19 +393,19 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
         # Check class name
         if 'proxy' in class_node.name.lower():
             evidence.append("Class name contains 'proxy'")
-            confidence += 0.8
+            confidence += self.proxy_name_score
 
         # Check docstring
         if class_node.docstring:
             doc_lower = class_node.docstring.lower()
             if 'proxy' in doc_lower or 'controls access' in doc_lower:
                 evidence.append("Docstring suggests proxy behavior")
-                confidence += 0.2
+                confidence += self.proxy_doc_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [PatternMatch(
                 pattern=DesignPattern.PROXY,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 class_name=class_node.name,
                 qualified_name=class_node.qualified_name,
                 file_path=class_node.file_path,
@@ -374,25 +432,25 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
         name_lower = class_node.name.lower()
         if 'observer' in name_lower:
             evidence.append("Class name contains 'observer'")
-            confidence += 0.7
+            confidence += self.observer_name_score
         elif 'listener' in name_lower:
             evidence.append("Class name contains 'listener'")
-            confidence += 0.6
+            confidence += self.observer_listener_score
         elif 'subscriber' in name_lower:
             evidence.append("Class name contains 'subscriber'")
-            confidence += 0.6
+            confidence += self.observer_listener_score
 
         # Check docstring
         if class_node.docstring:
             doc_lower = class_node.docstring.lower()
             if any(word in doc_lower for word in ['observer', 'notify', 'publish', 'subscribe']):
                 evidence.append("Docstring suggests observer behavior")
-                confidence += 0.2
+                confidence += self.observer_doc_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [PatternMatch(
                 pattern=DesignPattern.OBSERVER,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 class_name=class_node.name,
                 qualified_name=class_node.qualified_name,
                 file_path=class_node.file_path,
@@ -416,22 +474,22 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
         # Check class name
         if 'strategy' in class_node.name.lower():
             evidence.append("Class name contains 'strategy'")
-            confidence += 0.7
+            confidence += self.strategy_name_score
 
         # Check if it's likely an interface/base class
         if class_node.is_abstract or len(class_node.base_classes) > 0:
             evidence.append("Is abstract or implements interface")
-            confidence += 0.2
+            confidence += self.strategy_interface_score
 
         # Check docstring
         if class_node.docstring and 'strategy' in class_node.docstring.lower():
             evidence.append("Docstring mentions strategy")
-            confidence += 0.2
+            confidence += self.strategy_doc_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [PatternMatch(
                 pattern=DesignPattern.STRATEGY,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 class_name=class_node.name,
                 qualified_name=class_node.qualified_name,
                 file_path=class_node.file_path,
@@ -455,19 +513,19 @@ class DesignPatternDetector(KnowledgeLayerMetrics):
         # Check class name
         if 'command' in class_node.name.lower():
             evidence.append("Class name contains 'command'")
-            confidence += 0.8
+            confidence += self.command_name_score
 
         # Check docstring
         if class_node.docstring:
             doc_lower = class_node.docstring.lower()
             if 'command' in doc_lower or 'execute' in doc_lower:
                 evidence.append("Docstring suggests command behavior")
-                confidence += 0.2
+                confidence += self.command_doc_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [PatternMatch(
                 pattern=DesignPattern.COMMAND,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 class_name=class_node.name,
                 qualified_name=class_node.qualified_name,
                 file_path=class_node.file_path,

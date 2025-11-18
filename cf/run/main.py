@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from cf.configs.config_mgr import ConfigManager
 from cf.agents.supervisor import SupervisorAgent
+from cf.agents.pipelines.structural import StructuralPipeline
 
 
 def display_result(result, verbose=False):
@@ -82,13 +83,17 @@ def create_parser():
     ask_parser = subparsers.add_parser('ask', help='Ask question')
     ask_parser.add_argument('repo_path', help='Repository path')
     ask_parser.add_argument('question', help='Question to ask')
-    
+
     summary_parser = subparsers.add_parser('summary', help='Generate summary')
     summary_parser.add_argument('repo_path', help='Repository path')
-    
+
     interactive_parser = subparsers.add_parser('interactive', help='Interactive session')
     interactive_parser.add_argument('repo_path', help='Repository path')
-    
+
+    build_parser = subparsers.add_parser('build', help='Build/rebuild knowledge base with embeddings')
+    build_parser.add_argument('repo_path', help='Repository path')
+    build_parser.add_argument('--force', action='store_true', help='Force rebuild (delete existing KB)')
+
     return parser
 
 
@@ -140,7 +145,40 @@ def main():
         elif args.command == 'interactive':
             run_interactive_session(supervisor, args.verbose)
             return 0
-        
+
+        elif args.command == 'build':
+            # Build KB directly through code agent
+            print("🏗️  Building knowledge base...")
+
+            # Initialize KB pipeline
+            kb_config = config.get('knowledge_base', {})
+            if not kb_config.get('enabled', False):
+                print("❌ Knowledge base is disabled in config")
+                return 1
+
+            structural = StructuralPipeline(str(repo_path), config)
+
+            # Build KB
+            force = getattr(args, 'force', False)
+            if force:
+                print("⚠️  Force rebuild requested - will delete existing KB")
+
+            result = structural.build_knowledge_base(force_rebuild=force)
+
+            # Display results
+            print(f"\n✅ KB Build Complete!")
+            print(f"   Files processed: {result.total_files}")
+            print(f"   Functions: {result.total_functions}")
+            print(f"   Classes: {result.total_classes}")
+            print(f"   Build time: {result.build_time_seconds:.1f}s")
+            print(f"   Speed: {result.files_per_second:.1f} files/sec")
+
+            if result.failed_files:
+                print(f"\n⚠️  {len(result.failed_files)} files failed to parse")
+
+            print("\n💡 Knowledge base ready for queries!")
+            return 0
+
     except KeyboardInterrupt:
         print("\n👋 Interrupted")
         return 0

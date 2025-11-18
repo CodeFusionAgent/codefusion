@@ -4,6 +4,7 @@ Web Search Tools for CodeFusion
 Provides web search capabilities for finding documentation and code examples.
 """
 
+import re
 import requests
 import json
 import urllib.parse
@@ -99,9 +100,8 @@ class WebTools:
             
             response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
-            
+
             # Simple regex to extract basic result information
-            import re
             content = response.text
             results = []
             
@@ -333,7 +333,6 @@ class WebTools:
                     content = response.text
                 else:
                     # Basic text extraction (remove HTML tags)
-                    import re
                     content = re.sub(r'<[^>]+>', '', response.text)
                     content = re.sub(r'\s+', ' ', content).strip()
                 

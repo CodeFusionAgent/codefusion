@@ -20,7 +20,7 @@ Relationships:
 - DEFINES: Class/Function defines Variable
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Any, Optional
 from enum import Enum
 
@@ -45,7 +45,16 @@ class RelationType(Enum):
 
 
 @dataclass
-class FileNode:
+class NodeBase:
+    """Base class for all node types with shared to_dict() method"""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert dataclass to dictionary for Neo4j insertion"""
+        return asdict(self)
+
+
+@dataclass
+class FileNode(NodeBase):
     """Represents a source code file"""
     path: str  # Relative path from repo root
     language: str  # python, javascript, go, etc.
@@ -58,22 +67,9 @@ class FileNode:
     encoding: str = "utf-8"
     hash: Optional[str] = None  # File content hash for change detection
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for Neo4j insertion"""
-        return {
-            'path': self.path,
-            'language': self.language,
-            'size': self.size,
-            'last_modified': self.last_modified,
-            'lines_of_code': self.lines_of_code,
-            'repo_id': self.repo_id,
-            'encoding': self.encoding,
-            'hash': self.hash
-        }
-
 
 @dataclass
-class FunctionNode:
+class FunctionNode(NodeBase):
     """Represents a function or method"""
     name: str
     qualified_name: str  # Full path: module.class.function
@@ -98,28 +94,9 @@ class FunctionNode:
     num_lines: int = 0
     cyclomatic_complexity: int = 1
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for Neo4j insertion"""
-        return {
-            'name': self.name,
-            'qualified_name': self.qualified_name,
-            'start_line': self.start_line,
-            'end_line': self.end_line,
-            'file_path': self.file_path,
-            'parameters': self.parameters,
-            'return_type': self.return_type,
-            'is_async': self.is_async,
-            'is_method': self.is_method,
-            'is_static': self.is_static,
-            'is_private': self.is_private,
-            'docstring': self.docstring,
-            'num_lines': self.num_lines,
-            'cyclomatic_complexity': self.cyclomatic_complexity
-        }
-
 
 @dataclass
-class ClassNode:
+class ClassNode(NodeBase):
     """Represents a class definition"""
     name: str
     qualified_name: str  # Full path: module.class
@@ -142,26 +119,9 @@ class ClassNode:
     num_attributes: int = 0
     num_lines: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for Neo4j insertion"""
-        return {
-            'name': self.name,
-            'qualified_name': self.qualified_name,
-            'start_line': self.start_line,
-            'end_line': self.end_line,
-            'file_path': self.file_path,
-            'base_classes': self.base_classes,
-            'is_abstract': self.is_abstract,
-            'is_private': self.is_private,
-            'docstring': self.docstring,
-            'num_methods': self.num_methods,
-            'num_attributes': self.num_attributes,
-            'num_lines': self.num_lines
-        }
-
 
 @dataclass
-class VariableNode:
+class VariableNode(NodeBase):
     """Represents a variable (global, class attribute, etc.)"""
     name: str
     qualified_name: str
@@ -177,39 +137,15 @@ class VariableNode:
     is_constant: bool = False  # ALL_CAPS naming
     is_private: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for Neo4j insertion"""
-        return {
-            'name': self.name,
-            'qualified_name': self.qualified_name,
-            'scope': self.scope,
-            'file_path': self.file_path,
-            'line': self.line,
-            'type_hint': self.type_hint,
-            'inferred_type': self.inferred_type,
-            'is_constant': self.is_constant,
-            'is_private': self.is_private
-        }
-
 
 @dataclass
-class ModuleNode:
+class ModuleNode(NodeBase):
     """Represents a Python module or package"""
     name: str  # e.g., 'os', 'django.http'
     is_builtin: bool
     is_third_party: bool
     is_local: bool
     file_path: Optional[str] = None  # For local modules
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for Neo4j insertion"""
-        return {
-            'name': self.name,
-            'is_builtin': self.is_builtin,
-            'is_third_party': self.is_third_party,
-            'is_local': self.is_local,
-            'file_path': self.file_path
-        }
 
 
 @dataclass

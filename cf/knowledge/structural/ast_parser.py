@@ -377,7 +377,7 @@ class StructuralVisitor(ast.NodeVisitor):
         if not self.current_function:
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    var_name = target.value if isinstance(target.value, str) else str(target)
+                    var_name = target.id
 
                     # Determine scope
                     scope = 'class' if self.current_class else 'global'

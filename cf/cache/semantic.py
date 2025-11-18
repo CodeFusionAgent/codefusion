@@ -154,12 +154,13 @@ class SemanticCache:
             dot_product = np.dot(a, b)
             norm_a = np.linalg.norm(a)
             norm_b = np.linalg.norm(b)
-            
+
             if norm_a == 0 or norm_b == 0:
                 return 0
-            
+
             return dot_product / (norm_a * norm_b)
-        except:
+        except Exception:
+            # Handle invalid vectors or computation errors
             return 0
     
     def _is_expired(self, entry: Dict[str, Any]) -> bool:
@@ -333,7 +334,8 @@ class SemanticCache:
             if self.cache_file.exists():
                 return self.cache_file.stat().st_size / (1024 * 1024)
             return 0
-        except:
+        except Exception:
+            # Handle file access errors
             return 0
     
     def search_cache(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
@@ -438,12 +440,10 @@ class SemanticCache:
     
     def _generate_cache_key(self, repo_path: str, question: str) -> str:
         """Generate consistent cache key for repo + question"""
-        import hashlib
-        
         # Use repo name (last part of path) + question hash for key
         repo_name = Path(repo_path).name
         question_hash = hashlib.md5(question.lower().encode()).hexdigest()[:8]
-        
+
         return f"{repo_name}_{question_hash}"
     
     def _find_similar_for_repo(self, repo_path: str, query: str) -> Optional[Dict[str, Any]]:

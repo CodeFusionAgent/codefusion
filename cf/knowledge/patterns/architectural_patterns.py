@@ -9,7 +9,7 @@ Detects high-level architectural patterns:
 - Microservices patterns
 """
 
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
 from dataclasses import dataclass
 from enum import Enum
 from collections import defaultdict
@@ -47,10 +47,46 @@ class ArchitecturalPatternDetector:
 
     Analyzes file structure, class names, and relationships to identify
     high-level architectural patterns.
+    All confidence scoring thresholds are configurable via config.yaml.
     """
 
-    def __init__(self):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize architectural pattern detector.
+
+        Args:
+            config: Configuration dictionary with architectural pattern detection settings
+        """
         self.patterns_found: List[ArchitecturalMatch] = []
+
+        # Load architectural pattern detection configuration
+        self.config = config or {}
+        pattern_config = self.config.get('knowledge_base', {}).get('patterns', {}).get('confidence', {})
+
+        # Load all confidence thresholds from config (with fallback defaults for safety)
+        self.min_confidence = pattern_config.get('min_confidence', 0.5)
+        self.max_confidence = pattern_config.get('max_confidence', 0.95)
+
+        # MVC pattern scoring
+        self.mvc_model_dir_score = pattern_config.get('mvc_model_dir', 0.25)
+        self.mvc_view_dir_score = pattern_config.get('mvc_view_dir', 0.25)
+        self.mvc_controller_dir_score = pattern_config.get('mvc_controller_dir', 0.25)
+        self.mvc_model_classes_score = pattern_config.get('mvc_model_classes', 0.15)
+        self.mvc_view_classes_score = pattern_config.get('mvc_view_classes', 0.10)
+        self.mvc_controller_classes_score = pattern_config.get('mvc_controller_classes', 0.15)
+
+        # Repository pattern scoring
+        self.repository_classes_score = pattern_config.get('repository_classes', 0.8)
+        self.repository_naming_score = pattern_config.get('repository_naming', 0.15)
+
+        # Service layer pattern scoring
+        self.service_layer_classes_score = pattern_config.get('service_layer_classes', 0.7)
+        self.service_layer_multiple_score = pattern_config.get('service_layer_multiple', 0.2)
+
+        # Layered architecture scoring
+        self.layered_base_score = pattern_config.get('layered_base', 0.5)
+        self.layered_per_layer_score = pattern_config.get('layered_per_layer', 0.1)
+        self.layered_services_repos_score = pattern_config.get('layered_services_repos', 0.15)
 
     def detect_patterns(self, all_structural_data: List[StructuralData]) -> List[ArchitecturalMatch]:
         """
@@ -141,31 +177,31 @@ class ArchitecturalPatternDetector:
         # Score MVC pattern
         if has_model_dir:
             evidence.append("Has models/ directory")
-            confidence += 0.25
+            confidence += self.mvc_model_dir_score
         if has_view_dir:
             evidence.append("Has views/ directory")
-            confidence += 0.25
+            confidence += self.mvc_view_dir_score
         if has_controller_dir:
             evidence.append("Has controllers/ directory")
-            confidence += 0.25
+            confidence += self.mvc_controller_dir_score
 
         if len(models) >= 2:
             evidence.append(f"Found {len(models)} model classes")
-            confidence += 0.15
+            confidence += self.mvc_model_classes_score
             components.extend(models[:5])  # Include first 5
         if len(views) >= 1:
             evidence.append(f"Found {len(views)} view classes")
-            confidence += 0.10
+            confidence += self.mvc_view_classes_score
             components.extend(views[:5])
         if len(controllers) >= 2:
             evidence.append(f"Found {len(controllers)} controller classes")
-            confidence += 0.15
+            confidence += self.mvc_controller_classes_score
             components.extend(controllers[:5])
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [ArchitecturalMatch(
                 pattern=ArchitecturalPattern.MVC,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 components=components,
                 evidence=evidence,
                 metadata={
@@ -197,17 +233,17 @@ class ArchitecturalPatternDetector:
 
         if len(repositories) >= 2:
             evidence.append(f"Found {len(repositories)} repository classes")
-            confidence += 0.8
+            confidence += self.repository_classes_score
             components = repositories[:10]
 
             # Check for common repository methods
             evidence.append("Classes follow Repository naming convention")
-            confidence += 0.15
+            confidence += self.repository_naming_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [ArchitecturalMatch(
                 pattern=ArchitecturalPattern.REPOSITORY,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 components=components,
                 evidence=evidence,
                 metadata={'num_repositories': len(repositories)}
@@ -236,18 +272,18 @@ class ArchitecturalPatternDetector:
 
         if len(services) >= 2:
             evidence.append(f"Found {len(services)} service classes")
-            confidence += 0.7
+            confidence += self.service_layer_classes_score
             components = services[:10]
 
             # Additional evidence
             if len(services) >= 5:
                 evidence.append("Multiple services suggest service layer architecture")
-                confidence += 0.2
+                confidence += self.service_layer_multiple_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [ArchitecturalMatch(
                 pattern=ArchitecturalPattern.SERVICE_LAYER,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 components=components,
                 evidence=evidence,
                 metadata={'num_services': len(services)}
@@ -291,16 +327,16 @@ class ArchitecturalPatternDetector:
 
         if num_layers >= 3:
             evidence.append(f"Found {num_layers} distinct layers: {', '.join(sorted(layers))}")
-            confidence = 0.5 + (num_layers - 3) * 0.1
+            confidence = self.layered_base_score + (num_layers - 3) * self.layered_per_layer_score
 
             if 'services' in layers and 'repositories' in layers:
                 evidence.append("Has both services and repositories (typical layering)")
-                confidence += 0.15
+                confidence += self.layered_services_repos_score
 
-        if confidence >= 0.5:
+        if confidence >= self.min_confidence:
             return [ArchitecturalMatch(
                 pattern=ArchitecturalPattern.LAYERED,
-                confidence=min(confidence, 0.95),
+                confidence=min(confidence, self.max_confidence),
                 components=components[:20],  # Limit components
                 evidence=evidence,
                 metadata={

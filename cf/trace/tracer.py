@@ -222,6 +222,7 @@ class Tracer:
                         success=success
                     )
                 except Exception:
+                    # Silently ignore metrics errors to not break tracing
                     pass
 
             # Pop from stack
@@ -313,6 +314,7 @@ class Tracer:
                     success=success
                 )
             except Exception:
+                # Silently ignore metrics errors to not break tracing
                 pass
 
         # Notify plugins

@@ -16,9 +16,8 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from cf.agents.base import BaseAgent
 from cf.agents.multi_pass_coordinator import MultiPassCoordinator
 from cf.agents.registry import AgentRegistry
-from cf.agents.code_orchestrator import CodeOrchestrator
-from cf.agents.docs import DocsAgent
-from cf.agents.web import WebAgent
+from cf.agents.supervisor_components.agent_coordinator import AgentCoordinator
+from cf.agents.supervisor_components.result_synthesizer import ResultSynthesizer
 from cf.cache.semantic import SemanticCache
 from cf.llm.model_tiers import TieredLLMManager, ModelTier
 from cf.tools.registry import ToolRegistry
@@ -39,10 +38,12 @@ class SupervisorAgent(BaseAgent):
         # Initialize BaseAgent with shared tool registry
         super().__init__(repo_path, config, "supervisor", tool_registry=self._shared_tool_registry)
 
-        # Specialist agents (persistent across questions)
-        self._code_agent = None
-        self._docs_agent = None
-        self._web_agent = None
+        # Initialize extracted coordination and synthesis components
+        self.agent_coordinator = AgentCoordinator(
+            repo_path, config, self.logger,
+            self._shared_tool_registry, self._agent_registry
+        )
+        self.result_synthesizer = ResultSynthesizer(config, self.logger, self.call_llm)
 
         # Question-specific state (reset each question)
         self.reset_question_state()
@@ -56,21 +57,29 @@ class SupervisorAgent(BaseAgent):
         self.actions_taken = []
         self.results = {}
         self.insights = []
-        
+
         # Analysis type tracking
         self.analysis_type = None  # Will be determined by LLM
         self.repo_cache_status = None  # 'new' or 'existing'
-        
+
         # Multi-pass coordinator handles: pass_number, attempts, context_sharing, etc.
         # No need to track these separately anymore
 
         # Backward-compatibility shim for existing SupervisorAgent logic that still
         # references pass-related attributes directly (pending full migration to
         # MultiPassCoordinator). These ensure attributes exist to prevent AttributeError.
-        self.pass_config = {'standard': {'max_passes': 3}, 'summary': {'max_passes': 2}, 'life_of_x': {'max_passes': 2}}
+
+        # Load supervisor config for pass management
+        supervisor_config = self.config.get('agents', {}).get('supervisor', {})
+
+        self.pass_config = supervisor_config.get('pass_config', {
+            'standard': {'max_passes': 3},
+            'summary': {'max_passes': 2},
+            'life_of_x': {'max_passes': 2}
+        })
         self.pass_number = 1
         self.current_pass_attempt = 1
-        self.max_pass_attempts = 3
+        self.max_pass_attempts = supervisor_config.get('max_pass_attempts', 3)
         self.agents_completed = []
         self.specialist_results = {}
         self.all_insights = []
@@ -125,11 +134,12 @@ Return JSON confirming code agent will handle this:
 """
 
         try:
+            supervisor_config = self.config.get('agents', {}).get('supervisor', {})
             response = tiered_llm.generate(
                 prompt=prompt,
                 tier=ModelTier.FAST,
-                temperature=0.1,
-                max_tokens=150
+                temperature=supervisor_config.get('coordination_temperature', 0.1),
+                max_tokens=supervisor_config.get('coordination_max_tokens', 150)
             )
 
             # Parse JSON response
@@ -221,7 +231,7 @@ Return JSON confirming code agent will handle this:
     
     def _consult_agent_with_timeout(self, agent_type: str, question: str, timeout_seconds: int) -> Dict[str, Any]:
         """Execute agent call with timeout enforcement"""
-        with ThreadPoolExecutor(max_workers=1) as executor:
+        with ThreadPoolExecutor(max_workers=self.agent_execution_max_workers) as executor:
             future = executor.submit(self._get_agent_result, agent_type, question)
             try:
                 return future.result(timeout=timeout_seconds)
@@ -291,94 +301,35 @@ Return JSON confirming code agent will handle this:
             return f"unknown_agent_{agent_type}"
     
     def _consult_code_agent(self, question: str) -> str:
-        """Get insights from code analysis specialist"""
-        self.logger.verbose("Running code analysis agent...", "🔍")
+        """Get insights from code analysis specialist - delegates to AgentCoordinator"""
+        # Set code agent context if needed
+        self.agent_coordinator.set_code_agent_context(self.analysis_type, question)
 
-        try:
-            # Get timeout from config
-            timeout_seconds = self.config.get('agents', {}).get('timeout', 300)
-
-            # Execute with timeout enforcement
-            result = self._consult_agent_with_timeout('code', question, timeout_seconds)
-            self.specialist_results['code'] = result
-
-            if result.get('success'):
-                self.all_insights.extend(result.get('insights', []))
-                self.logger.verbose_result(True, "Code analysis completed")
-            elif result.get('timed_out'):
-                self.logger.verbose_result(False, f"Code analysis timed out after {timeout_seconds}s")
-            else:
-                self.logger.verbose_result(False, f"Code analysis failed: {result.get('error', 'Unknown error')}")
-
-            self.agents_completed.append('code')
-            return "consulted_code_agent"
-
-        except Exception as e:
-            self.logger.error(f"Code agent failed: {str(e)}")
-            self.specialist_results['code'] = {'success': False, 'error': str(e)}
-            self.agents_completed.append('code')
-            self.logger.verbose_result(False, f"Code agent exception: {str(e)}")
-            return "code_agent_failed"
+        # Delegate to agent coordinator
+        return self.agent_coordinator.consult_agent(
+            'code', question,
+            self.specialist_results,
+            self.agents_completed,
+            self.all_insights
+        )
     
     def _consult_docs_agent(self, question: str) -> str:
-        """Get insights from documentation specialist"""
-        self.logger.verbose("Running documentation agent...", "📚")
-
-        try:
-            # Get timeout from config
-            timeout_seconds = self.config.get('agents', {}).get('timeout', 300)
-
-            # Execute with timeout enforcement
-            result = self._consult_agent_with_timeout('docs', question, timeout_seconds)
-            self.specialist_results['docs'] = result
-
-            if result.get('success'):
-                self.all_insights.extend(result.get('insights', []))
-                self.logger.verbose_result(True, "Documentation analysis completed")
-            elif result.get('timed_out'):
-                self.logger.verbose_result(False, f"Documentation analysis timed out after {timeout_seconds}s")
-            else:
-                self.logger.verbose_result(False, f"Documentation analysis failed: {result.get('error', 'Unknown error')}")
-
-            self.agents_completed.append('docs')
-            return "consulted_docs_agent"
-
-        except Exception as e:
-            self.logger.error(f"Docs agent failed: {str(e)}")
-            self.specialist_results['docs'] = {'success': False, 'error': str(e)}
-            self.agents_completed.append('docs')
-            self.logger.verbose_result(False, f"Docs agent exception: {str(e)}")
-            return "docs_agent_failed"
+        """Get insights from documentation specialist - delegates to AgentCoordinator"""
+        return self.agent_coordinator.consult_agent(
+            'docs', question,
+            self.specialist_results,
+            self.agents_completed,
+            self.all_insights
+        )
     
     def _consult_web_agent(self, question: str) -> str:
-        """Get insights from web search specialist"""
-        self.logger.verbose("Running web search agent...", "🌐")
-
-        try:
-            # Get timeout from config
-            timeout_seconds = self.config.get('agents', {}).get('timeout', 300)
-
-            # Execute with timeout enforcement
-            result = self._consult_agent_with_timeout('web', question, timeout_seconds)
-            self.specialist_results['web'] = result
-
-            if result.get('success'):
-                self.all_insights.extend(result.get('insights', []))
-                self.logger.verbose_result(True, "Web search completed")
-            elif result.get('timed_out'):
-                self.logger.verbose_result(False, f"Web search timed out after {timeout_seconds}s")
-            else:
-                self.logger.verbose_result(False, f"Web search failed: {result.get('error', 'Unknown error')}")
-
-            self.agents_completed.append('web')
-            return "consulted_web_agent"
-
-        except Exception as e:
-            self.logger.error(f"Web agent failed: {str(e)}")
-            self.specialist_results['web'] = {'success': False, 'error': str(e)}
-            self.agents_completed.append('web')
-            self.logger.verbose_result(False, f"Web agent exception: {str(e)}")
-            return "web_agent_failed"
+        """Get insights from web search specialist - delegates to AgentCoordinator"""
+        return self.agent_coordinator.consult_agent(
+            'web', question,
+            self.specialist_results,
+            self.agents_completed,
+            self.all_insights
+        )
     
     def _is_analysis_complete(self, question: str) -> bool:
         """Check if all multi-pass coordination is complete"""
@@ -387,69 +338,20 @@ Return JSON confirming code agent will handle this:
         return self.all_passes_complete
     
     def _generate_results(self, question: str) -> Dict[str, Any]:
-        """Generate final consolidated answer using LLM synthesis"""
-
-        self.logger.verbose_synthesis("Consolidating results with LLM...")
-        self.logger.verbose_separator()
-
-        # Check if all agents failed
-        all_agents_failed = all(
-            not self.specialist_results.get(agent, {}).get('success', False)
-            for agent in self.agents_completed
+        """Generate final consolidated answer - delegates to ResultSynthesizer"""
+        # Delegate to result synthesizer
+        result = self.result_synthesizer.generate_results(
+            question,
+            self.specialist_results,
+            self.agents_completed,
+            self.all_insights,
+            self.pass_results
         )
 
-        if all_agents_failed and len(self.agents_completed) > 0:
-            self.logger.verbose("⚠️ All agents failed - generating error response", "⚠️")
-            return self._generate_all_agents_failed_response(question)
-
-        # Prepare data for LLM synthesis
-        synthesis_data = self._prepare_synthesis_data(question)
-
-        # Use LLM to generate comprehensive narrative and title
-        llm_response = self._synthesize_with_llm(question, synthesis_data)
-
-        if not llm_response.get('success'):
-            # Fallback: generate response from partial data if available
-            if len(self.all_insights) > 0:
-                return self._generate_partial_response(question, synthesis_data)
-
-            return {
-                'success': False,
-                'error': 'Failed to synthesize results with LLM',
-                'question': question,
-                'raw_data': synthesis_data
-            }
-        
-        # Extract title and narrative from LLM response
-        synthesis = llm_response.get('synthesis', {})
-        
-        # Format result with comprehensive output
-        result = {
-            'success': True,
-            'question': question,
-            'title': synthesis.get('title', 'Analysis Results'),
-            'narrative': synthesis.get('narrative', 'Analysis completed.'),
-            'narrative_type': synthesis.get('narrative_type', 'standard'),
-            'confidence': synthesis.get('confidence', 0.7),
-            'insights': self.all_insights,
-            'agents_consulted': self.agents_completed,
-            'specialist_results': self.specialist_results,
-            'agent': 'supervisor',
-            'total_insights': len(self.all_insights)
-        }
-        
-        # Log multi-pass completion summary
-        total_passes = len([k for k in self.pass_results.keys() if k.startswith('pass_')])
-        if total_passes > 1:
-            self.logger.verbose(f"🏁 Multi-pass analysis complete: {total_passes} passes, {len(self.all_insights)} total insights", "✅")
-        
-        # Log insights integration if verbose
-        if len(self.all_insights) > 0:
-            self.logger.verbose_result(True, f"Integrated {len(self.all_insights)} insights into narrative")
-        
         # Cache the result for future use
-        self._cache_analysis_result(question, result)
-        
+        if result.get('success'):
+            self._cache_analysis_result(question, result)
+
         return result
     
     def _prepare_synthesis_data(self, question: str) -> Dict[str, Any]:
@@ -467,11 +369,12 @@ Return JSON confirming code agent will handle this:
         for agent_type in self.agents_completed:
             result = self.specialist_results.get(agent_type, {})
             if result.get('success'):
+                thresholds = self.config.get('agents', {}).get('thresholds', {})
                 data['specialist_summaries'][agent_type] = {
                     'success': True,
                     'insights_count': len(result.get('insights', [])),
                     'key_findings': [insight.get('content', '') for insight in result.get('insights', [])[:3]],
-                    'confidence': result.get('confidence', 0.5)
+                    'confidence': result.get('confidence', thresholds.get('partial_confidence', 0.5))
                 }
 
                 # Extract analyzed file list from code agent for anti-hallucination
@@ -552,13 +455,14 @@ The Architecture & Flow section should be particularly rich - it's the heart of 
 
                 except (json.JSONDecodeError, ValueError):
                     # Fallback: treat as plain text narrative
+                    thresholds = self.config.get('agents', {}).get('thresholds', {})
                     return {
                         'success': True,
                         'synthesis': {
                             'title': 'Analysis Results',
                             'narrative': content,
                             'narrative_type': 'standard',
-                            'confidence': 0.7
+                            'confidence': thresholds.get('medium_confidence', 0.7)
                         }
                     }
             
@@ -824,6 +728,18 @@ Return JSON format only."""
             # Use config threshold instead of hardcoded value
             min_insights_threshold = self.config.get('agents', {}).get('thresholds', {}).get('min_insights_for_pass', 2)
 
+            # Check if code agent has already provided a sufficient answer with passing validation
+            # If so, complete instead of continuing to next pass
+            code_result = self.specialist_results.get('code', {})
+            has_valid_answer = (
+                code_result.get('success') and
+                code_result.get('answer') and
+                code_result.get('validation', {}).get('valid', False)
+            )
+
+            if has_valid_answer:
+                return {'action': 'complete', 'reasoning': 'Code agent provided valid answer with passing validation (fallback)'}
+
             # For summary questions, always proceed to Pass 2 if we're on Pass 1
             if self.analysis_type == 'summary' and self.pass_number == 1:
                 return {'action': 'next_pass', 'reasoning': 'Summary Pass 1 complete, proceeding to Pass 2 (fallback)', 'context_sharing': True}
@@ -839,6 +755,18 @@ Return JSON format only."""
             # Even on exception, use fallback logic instead of immediately completing
             # Use config threshold instead of hardcoded value
             min_insights_threshold = self.config.get('agents', {}).get('thresholds', {}).get('min_insights_for_pass', 2)
+
+            # Check if code agent has already provided a sufficient answer with passing validation
+            # If so, complete instead of continuing to next pass
+            code_result = self.specialist_results.get('code', {})
+            has_valid_answer = (
+                code_result.get('success') and
+                code_result.get('answer') and
+                code_result.get('validation', {}).get('valid', False)
+            )
+
+            if has_valid_answer:
+                return {'action': 'complete', 'reasoning': f'Code agent provided valid answer despite exception: {str(e)}'}
 
             # For summary questions, always proceed to Pass 2 if we're on Pass 1
             if self.analysis_type == 'summary' and self.pass_number == 1:
@@ -1012,13 +940,13 @@ All specialist agents ({', '.join(self.agents_completed)}) encountered issues du
 - Try again in a moment (if temporary issue)
 - For large repositories, try focusing on a specific component
 """
-
+        thresholds = self.config.get('agents', {}).get('thresholds', {})
         return {
             'success': False,
             'question': question,
             'title': 'Analysis Failed - All Agents Encountered Errors',
             'narrative': narrative,
-            'confidence': 0.0,
+            'confidence': thresholds.get('error_confidence', 0.2),
             'insights': [],
             'agents_consulted': self.agents_completed,
             'specialist_results': self.specialist_results,
@@ -1052,12 +980,13 @@ All specialist agents ({', '.join(self.agents_completed)}) encountered issues du
 
         narrative = "\n".join(narrative_parts)
 
+        thresholds = self.config.get('agents', {}).get('thresholds', {})
         return {
             'success': True,
             'question': question,
             'title': 'Partial Analysis Results',
             'narrative': narrative,
-            'confidence': 0.5,
+            'confidence': thresholds.get('partial_confidence', 0.5),
             'insights': self.all_insights,
             'agents_consulted': self.agents_completed,
             'specialist_results': self.specialist_results,

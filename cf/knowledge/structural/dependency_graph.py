@@ -11,8 +11,25 @@ Builds higher-level dependency analysis on top of AST parsing:
 This provides more sophisticated analysis than raw AST data.
 """
 
+import os
+import re
+import json
+from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, Any
 from collections import defaultdict, deque
+
+# Optional dependencies for config file parsing
+try:
+    import toml
+    TOML_AVAILABLE = True
+except ImportError:
+    TOML_AVAILABLE = False
+
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
 
 from cf.knowledge.structural.schema import (
     StructuralData, FunctionNode, Relationship, RelationType
@@ -441,9 +458,6 @@ class DependencyGraphBuilder:
         Returns:
             Dictionary mapping dependency files to their dependencies
         """
-        import os
-        from pathlib import Path
-
         build_deps = {}
 
         repo_root = Path(repo_path)
@@ -463,9 +477,8 @@ class DependencyGraphBuilder:
 
         # Python: pyproject.toml
         pyproject = repo_root / "pyproject.toml"
-        if pyproject.exists():
+        if pyproject.exists() and TOML_AVAILABLE:
             try:
-                import toml
                 data = toml.load(pyproject)
                 deps = []
 
@@ -481,8 +494,6 @@ class DependencyGraphBuilder:
 
                 if deps:
                     build_deps['pyproject.toml'] = deps
-            except ImportError:
-                pass  # toml not available
             except Exception as e:
                 print(f"⚠️ Error parsing pyproject.toml: {e}")
 
@@ -493,7 +504,6 @@ class DependencyGraphBuilder:
                 with open(setup_py) as f:
                     content = f.read()
                     # Simple regex to find install_requires
-                    import re
                     match = re.search(r'install_requires\s*=\s*\[(.*?)\]', content, re.DOTALL)
                     if match:
                         deps_str = match.group(1)
@@ -510,7 +520,6 @@ class DependencyGraphBuilder:
         package_json = repo_root / "package.json"
         if package_json.exists():
             try:
-                import json
                 with open(package_json) as f:
                     data = json.load(f)
                     deps = []
@@ -563,10 +572,6 @@ class DependencyGraphBuilder:
         Returns:
             Configuration dependency mapping
         """
-        import os
-        import json
-        from pathlib import Path
-
         config_deps = {}
         repo_root = Path(repo_path)
 
@@ -593,15 +598,12 @@ class DependencyGraphBuilder:
                                 deps.append(key)
 
                 # For YAML files, extract keys (basic)
-                elif config_file.endswith(('.yaml', '.yml')):
+                elif config_file.endswith(('.yaml', '.yml')) and YAML_AVAILABLE:
                     try:
-                        import yaml
                         with open(config_path) as f:
                             data = yaml.safe_load(f)
                             if isinstance(data, dict):
                                 deps.extend(data.keys())
-                    except ImportError:
-                        pass
                     except Exception as e:
                         print(f"⚠️ Error parsing {config_file}: {e}")
 

@@ -17,6 +17,7 @@ from pathlib import Path
 from cf.integration.wiring import create_integrated_system
 from cf.integration.factory import create_analyzer_factory
 from cf.integration.config_utils import deep_merge
+from cf.experiments.experiment_runner import ExperimentRunner, MetricsAggregator
 
 
 def setup_for_experiments(
@@ -61,8 +62,6 @@ def setup_for_experiments(
         ...     analyzer_factory=factory
         ... )
     """
-    from cf.experiments.experiment_runner import ExperimentRunner, MetricsAggregator
-
     # Create base system
     system = create_integrated_system(repo_path, config)
 

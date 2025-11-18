@@ -11,6 +11,14 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
+# Import KB tool constants for robust tool resolution
+try:
+    from cf.agents.kb.structural_kb_agent import StructuralKBAgent, StructuralKBTools
+    KB_TOOLS_AVAILABLE = True
+except ImportError:
+    KB_TOOLS_AVAILABLE = False
+    StructuralKBTools = None
+
 
 @dataclass
 class FileCandidate:
@@ -87,6 +95,19 @@ class DomainDetectionStrategy(DiscoveryStrategy):
         self.repo_tools = repo_tools
         self.path_map = path_map
 
+        # Load discovery config
+        discovery_config = config.get('agents', {}).get('discovery', {})
+        self.default_max_files = discovery_config.get('default_max_files', 50)
+        self.max_directories_display = discovery_config.get('max_directories_display', 50)
+        self.max_keyword_matched_dirs = discovery_config.get('max_keyword_matched_dirs', 5)
+        self.max_matched_dirs_return = discovery_config.get('max_matched_dirs_return', 5)
+        self.top_keywords_for_grep = discovery_config.get('top_keywords_for_grep', 3)
+        self.relevance_increment = discovery_config.get('relevance_increment', 0.01)
+        self.max_relevance_score = discovery_config.get('max_relevance_score', 0.9)
+        self.truncate_tools_display = discovery_config.get('truncate_tools_display', 30)
+        self.kb_query_max_results = discovery_config.get('kb_query_max_results', 100)
+        self.similarity_to_relevance_factor = discovery_config.get('similarity_to_relevance_factor', 100)
+
     def execute(self, question: str, context: Dict[str, Any]) -> List[FileCandidate]:
         """Detect domain and find files in target directories"""
         try:
@@ -128,13 +149,13 @@ class DomainDetectionStrategy(DiscoveryStrategy):
         # Get all directories
         dirs = [p for p, meta in self.path_map.items() if meta.get('is_dir')]
 
-        return f"Available directories:\n" + "\n".join(f"- {d}" for d in sorted(dirs)[:50])
+        return f"Available directories:\n" + "\n".join(f"- {d}" for d in sorted(dirs)[:self.max_directories_display])
 
     def _build_domain_detection_prompt(self, question: str, repo_overview: str, context: Dict[str, Any]) -> str:
         """Build prompt for domain detection"""
         keyword_hint = ""
         if context.get('keyword_matched_dirs'):
-            dirs = context['keyword_matched_dirs'][:5]
+            dirs = context['keyword_matched_dirs'][:self.max_keyword_matched_dirs]
             keyword_hint = f"\nKeyword-matched directories (prioritize these): {', '.join(dirs)}\n"
 
         return f"""Analyze this question about a codebase: "{question}"
@@ -217,6 +238,10 @@ class KeywordMatchingStrategy(DiscoveryStrategy):
         super().__init__(config)
         self.path_map = path_map
 
+        # Load discovery config
+        discovery_config = config.get('agents', {}).get('discovery', {})
+        self.max_matched_dirs_return = discovery_config.get('max_matched_dirs_return', 5)
+
     def execute(self, question: str, context: Dict[str, Any]) -> List[FileCandidate]:
         """Match keywords from question to directory names"""
         try:
@@ -270,7 +295,7 @@ class KeywordMatchingStrategy(DiscoveryStrategy):
             scored_dirs.sort(key=lambda x: x[1], reverse=True)
 
             # Return top matches
-            matched = [d[0] for d in scored_dirs[:5]]
+            matched = [d[0] for d in scored_dirs[:self.max_matched_dirs_return]]
 
             if matched:
                 print(f"🔍 [KEYWORD_MATCH] Found directories for keywords {keywords}: {matched}")
@@ -307,6 +332,12 @@ class GrepSearchStrategy(DiscoveryStrategy):
         super().__init__(config)
         self.repo_tools = repo_tools
 
+        # Load discovery config
+        discovery_config = config.get('agents', {}).get('discovery', {})
+        self.top_keywords_for_grep = discovery_config.get('top_keywords_for_grep', 3)
+        self.relevance_increment = discovery_config.get('relevance_increment', 0.01)
+        self.max_relevance_score = discovery_config.get('max_relevance_score', 0.9)
+
     def execute(self, question: str, context: Dict[str, Any]) -> List[FileCandidate]:
         """Search file contents for question keywords"""
         try:
@@ -326,7 +357,7 @@ class GrepSearchStrategy(DiscoveryStrategy):
             grep_multiplier = thresholds.get('score_grep_multiplier', 5)
 
             # Limit to top keywords to avoid too many searches
-            top_keywords = keywords[:3]
+            top_keywords = keywords[:self.top_keywords_for_grep]
 
             for keyword in top_keywords:
                 try:
@@ -342,7 +373,7 @@ class GrepSearchStrategy(DiscoveryStrategy):
                             match_count = match.get('count', 1)
 
                             # Score based on match count
-                            relevance = min(low_relevance + (match_count * 0.01), 0.9)
+                            relevance = min(low_relevance + (match_count * self.relevance_increment), self.max_relevance_score)
 
                             candidates.append(FileCandidate(
                                 path=file_path,
@@ -374,6 +405,11 @@ class GraphQueryStrategy(DiscoveryStrategy):
         super().__init__(config)
         self.tool_registry = tool_registry
 
+        # Load discovery config
+        discovery_config = config.get('agents', {}).get('discovery', {})
+        self.truncate_tools_display = discovery_config.get('truncate_tools_display', 30)
+        self.kb_query_max_results = discovery_config.get('kb_query_max_results', 100)
+
     def execute(self, question: str, context: Dict[str, Any]) -> List[FileCandidate]:
         """Query KB graph for relevant files using tool registry"""
         try:
@@ -386,31 +422,40 @@ class GraphQueryStrategy(DiscoveryStrategy):
             # Extract LLM question classification from supervisor (if available)
             question_context = context.get('question_context', {})
 
-            # Resolve KB tool name dynamically (agent tools are prefixed with agent name)
+            # Resolve KB tool name using explicit constant (eliminates fragile dynamic resolution)
             kb_tool_name = None
-            try:
-                available = list(getattr(self.tool_registry, 'tools', {}).keys())
-                # Preferred exact suffix
-                candidates = [n for n in available if n.endswith('_find_files_for_question')]
-                # Common variants
-                if not candidates:
-                    candidates = [n for n in available if 'find_files' in n and 'question' in n]
-                if not candidates:
-                    candidates = [n for n in available if 'kb' in n and 'find' in n and 'files' in n]
-                kb_tool_name = candidates[0] if candidates else None
-            except Exception:
-                kb_tool_name = None
+
+            # Method 1: Use explicit constant (preferred - robust to renaming)
+            if KB_TOOLS_AVAILABLE and StructuralKBTools:
+                # Get prefixed tool name from StructuralKBAgent
+                try:
+                    # Find the KB agent instance to get proper prefix
+                    agent_name = 'structural_kb'  # Default KB agent name
+                    kb_tool_name = f"{agent_name}_{StructuralKBTools.FIND_FILES_FOR_QUESTION}"
+                except Exception as e:
+                    print(f"⚠️ [GRAPH_QUERY] Failed to resolve tool name from constant: {e}")
+                    kb_tool_name = None
+
+            # Method 2: Fallback to dynamic resolution (backward compatibility)
+            if not kb_tool_name:
+                try:
+                    available = list(getattr(self.tool_registry, 'tools', {}).keys())
+                    # Preferred exact suffix
+                    candidates = [n for n in available if n.endswith('_find_files_for_question')]
+                    kb_tool_name = candidates[0] if candidates else None
+                except Exception:
+                    kb_tool_name = None
 
             if not kb_tool_name:
                 available = list(getattr(self.tool_registry, 'tools', {}).keys())
-                print(f"⚠️ [GRAPH_QUERY] KB tool not registered. Available tools: {available[:30]}")
+                print(f"⚠️ [GRAPH_QUERY] KB tool not registered. Available tools: {available[:self.truncate_tools_display]}")
                 return []
 
             # Use resolved tool name
             result = self.tool_registry.execute(
                 kb_tool_name,
                 question=question,
-                max_results=100,
+                max_results=self.kb_query_max_results,
                 question_context=question_context  # Pass LLM classification
             )
 
@@ -459,6 +504,10 @@ class SemanticSearchStrategy(DiscoveryStrategy):
         super().__init__(config)
         self.kb = kb_client
 
+        # Load discovery config
+        discovery_config = config.get('agents', {}).get('discovery', {})
+        self.similarity_to_relevance_factor = discovery_config.get('similarity_to_relevance_factor', 100)
+
     def execute(self, question: str, context: Dict[str, Any]) -> List[FileCandidate]:
         """Find files using semantic similarity search"""
         try:
@@ -494,7 +543,7 @@ class SemanticSearchStrategy(DiscoveryStrategy):
                     continue
 
                 # Map similarity (0-1) to relevance score (0-100)
-                relevance = similarity * 100
+                relevance = similarity * self.similarity_to_relevance_factor
 
                 # Only include if above minimum threshold
                 min_similarity = self.config.get('agents', {}).get('min_semantic_similarity', 0.5)
@@ -692,11 +741,9 @@ Respond with JSON only (one entry per file):
         for strategy in self.strategies:
             try:
                 candidates = strategy.execute(question, context)
-                print(f"   [DEBUG] {strategy.__class__.__name__} returned {len(candidates) if candidates else 0} candidates")
                 if candidates:
                     all_candidates.extend(candidates)
                     strategies_used.append(strategy.__class__.__name__)
-                    print(f"   [DEBUG] Total candidates so far: {len(all_candidates)}")
                     # Pass results to next strategy as context
                     context[strategy.__class__.__name__] = candidates
             except Exception as e:
@@ -704,7 +751,6 @@ Respond with JSON only (one entry per file):
                 continue
 
         # If no candidates found, use fallback
-        print(f"   [DEBUG] Final candidate count before fallback check: {len(all_candidates)}")
         if not all_candidates:
             print("🔄 [DISCOVERY] Using fallback strategy")
             all_candidates = self.fallback.execute(question, context)
@@ -737,7 +783,7 @@ Respond with JSON only (one entry per file):
             production_files=production,
             test_files=test,
             utility_files=utility,
-            domain_info=context.get('DomainDetectionStrategy', {}),
+            domain_info=context.get('domain_info', {}),
             strategies_used=strategies_used,
             total_candidates=len(all_candidates)
         )
