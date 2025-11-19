@@ -14,6 +14,7 @@ from cf.tools.repo_tools import RepoTools
 from cf.tools.llm_tools import LLMTools
 from cf.tools.web_tools import WebTools
 from cf.tools.metrics import ToolMetricsTracker
+from cf.tools.resolver import ToolNameResolver
 
 
 class ToolRegistry:
@@ -30,6 +31,9 @@ class ToolRegistry:
 
         # Initialize metrics tracker
         self.metrics_tracker = ToolMetricsTracker()
+
+        # Initialize tool name resolver
+        self.resolver = ToolNameResolver()
 
         # Register all available tools
         self.tools: Dict[str, Callable] = {}
@@ -62,31 +66,12 @@ class ToolRegistry:
     
     def execute(self, tool_name: str, **params) -> Dict[str, Any]:
         """Execute a tool with parameters and track metrics"""
-        # Resolve tool name dynamically if exact match not found (handles agent prefixes)
-        resolved_name = tool_name
-        if tool_name not in self.tools:
-            candidates = []
-            try:
-                keys = list(self.tools.keys())
-                # Prefer exact suffix match (common pattern for agent-prefixed tools)
-                candidates = [n for n in keys if n.endswith(tool_name)]
-                # Special-case for common KB discovery tool suffix
-                if not candidates and tool_name.endswith('_find_files_for_question'):
-                    suffix = '_find_files_for_question'
-                    candidates = [n for n in keys if n.endswith(suffix)]
-                # Fallback to substring search
-                if not candidates:
-                    candidates = [n for n in keys if tool_name in n]
-            except Exception:
-                candidates = []
+        # Resolve tool name dynamically using ToolNameResolver
+        resolved_name = self.resolver.resolve(tool_name, self.tools)
 
-            if len(candidates) == 1:
-                resolved_name = candidates[0]
-            else:
-                return {
-                    'error': f'Tool "{tool_name}" not found',
-                    'available_tools': list(self.tools.keys())
-                }
+        # If resolution failed, return helpful error
+        if resolved_name is None:
+            return self.resolver.get_resolution_error(tool_name, self.tools)
 
         start_time = time.time()
         success = False
