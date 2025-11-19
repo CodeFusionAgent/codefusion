@@ -11,10 +11,6 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
-# Import KB tool constants for robust tool resolution
-try:
-
-
 @dataclass
 class FileCandidate:
     """Represents a candidate file with relevance information"""
@@ -79,6 +75,10 @@ from cf.agents.pipelines.discovery_strategies import (
     SemanticSearchStrategy,
     FallbackStrategy
 )
+
+
+class DiscoveryPipeline:
+    """Main pipeline for discovering relevant files for a question"""
 
     def __init__(self, repo_path: str, config: Dict[str, Any], llm_client, repo_tools, path_map: Dict[str, Any], tool_registry=None):
         self.repo_path = repo_path
