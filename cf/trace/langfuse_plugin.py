@@ -26,6 +26,14 @@ from pathlib import Path
 
 from cf.trace.tracer import TracerPlugin, TraceEvent
 
+# Optional dependency - Langfuse may not be installed
+try:
+    from langfuse import Langfuse
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    LANGFUSE_AVAILABLE = False
+    Langfuse = None
+
 
 class LangfusePlugin(TracerPlugin):
     """

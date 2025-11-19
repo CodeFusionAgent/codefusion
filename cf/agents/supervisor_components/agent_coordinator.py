@@ -5,8 +5,15 @@ Handles agent consultation and coordination for SupervisorAgent.
 Manages specialist agent lifecycle and result collection.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
+# Import agents at module level to avoid lazy imports
+# Use TYPE_CHECKING to avoid circular imports at runtime
+if TYPE_CHECKING:
+    from cf.agents.code_orchestrator import CodeOrchestrator
+    from cf.agents.docs import DocsAgent
+    from cf.agents.web import WebAgent
 
 
 class AgentCoordinator:
@@ -98,7 +105,7 @@ class AgentCoordinator:
         """
         if agent_type == 'code':
             if not self._code_agent:
-                # Import here to avoid circular dependency
+                # Import at usage time (after TYPE_CHECKING imports at top)
                 from cf.agents.code_orchestrator import CodeOrchestrator
 
                 # Always use pipeline architecture (CodeOrchestrator)
@@ -115,7 +122,7 @@ class AgentCoordinator:
 
         elif agent_type == 'docs':
             if not self._docs_agent:
-                # Import here to avoid circular dependency
+                # Import at usage time (after TYPE_CHECKING imports at top)
                 from cf.agents.docs import DocsAgent
 
                 # Pass shared tool registry for cross-agent tool usage
@@ -125,7 +132,7 @@ class AgentCoordinator:
 
         elif agent_type == 'web':
             if not self._web_agent:
-                # Import here to avoid circular dependency
+                # Import at usage time (after TYPE_CHECKING imports at top)
                 from cf.agents.web import WebAgent
 
                 # Pass shared tool registry for cross-agent tool usage
