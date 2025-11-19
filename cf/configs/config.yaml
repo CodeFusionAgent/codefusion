@@ -596,3 +596,12 @@ knowledge_base:
       keyword_match_bonus: 10  # Bonus when any keyword matches function name
       all_keywords_bonus: 20  # Bonus when all keywords match function name
       entry_point_name_bonus: 15  # Bonus for common entry point function names (submit, create, handle, etc)
+
+# Network and Tool Settings
+tools:
+  web:
+    timeout: 10  # HTTP request timeout in seconds
+    max_retries: 3  # Max retry attempts for failed requests
+  repo:
+    grep_timeout: 30  # Grep search timeout in seconds
+    max_grep_results: 100  # Maximum grep results to return
