@@ -34,14 +34,21 @@ class ComponentMetrics:
     total_calls: int = 0
     total_tokens: int = 0
     total_duration: float = 0.0
+    total_cost: float = 0.0
     total_errors: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
     success_rate: float = 0.0
     avg_duration: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary"""
-        return asdict(self)
+        """Convert to dictionary with calculated metrics"""
+        result = asdict(self)
+        # Add cache hit rate if cache operations exist
+        total_cache_ops = self.cache_hits + self.cache_misses
+        result['cache_hit_rate'] = self.cache_hits / total_cache_ops if total_cache_ops > 0 else 0.0
+        return result
 
 
 class MetricsCollector:
@@ -161,6 +168,96 @@ class MetricsCollector:
 
         self.component_metrics[component].total_errors += 1
         self._update_derived_metrics(component)
+
+    def record_cache_hit(self, component: str, metadata: Optional[Dict[str, Any]] = None):
+        """
+        Record a cache hit.
+
+        Args:
+            component: Component name
+            metadata: Additional context
+        """
+        self.snapshots.append(MetricSnapshot(
+            timestamp=time.time(),
+            component=component,
+            metric_type='cache_hit',
+            value=1.0,
+            metadata=metadata or {}
+        ))
+
+        if component not in self.component_metrics:
+            self.component_metrics[component] = ComponentMetrics(component_name=component)
+
+        self.component_metrics[component].cache_hits += 1
+
+    def record_cache_miss(self, component: str, metadata: Optional[Dict[str, Any]] = None):
+        """
+        Record a cache miss.
+
+        Args:
+            component: Component name
+            metadata: Additional context
+        """
+        self.snapshots.append(MetricSnapshot(
+            timestamp=time.time(),
+            component=component,
+            metric_type='cache_miss',
+            value=1.0,
+            metadata=metadata or {}
+        ))
+
+        if component not in self.component_metrics:
+            self.component_metrics[component] = ComponentMetrics(component_name=component)
+
+        self.component_metrics[component].cache_misses += 1
+
+    def record_cost(self, component: str, cost: float, metadata: Optional[Dict[str, Any]] = None):
+        """
+        Record operation cost.
+
+        Args:
+            component: Component name
+            cost: Cost in dollars
+            metadata: Additional context
+        """
+        self.snapshots.append(MetricSnapshot(
+            timestamp=time.time(),
+            component=component,
+            metric_type='cost',
+            value=cost,
+            metadata=metadata or {}
+        ))
+
+        if component not in self.component_metrics:
+            self.component_metrics[component] = ComponentMetrics(component_name=component)
+
+        self.component_metrics[component].total_cost += cost
+
+    def track_operation(
+        self,
+        component: str,
+        tokens: int = 0,
+        cost: float = 0.0,
+        metadata: Optional[Dict[str, Any]] = None
+    ):
+        """
+        Context manager for tracking an operation.
+
+        Args:
+            component: Component name
+            tokens: Number of tokens used
+            cost: Cost in dollars
+            metadata: Additional context
+
+        Usage:
+            >>> collector = MetricsCollector()
+            >>> with collector.track_operation('semantic_search', tokens=100, cost=0.001):
+            ...     result = expensive_operation()
+
+        Returns:
+            Context manager that tracks duration and records metrics
+        """
+        return _OperationTracker(self, component, tokens, cost, metadata)
 
     def _update_derived_metrics(self, component: str):
         """Update derived metrics (success_rate, avg_duration)"""
@@ -346,6 +443,68 @@ class MetricsCollector:
         self.session_start = time.time()
         self.snapshots = []
         self.component_metrics = {}
+
+
+class _OperationTracker:
+    """Context manager for tracking individual operations"""
+
+    def __init__(
+        self,
+        collector: MetricsCollector,
+        component: str,
+        tokens: int,
+        cost: float,
+        metadata: Optional[Dict[str, Any]]
+    ):
+        self.collector = collector
+        self.component = component
+        self.tokens = tokens
+        self.cost = cost
+        self.metadata = metadata or {}
+        self.start_time = None
+
+    def __enter__(self) -> "_OperationTracker":
+        self.start_time = time.time()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        duration = time.time() - self.start_time
+        success = exc_type is None
+
+        # Record the operation
+        self.collector.record_call(
+            component=self.component,
+            duration=duration,
+            success=success,
+            metadata=self.metadata
+        )
+
+        # Record tokens if provided
+        if self.tokens > 0:
+            self.collector.record_tokens(
+                component=self.component,
+                tokens=self.tokens,
+                metadata=self.metadata
+            )
+
+        # Record cost if provided
+        if self.cost > 0:
+            self.collector.record_cost(
+                component=self.component,
+                cost=self.cost,
+                metadata=self.metadata
+            )
+
+        # Record error if exception occurred
+        if exc_type is not None:
+            self.collector.record_error(
+                component=self.component,
+                error_message=str(exc_val),
+                metadata=self.metadata
+            )
+
+        # Don't suppress exceptions
+        return False
 
 
 # Global collector instance

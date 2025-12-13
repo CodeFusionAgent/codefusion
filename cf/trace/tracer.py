@@ -14,6 +14,7 @@ Enhanced with:
 import os
 import time
 import json
+import logging
 import functools
 import uuid
 from abc import ABC, abstractmethod
@@ -21,6 +22,8 @@ from typing import Dict, List, Any, Optional, Callable
 from pathlib import Path
 from dataclasses import dataclass, field
 from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -211,7 +214,7 @@ class Tracer:
                 try:
                     plugin.log_event(event)
                 except Exception as e:
-                    print(f"⚠️ Plugin error: {e}")
+                    logger.warning(f"Plugin error: {e}")
 
             # Record to metrics collector
             if self._metrics_collector:
@@ -246,7 +249,7 @@ class Tracer:
                 try:
                     plugin.start_session(session_id, {"session_name": session_name, "agent": self.agent_name})
                 except Exception as e:
-                    print(f"⚠️ Plugin error in start_session: {e}")
+                    logger.warning(f"Plugin error in start_session: {e}")
 
         return session_id
     
@@ -262,7 +265,7 @@ class Tracer:
                     plugin.end_session(session_id)
                     plugin.flush()
                 except Exception as e:
-                    print(f"⚠️ Plugin error in end_session: {e}")
+                    logger.warning(f"Plugin error in end_session: {e}")
     
     def log_llm_call(self, session_id: str, model: str, tokens_used: int,
                      cost_usd: float, duration: float, success: bool,
@@ -322,7 +325,7 @@ class Tracer:
             try:
                 plugin.log_event(event)
             except Exception as e:
-                print(f"⚠️ Plugin error in log_llm_call: {e}")
+                logger.warning(f"Plugin error in log_llm_call: {e}")
 
     def log_method_call(self, session_id: str, method_name: str, method_type: str,
                        args: tuple, kwargs: Dict[str, Any], result: Any,
@@ -357,7 +360,7 @@ class Tracer:
             try:
                 plugin.log_event(event)
             except Exception as e:
-                print(f"⚠️ Plugin error in log_method_call: {e}")
+                logger.warning(f"Plugin error in log_method_call: {e}")
     
     def log_event(self, session_id: str, event_type: str, metadata: Dict[str, Any]):
         """Log a general event"""
@@ -385,7 +388,7 @@ class Tracer:
             try:
                 plugin.log_event(event)
             except Exception as e:
-                print(f"⚠️ Plugin error in log_event: {e}")
+                logger.warning(f"Plugin error in log_event: {e}")
     
     def _save_session_trace(self, session_id: str):
         """Save session trace to file with hierarchical data"""

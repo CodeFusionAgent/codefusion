@@ -85,12 +85,19 @@ class WebTools:
                         'source': 'DuckDuckGo',
                         'type': 'related'
                     })
-            
+
             return results
-            
-        except Exception:
+
+        except (requests.RequestException, urllib.error.URLError) as e:
+            print(f"⚠️ [WEB_TOOLS] DuckDuckGo API request failed: {e}")
             return []
-    
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"⚠️ [WEB_TOOLS] Failed to parse DuckDuckGo API response: {e}")
+            return []
+        except Exception as e:
+            print(f"⚠️ [WEB_TOOLS] Unexpected error in DuckDuckGo API search: {e}")
+            return []
+
     def _search_duckduckgo_html(self, query: str, max_results: int) -> List[Dict[str, Any]]:
         """Fallback HTML search for DuckDuckGo"""
         try:
@@ -124,14 +131,13 @@ class WebTools:
                     break
             
             return results
-            
-        except Exception:
+
+        except (requests.RequestException, urllib.error.URLError) as e:
+            print(f"⚠️ [WEB_TOOLS] DuckDuckGo HTML request failed: {e}")
             return []
-            
-        except requests.RequestException as e:
-            return {'error': f'Web search failed: {str(e)}'}
         except Exception as e:
-            return {'error': f'Search processing failed: {str(e)}'}
+            print(f"⚠️ [WEB_TOOLS] Unexpected HTML search error: {e}")
+            return []
     
     def search_documentation(self, topic: str, framework: str = "") -> Dict[str, Any]:
         """Search for official documentation and guides"""

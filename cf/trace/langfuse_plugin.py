@@ -26,7 +26,8 @@ from pathlib import Path
 
 from cf.trace.tracer import TracerPlugin, TraceEvent
 
-# Optional dependency - Langfuse may not be installed
+# Optional dependency - Langfuse may not be installed.
+# Uses try/except pattern to gracefully handle missing optional dependencies.
 try:
     from langfuse import Langfuse
     LANGFUSE_AVAILABLE = True
@@ -70,8 +71,7 @@ class LangfusePlugin(TracerPlugin):
             return
 
         try:
-            from langfuse import Langfuse
-
+            # Use the top-level imported Langfuse (will be None if not available)
             self._langfuse = Langfuse(
                 public_key=public_key,
                 secret_key=secret_key,

@@ -7,10 +7,14 @@ Clean, efficient file operations with grep-based searching and comprehensive met
 import os
 import re
 import time
+import shlex
 import subprocess
 import mimetypes
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+from cf.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class RepoTools:
@@ -25,20 +29,17 @@ class RepoTools:
     def scan_directory(self, directory: str = "", max_depth: int = 3, exclude_dirs: Optional[List[str]] = None) -> Dict[str, Any]:
         """Recursively scan directory to discover files and structure"""
         scan_path = self.repo_path / directory if directory else self.repo_path
-        
-        print(f"🔍 [SCAN] Starting scan of: {scan_path}")
-        print(f"🔍 [SCAN] Max depth: {max_depth}")
-        
+
+        logger.debug(f"Starting scan of: {scan_path}")
+
         if not scan_path.exists():
-            print(f"❌ [SCAN] Directory not found: {scan_path}")
+            logger.error(f"Directory not found: {scan_path}")
             return {'error': f'Directory not found: {scan_path}'}
-        
+
         # Combine default excludes with user-provided ones
         excludes = self.excluded_dirs.copy()
         if exclude_dirs:
             excludes.update(exclude_dirs)
-            
-        print(f"🔍 [SCAN] Excluded dirs: {excludes}")
         
         result = {
             'directory': str(scan_path),
@@ -50,45 +51,30 @@ class RepoTools:
         
         def _scan_recursive(path: Path, current_depth: int):
             if current_depth > max_depth:
-                print(f"⏭️ [SCAN] Skipping depth {current_depth} (max: {max_depth}): {path}")
                 return
-                
-            print(f"📁 [SCAN] Scanning depth {current_depth}: {path}")
-            
+
             try:
                 items = list(path.iterdir())
-                print(f"📂 [SCAN] Found {len(items)} items in {path}")
-                
+
                 for item in items:
                     if item.name.startswith('.') and item.name not in {'.gitignore', '.env'}:
-                        print(f"⏭️ [SCAN] Skipping hidden: {item.name}")
                         continue
-                        
+
                     if item.is_dir():
                         if item.name in excludes:
-                            print(f"🚫 [SCAN] Excluded dir: {item.name}")
                             continue
-                        print(f"📁 [SCAN] Found directory: {item.name}")
                         result['subdirectories'].append(str(item.relative_to(self.repo_path)))
                         _scan_recursive(item, current_depth + 1)
                     elif item.is_file():
                         if item.suffix in self.excluded_extensions:
-                            print(f"🚫 [SCAN] Excluded extension: {item.name} ({item.suffix})")
                             continue
                         if item.stat().st_size > self.max_file_size:
-                            print(f"🚫 [SCAN] File too large: {item.name} ({item.stat().st_size} bytes)")
                             continue
-                            
+
                         is_text = self._is_text_file(item)
                         relative_path = str(item.relative_to(self.repo_path))
                         file_size = item.stat().st_size
-                        
-                        print(f"📄 [SCAN] Found file: {item.name}")
-                        print(f"   📊 Size: {file_size} bytes")
-                        print(f"   📝 Extension: {item.suffix}")
-                        print(f"   📖 Is text: {is_text}")
-                        print(f"   🗂️  Relative path: {relative_path}")
-                        
+
                         file_info = {
                             'path': relative_path,
                             'size': file_size,
@@ -99,17 +85,14 @@ class RepoTools:
                         result['total_files'] += 1
                         result['total_size'] += file_size
             except PermissionError as e:
-                print(f"🚫 [SCAN] Permission denied: {path} - {e}")
+                logger.error(f"Permission denied: {path} - {e}")
             except Exception as e:
-                print(f"❌ [SCAN] Error scanning {path}: {e}")
+                logger.error(f"Error scanning {path}: {e}")
         
         _scan_recursive(scan_path, 0)
-        
-        print(f"✅ [SCAN] Scan complete!")
-        print(f"✅ [SCAN] Total files found: {result['total_files']}")
-        print(f"✅ [SCAN] Total directories found: {len(result['subdirectories'])}")
-        print(f"✅ [SCAN] Total size: {result['total_size']} bytes")
-        
+
+        logger.debug(f"Scan complete: {result['total_files']} files, {len(result['subdirectories'])} directories")
+
         return result
     
     def list_files(self, pattern: str = "*", directory: str = "", recursive: bool = True) -> Dict[str, Any]:
@@ -307,19 +290,16 @@ class RepoTools:
     def get_file_info(self, file_path: str, include_metrics: bool = False) -> Dict[str, Any]:
         """Get metadata about a file, optionally including code metrics"""
         full_path = self.repo_path / file_path
-        
-        print(f"📋 [FILE_INFO] Getting info for: {file_path}")
-        print(f"📋 [FILE_INFO] Include metrics: {include_metrics}")
-        
+
         if not full_path.exists():
-            print(f"❌ [FILE_INFO] File not found: {file_path}")
+            logger.error(f"File not found: {file_path}")
             return {'error': f'File not found: {file_path}'}
-        
+
         try:
             stat = full_path.stat()
             is_text = self._is_text_file(full_path)
             mime_type = mimetypes.guess_type(full_path)[0] or 'unknown'
-            
+
             info = {
                 'file_path': file_path,
                 'size': stat.st_size,
@@ -329,28 +309,16 @@ class RepoTools:
                 'is_text': is_text,
                 'mime_type': mime_type
             }
-            
-            print(f"📋 [FILE_INFO] Metadata extracted:")
-            print(f"   📊 Size: {stat.st_size} bytes")
-            print(f"   📝 Extension: {full_path.suffix}")
-            print(f"   📖 Is text: {is_text}")
-            print(f"   🏷️  MIME type: {mime_type}")
-            
+
             # Add code metrics if requested and file is text
             if include_metrics and info['is_text']:
-                print(f"📊 [FILE_INFO] Calculating code metrics...")
                 metrics = self.calculate_file_metrics(file_path)
                 if 'error' not in metrics:
                     info['code_metrics'] = metrics
-                    print(f"📊 [FILE_INFO] Metrics added: {metrics.get('language', 'unknown')} - {metrics.get('total_lines', 0)} lines")
-                else:
-                    print(f"❌ [FILE_INFO] Metrics calculation failed: {metrics.get('error')}")
-            elif include_metrics and not info['is_text']:
-                print(f"⏭️ [FILE_INFO] Skipping metrics for non-text file")
-            
+
             return info
         except Exception as e:
-            print(f"❌ [FILE_INFO] Failed to get file info: {str(e)}")
+            logger.error(f"Failed to get file info: {str(e)}")
             return {'error': f'Failed to get file info: {str(e)}'}
     
     def _is_text_file(self, file_path: Path) -> bool:
@@ -374,45 +342,32 @@ class RepoTools:
     
     def calculate_file_metrics(self, file_path: str) -> Dict[str, Any]:
         """Calculate code metrics for a file by reading it first"""
-        print(f"📊 [METRICS] Calculating metrics for: {file_path}")
-        
         # Use read_file to get content
         file_data = self.read_file(file_path)
         if 'error' in file_data:
-            print(f"❌ [METRICS] Failed to read file: {file_data.get('error')}")
             return file_data
-        
+
         content = file_data['content']
         lines = content.splitlines()
         extension = Path(file_path).suffix.lower()
         language = self._detect_language(extension)
-        
+
         non_empty_lines = [line for line in lines if line.strip()]
-        
+
         metrics = {
             'total_lines': len(lines),
             'non_empty_lines': len(non_empty_lines),
             'language': language
         }
-        
-        print(f"📊 [METRICS] Basic metrics:")
-        print(f"   📝 Total lines: {len(lines)}")
-        print(f"   📝 Non-empty lines: {len(non_empty_lines)}")
-        print(f"   🏷️  Language: {language}")
-        
+
         # Language-specific complexity analysis
         if extension == '.py':
-            print(f"🐍 [METRICS] Analyzing Python complexity...")
             metrics['complexity_indicators'] = self._analyze_python_complexity(content)
         elif extension in ['.js', '.ts']:
-            print(f"🟨 [METRICS] Analyzing JavaScript/TypeScript complexity...")
             metrics['complexity_indicators'] = self._analyze_js_complexity(content)
         else:
-            print(f"❓ [METRICS] Unknown language, skipping complexity analysis")
             metrics['complexity_indicators'] = {'estimated_complexity': 'unknown'}
-        
-        print(f"📊 [METRICS] Complexity: {metrics['complexity_indicators']}")
-        
+
         return metrics
     
     def analyze_file_structure(self, file_path: str) -> Dict[str, Any]:
@@ -583,6 +538,464 @@ class RepoTools:
             return True
         return False
 
+    # ===== ENHANCED FILE TOOLS =====
+
+    def tail_file(self, file_path: str, lines: int = 10) -> Dict[str, Any]:
+        """
+        Read last N lines of a file (tail equivalent)
+
+        Args:
+            file_path: Path to file (relative to repo root)
+            lines: Number of lines to read from end (default: 10)
+
+        Returns:
+            Dictionary with tail content and metadata
+        """
+        full_path = self.repo_path / file_path
+
+        if not full_path.exists():
+            return {'error': f'File not found: {file_path}'}
+
+        if not full_path.is_file():
+            return {'error': f'Not a file: {file_path}'}
+
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                all_lines = f.readlines()
+
+            tail_lines = all_lines[-lines:] if len(all_lines) >= lines else all_lines
+            content = ''.join(tail_lines)
+
+            return {
+                'file_path': file_path,
+                'content': content,
+                'lines_requested': lines,
+                'lines_returned': len(tail_lines),
+                'total_lines': len(all_lines)
+            }
+
+        except UnicodeDecodeError:
+            return {'error': f'File is not text readable: {file_path}'}
+        except Exception as e:
+            return {'error': f'Failed to read file tail: {str(e)}'}
+
+    def head_file(self, file_path: str, lines: int = 10) -> Dict[str, Any]:
+        """
+        Read first N lines of a file (head equivalent)
+
+        Args:
+            file_path: Path to file (relative to repo root)
+            lines: Number of lines to read from start (default: 10)
+
+        Returns:
+            Dictionary with head content and metadata
+        """
+        full_path = self.repo_path / file_path
+
+        if not full_path.exists():
+            return {'error': f'File not found: {file_path}'}
+
+        if not full_path.is_file():
+            return {'error': f'Not a file: {file_path}'}
+
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                all_lines = f.readlines()
+
+            head_lines = all_lines[:lines] if len(all_lines) >= lines else all_lines
+            content = ''.join(head_lines)
+
+            return {
+                'file_path': file_path,
+                'content': content,
+                'lines_requested': lines,
+                'lines_returned': len(head_lines),
+                'total_lines': len(all_lines)
+            }
+
+        except UnicodeDecodeError:
+            return {'error': f'File is not text readable: {file_path}'}
+        except Exception as e:
+            return {'error': f'Failed to read file head: {str(e)}'}
+
+    def cat_file(self, file_path: str) -> Dict[str, Any]:
+        """
+        Read entire file contents (cat equivalent)
+
+        Args:
+            file_path: Path to file (relative to repo root)
+
+        Returns:
+            Dictionary with full file content and metadata
+        """
+        full_path = self.repo_path / file_path
+
+        if not full_path.exists():
+            return {'error': f'File not found: {file_path}'}
+
+        if not full_path.is_file():
+            return {'error': f'Not a file: {file_path}'}
+
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            lines = content.splitlines()
+
+            return {
+                'file_path': file_path,
+                'content': content,
+                'total_lines': len(lines),
+                'size_bytes': full_path.stat().st_size
+            }
+
+        except UnicodeDecodeError:
+            return {'error': f'File is not text readable: {file_path}'}
+        except Exception as e:
+            return {'error': f'Failed to read file: {str(e)}'}
+
+    def word_count(self, file_path: str) -> Dict[str, Any]:
+        """
+        Count lines, words, and characters in a file (wc equivalent)
+
+        Args:
+            file_path: Path to file (relative to repo root)
+
+        Returns:
+            Dictionary with line/word/character counts
+        """
+        full_path = self.repo_path / file_path
+
+        if not full_path.exists():
+            return {'error': f'File not found: {file_path}'}
+
+        if not full_path.is_file():
+            return {'error': f'Not a file: {file_path}'}
+
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            lines = content.splitlines()
+            words = content.split()
+            chars = len(content)
+            chars_no_spaces = len(content.replace(' ', '').replace('\n', '').replace('\t', ''))
+
+            return {
+                'file_path': file_path,
+                'lines': len(lines),
+                'words': len(words),
+                'characters': chars,
+                'characters_no_whitespace': chars_no_spaces,
+                'bytes': full_path.stat().st_size
+            }
+
+        except UnicodeDecodeError:
+            # For binary files, just return byte count
+            return {
+                'file_path': file_path,
+                'lines': 0,
+                'words': 0,
+                'characters': 0,
+                'bytes': full_path.stat().st_size,
+                'is_binary': True
+            }
+        except Exception as e:
+            return {'error': f'Failed to count: {str(e)}'}
+
+    def regex_replace(self, file_path: str, pattern: str, replacement: str,
+                      flags: str = "", preview_only: bool = True) -> Dict[str, Any]:
+        """
+        Preview or apply regex substitution on file content (sed equivalent)
+        Default is preview-only for safety.
+
+        Args:
+            file_path: Path to file (relative to repo root)
+            pattern: Regex pattern to match
+            replacement: Replacement string (supports \\1, \\2 backreferences)
+            flags: Regex flags ('i' for ignore case, 'm' for multiline, 'g' implied)
+            preview_only: If True, only show preview without modifying file
+
+        Returns:
+            Dictionary with original/modified content preview and match count
+        """
+        full_path = self.repo_path / file_path
+
+        if not full_path.exists():
+            return {'error': f'File not found: {file_path}'}
+
+        if not full_path.is_file():
+            return {'error': f'Not a file: {file_path}'}
+
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Build regex flags
+            re_flags = 0
+            if 'i' in flags:
+                re_flags |= re.IGNORECASE
+            if 'm' in flags:
+                re_flags |= re.MULTILINE
+
+            # Count matches first
+            matches = re.findall(pattern, content, re_flags)
+            match_count = len(matches)
+
+            if match_count == 0:
+                return {
+                    'file_path': file_path,
+                    'pattern': pattern,
+                    'replacement': replacement,
+                    'matches': 0,
+                    'message': 'No matches found'
+                }
+
+            # Perform substitution
+            modified_content = re.sub(pattern, replacement, content, flags=re_flags)
+
+            result = {
+                'file_path': file_path,
+                'pattern': pattern,
+                'replacement': replacement,
+                'matches': match_count,
+                'preview_only': preview_only,
+                'original_lines': len(content.splitlines()),
+                'modified_lines': len(modified_content.splitlines())
+            }
+
+            # Show diff preview (first few changes)
+            original_lines = content.splitlines()
+            modified_lines = modified_content.splitlines()
+            diff_preview = []
+            for i, (orig, mod) in enumerate(zip(original_lines, modified_lines)):
+                if orig != mod:
+                    diff_preview.append({
+                        'line': i + 1,
+                        'original': orig[:200],
+                        'modified': mod[:200]
+                    })
+                    if len(diff_preview) >= 5:  # Limit preview to 5 changes
+                        break
+
+            result['diff_preview'] = diff_preview
+
+            if not preview_only:
+                with open(full_path, 'w', encoding='utf-8') as f:
+                    f.write(modified_content)
+                result['applied'] = True
+                result['message'] = f'Applied {match_count} replacements'
+            else:
+                result['message'] = f'Preview: {match_count} matches would be replaced'
+
+            return result
+
+        except re.error as e:
+            return {'error': f'Invalid regex pattern: {str(e)}'}
+        except UnicodeDecodeError:
+            return {'error': f'File is not text readable: {file_path}'}
+        except Exception as e:
+            return {'error': f'Regex replace failed: {str(e)}'}
+
+    def get_file_stat(self, file_path: str) -> Dict[str, Any]:
+        """
+        Get comprehensive file statistics (stat equivalent)
+        More detailed than get_file_info
+
+        Args:
+            file_path: Path to file (relative to repo root)
+
+        Returns:
+            Dictionary with comprehensive file metadata
+        """
+        full_path = self.repo_path / file_path
+
+        if not full_path.exists():
+            return {'error': f'Path not found: {file_path}'}
+
+        try:
+            stat_info = full_path.stat()
+
+            # Determine file type
+            if full_path.is_file():
+                file_type = 'regular file'
+            elif full_path.is_dir():
+                file_type = 'directory'
+            elif full_path.is_symlink():
+                file_type = 'symbolic link'
+            else:
+                file_type = 'other'
+
+            # Format permissions in octal
+            mode = stat_info.st_mode
+            perms_octal = oct(mode)[-3:]
+
+            # Human-readable permissions
+            perms_str = ''
+            for i, (r, w, x) in enumerate([(0o400, 0o200, 0o100),
+                                            (0o040, 0o020, 0o010),
+                                            (0o004, 0o002, 0o001)]):
+                perms_str += 'r' if mode & r else '-'
+                perms_str += 'w' if mode & w else '-'
+                perms_str += 'x' if mode & x else '-'
+
+            return {
+                'file_path': file_path,
+                'type': file_type,
+                'size_bytes': stat_info.st_size,
+                'size_human': self._human_readable_size(stat_info.st_size),
+                'permissions_octal': perms_octal,
+                'permissions_str': perms_str,
+                'mode': oct(mode),
+                'uid': stat_info.st_uid,
+                'gid': stat_info.st_gid,
+                'inode': stat_info.st_ino,
+                'device': stat_info.st_dev,
+                'hard_links': stat_info.st_nlink,
+                'access_time': stat_info.st_atime,
+                'modify_time': stat_info.st_mtime,
+                'change_time': stat_info.st_ctime,
+                'is_symlink': full_path.is_symlink()
+            }
+
+        except Exception as e:
+            return {'error': f'stat failed: {str(e)}'}
+
+    def _human_readable_size(self, size: int) -> str:
+        """Convert bytes to human-readable format"""
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size < 1024:
+                return f"{size:.1f}{unit}"
+            size /= 1024
+        return f"{size:.1f}PB"
+
+    # ===== BASH EXECUTION TOOL =====
+
+    # Whitelist of allowed command prefixes for security
+    ALLOWED_COMMANDS = [
+        # Version/info commands
+        'python --version', 'python3 --version', 'pip --version', 'pip3 --version',
+        'node --version', 'npm --version', 'npx --version',
+        'git --version', 'git status', 'git log', 'git branch', 'git diff', 'git show',
+        'git blame', 'git rev-parse', 'git remote',
+        # Test runners (read-only inspection)
+        'pytest --collect-only', 'pytest --co', 'npm test --', 'npm run test --',
+        # Linters (read-only)
+        'flake8', 'pylint', 'mypy', 'black --check', 'isort --check',
+        'eslint', 'prettier --check',
+        # Package info
+        'pip list', 'pip show', 'pip freeze', 'npm list', 'npm ls',
+        # Build inspection (dry-run/check only)
+        'make -n', 'npm run build --dry-run',
+        # Directory/file info
+        'du -sh', 'tree', 'ls -la', 'file',
+        # Process inspection
+        'ps aux',
+    ]
+
+    # Dangerous patterns to block
+    BLOCKED_PATTERNS = [
+        'rm -rf', 'rm -r', 'rmdir', 'del ',
+        '>', '>>', '|', '&&', ';', '`', '$(',
+        'sudo', 'su ', 'chmod', 'chown',
+        'curl', 'wget', 'nc ', 'netcat',
+        'eval', 'exec', 'source ',
+        '../', '~/',  # Path traversal
+    ]
+
+    def bash_exec(self, command: str, timeout_seconds: int = 30) -> Dict[str, Any]:
+        """
+        Execute a shell command within the repository directory.
+
+        SECURITY: Only whitelisted commands are allowed.
+        Commands run with timeout protection and output truncation.
+
+        Args:
+            command: Shell command to execute (must match whitelist)
+            timeout_seconds: Max execution time (default 30s, max 60s)
+
+        Returns:
+            Dict with stdout, stderr, return_code, and execution metadata
+        """
+        # Security: Cap timeout
+        timeout_seconds = min(timeout_seconds, 60)
+
+        # Security: Check for blocked patterns
+        command_lower = command.lower()
+        for pattern in self.BLOCKED_PATTERNS:
+            if pattern in command_lower:
+                return {
+                    'error': f'Blocked pattern detected: "{pattern}"',
+                    'command': command,
+                    'allowed': False,
+                    'hint': 'This command contains potentially dangerous patterns'
+                }
+
+        # Security: Check whitelist
+        is_allowed = False
+        matched_prefix = None
+        for allowed in self.ALLOWED_COMMANDS:
+            if command.startswith(allowed) or command_lower.startswith(allowed.lower()):
+                is_allowed = True
+                matched_prefix = allowed
+                break
+
+        if not is_allowed:
+            return {
+                'error': 'Command not in whitelist',
+                'command': command,
+                'allowed': False,
+                'hint': f'Allowed commands: {", ".join(self.ALLOWED_COMMANDS[:10])}...',
+                'suggestion': 'Use one of the allowed command prefixes'
+            }
+
+        try:
+            # Execute with timeout and working directory restriction
+            result = subprocess.run(
+                command,
+                shell=True,
+                cwd=str(self.repo_path),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'}
+            )
+
+            # Truncate output if too long
+            max_output_chars = 10000
+            stdout = result.stdout[:max_output_chars]
+            stderr = result.stderr[:max_output_chars]
+
+            stdout_truncated = len(result.stdout) > max_output_chars
+            stderr_truncated = len(result.stderr) > max_output_chars
+
+            return {
+                'command': command,
+                'matched_prefix': matched_prefix,
+                'return_code': result.returncode,
+                'stdout': stdout,
+                'stderr': stderr,
+                'stdout_truncated': stdout_truncated,
+                'stderr_truncated': stderr_truncated,
+                'success': result.returncode == 0,
+                'working_directory': str(self.repo_path),
+                'timeout_seconds': timeout_seconds
+            }
+
+        except subprocess.TimeoutExpired:
+            return {
+                'error': f'Command timed out after {timeout_seconds}s',
+                'command': command,
+                'timeout': True,
+                'timeout_seconds': timeout_seconds
+            }
+        except Exception as e:
+            return {
+                'error': str(e),
+                'command': command,
+                'exception_type': type(e).__name__
+            }
+
     # ===== METRICS TRACKING FUNCTIONALITY =====
     
     def create_file_metrics_tracker(self) -> Dict[str, Any]:
@@ -638,35 +1051,26 @@ class RepoTools:
     def print_file_metrics(self, metrics: Dict[str, Any]):
         """Print detailed per-file metrics"""
         file_path = metrics['file_path']
-        print(f"\n📊 [CODE_AGENT] Per-file metrics: {file_path}")  
-        print(f"   🛠️  Tool call (read_file): {metrics['read_duration_ms']:.1f}ms")
-        print(f"   📖 File read time: {metrics['read_duration_ms']:.1f}ms") 
-        print(f"   🤖 LLM summary generation: {metrics['llm_duration_ms']:.1f}ms")
-        print(f"   ⏱️  Total file processing: {metrics['total_duration_ms']:.1f}ms")
-        print(f"   🎯 Token usage: {metrics['prompt_tokens']} prompt → {metrics['completion_tokens']} completion = {metrics['total_tokens']} total")
-        print(f"   📄 File size: {metrics['file_size_bytes']} bytes, {metrics['file_lines']} lines")
-        print(f"   {'─' * 80}")
+        logger.debug(f"Per-file metrics: {file_path} - "
+                    f"read: {metrics['read_duration_ms']:.1f}ms, "
+                    f"LLM: {metrics['llm_duration_ms']:.1f}ms, "
+                    f"total: {metrics['total_duration_ms']:.1f}ms, "
+                    f"tokens: {metrics['total_tokens']}")
     
     def print_summary_metrics(self, file_metrics: List[Dict[str, Any]], component_name: str = "CODE_AGENT"):
         """Print comprehensive summary metrics"""
         if not file_metrics:
             return
-        
+
         total_files = len(file_metrics)
         successful_files = len([m for m in file_metrics if m['success']])
         total_read_time = sum(m['read_duration_ms'] for m in file_metrics)
         total_llm_time = sum(m['llm_duration_ms'] for m in file_metrics)
         total_tokens = sum(m['total_tokens'] for m in file_metrics)
-        total_prompt_tokens = sum(m['prompt_tokens'] for m in file_metrics)
-        total_completion_tokens = sum(m['completion_tokens'] for m in file_metrics)
-        
-        print(f"\n📊 [{component_name}] File Analysis Metrics Summary:")
-        print(f"   📁 Files processed: {successful_files}/{total_files}")
-        print(f"   ⏱️  Total read time: {total_read_time:.1f}ms")
-        print(f"   🤖 Total LLM time: {total_llm_time:.1f}ms")
-        print(f"   🎯 Total tokens: {total_tokens} ({total_prompt_tokens} → {total_completion_tokens})")
-        print(f"   📈 Avg tokens/file: {total_tokens/successful_files:.0f}" if successful_files > 0 else "")
-        print(f"   🚀 Avg LLM time/file: {total_llm_time/successful_files:.1f}ms" if successful_files > 0 else "")
+
+        logger.debug(f"[{component_name}] Metrics summary: {successful_files}/{total_files} files, "
+                    f"read: {total_read_time:.1f}ms, LLM: {total_llm_time:.1f}ms, "
+                    f"tokens: {total_tokens}")
     
     def get_metrics_summary(self, file_metrics: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Get metrics summary as dictionary for programmatic use"""

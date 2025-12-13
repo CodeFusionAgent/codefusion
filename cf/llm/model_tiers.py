@@ -17,7 +17,7 @@ from typing import Dict, Any, Optional, List
 from enum import Enum
 import time
 
-from cf.llm.factory import LLMFactory
+from cf.llm.client import LLMFactory
 from cf.utils.llm_parser import LLMResponseParser
 
 
@@ -64,7 +64,7 @@ class TieredLLMManager:
             'advanced': {'calls': 0, 'tokens': 0, 'time': 0.0}
         }
 
-    def _initialize_models(self):
+    def _initialize_models(self) -> None:
         """Initialize LLM models for each tier"""
         # Validate configuration
         if not self.tier_config:
@@ -267,7 +267,7 @@ Return JSON only:
     def decide_coordination(
         self,
         pass_num: int,
-        insights: List[Dict],
+        insights: List[Dict[str, Any]],
         max_passes: int
     ) -> Dict[str, Any]:
         """
@@ -327,7 +327,7 @@ Return JSON only:
         self,
         question: str,
         question_type: str,
-        insights: List[Dict],
+        insights: List[Dict[str, Any]],
         context: Dict[str, Any]
     ) -> str:
         """
@@ -374,7 +374,7 @@ Provide a comprehensive, well-structured answer that directly addresses the ques
             return content if isinstance(content, str) else str(response)
         return str(response)
 
-    def _format_insights_summary(self, insights: List[Dict]) -> str:
+    def _format_insights_summary(self, insights: List[Dict[str, Any]]) -> str:
         """Format insights for coordination decision"""
         if not insights:
             return "No insights yet"
@@ -388,7 +388,7 @@ Provide a comprehensive, well-structured answer that directly addresses the ques
 
         return "\n".join(summary_lines)
 
-    def _format_insights_for_synthesis(self, insights: List[Dict]) -> str:
+    def _format_insights_for_synthesis(self, insights: List[Dict[str, Any]]) -> str:
         """Format insights for final synthesis"""
         sections = []
         for i, insight in enumerate(insights, 1):
