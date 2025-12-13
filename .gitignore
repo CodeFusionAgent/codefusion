@@ -211,6 +211,19 @@ kb/
 kb_*/
 output/
 cf_trace/
+cf_cache/
+.codefusion/
+.claude-trace/
+CLAUDE.md
 *_config.yaml
 .env
 .env.*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Test outputs
+/tmp/*.log
+*.log
