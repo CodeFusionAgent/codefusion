@@ -81,7 +81,7 @@ def example_1_ast_vs_keywords():
         aggregator.add_experiment(comparison, query_type="pattern_detection")
 
     # Get statistics
-    print("\n=Ê Variant Statistics:")
+    print("\n== Variant Statistics:")
     print("-" * 80)
 
     with_ast_stats = aggregator.get_variant_statistics("with_ast_patterns")
@@ -102,7 +102,7 @@ def example_1_ast_vs_keywords():
     # Head-to-head comparison
     comparison = aggregator.compare_variants("with_ast_patterns", "keyword_only")
 
-    print("\n<Æ Head-to-Head Comparison:")
+    print("\n<= Head-to-Head Comparison:")
     print("-" * 80)
     print(f"Winner by Confidence: {comparison['winner_by_confidence']}")
     print(f"Winner by Speed: {comparison['winner_by_speed']}")
@@ -113,7 +113,7 @@ def example_1_ast_vs_keywords():
 
     # Save results
     results_file = runner.save_results("ast_vs_keywords_experiment.json")
-    print(f"\n=¾ Results saved to: {results_file}")
+    print(f"\n== Results saved to: {results_file}")
 
     print("\n Conclusion:")
     if comparison['confidence_difference'] > 0.1:
@@ -197,7 +197,7 @@ def example_2_embedding_models():
     # Analyze by query type
     analysis = aggregator.get_query_type_analysis("semantic_search")
 
-    print("\n=Ê Query Type Analysis:")
+    print("\n== Query Type Analysis:")
     print("-" * 80)
     print(f"Best variant for semantic search: {analysis['best_variant']}")
     print(f"Recommendation: {analysis['recommendation']}")
@@ -280,7 +280,7 @@ def example_3_cost_benefit_analysis():
     )
 
     # Print cost summary
-    print("\n=° Cost Summary:")
+    print("\n== Cost Summary:")
     print("-" * 80)
 
     summary = runner.get_summary()
@@ -349,7 +349,7 @@ if __name__ == "__main__":
     print("3. Analyze cost/performance tradeoffs")
     print("4. Use custom metrics")
 
-    print("\n   NOTE: Update repo_path in each example before running!")
+    print("\n=  NOTE: Update repo_path in each example before running!")
     print("="*80)
 
     # Uncomment to run examples:

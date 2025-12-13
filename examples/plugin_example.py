@@ -16,9 +16,8 @@ from cf.knowledge.plugin_registry import (
     LayerType,
     register_semantic_layer
 )
-from cf.knowledge.semantic.embeddings import CodeEmbedder, CodeEmbedding, EmbeddingModel
-from cf.knowledge.patterns.design_patterns import DesignPatternDetector, PatternMatch, DesignPattern
-from cf.knowledge.metrics import KnowledgeLayerMetrics
+from cf.knowledge_base.semantic_search import CodeEmbedder, CodeEmbedding, EmbeddingModel
+from cf.knowledge_base.code_analysis import DesignPatternDetector, PatternMatch, DesignPattern
 
 
 # ============================================================================

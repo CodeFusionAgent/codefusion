@@ -10,12 +10,11 @@ import tempfile
 import pytest
 from pathlib import Path
 
-from cf.knowledge.structural.schema import FileNode, FunctionNode, ClassNode, ModuleNode, Relationship, RelationType, StructuralData
-from cf.knowledge.structural.neo4j_client import Neo4jKnowledgeBase
-from cf.knowledge.structural.ast_parser import PythonASTParser
-from cf.knowledge.incremental.file_watcher import FileChangeDetector
-from cf.knowledge.incremental.differential import IncrementalKBUpdater
-from cf.agents.pipelines.structural import StructuralPipeline
+from cf.knowledge_base.schema import FileNode, FunctionNode, ClassNode, ModuleNode, Relationship, RelationType, StructuralData
+from cf.knowledge_base.kb_orchestrator import Neo4jKnowledgeBase
+from cf.knowledge_base.code_parser import PythonASTParser
+from cf.knowledge_base.incremental import FileChangeDetector, IncrementalKBUpdater
+from cf.knowledge_base.kb_orchestrator import KBOrchestrator
 
 
 # Skip all tests if Neo4j is not available
@@ -266,8 +265,8 @@ class TestNeo4jKnowledgeBase:
 
 @pytest.mark.integration
 @skip_if_no_neo4j
-class TestStructuralPipeline:
-    """Test suite for StructuralPipeline"""
+class TestKBOrchestrator:
+    """Test suite for KBOrchestrator"""
 
     def test_kb_build(self, temp_repo, kb, test_repo_id):
         """Test KB build process"""
@@ -313,7 +312,7 @@ def function2():
         }
 
         # Create pipeline
-        pipeline = StructuralPipeline(temp_repo, config, kb=kb)
+        pipeline = KBOrchestrator(temp_repo, config, kb=kb)
 
         # Override repo_id for testing
         pipeline.repo_id = test_repo_id
@@ -365,7 +364,7 @@ def original_function():
         }
 
         # Create pipeline and build
-        pipeline = StructuralPipeline(temp_repo, config, kb=kb)
+        pipeline = KBOrchestrator(temp_repo, config, kb=kb)
         pipeline.repo_id = test_repo_id
         pipeline.parser.repo_id = test_repo_id
 

@@ -9,8 +9,8 @@ import tempfile
 import pytest
 from pathlib import Path
 
-from cf.knowledge.structural.ast_parser import PythonASTParser
-from cf.knowledge.structural.schema import FunctionNode, ClassNode
+from cf.knowledge_base.code_parser import PythonASTParser
+from cf.knowledge_base.schema import FunctionNode, ClassNode
 
 
 @pytest.fixture
