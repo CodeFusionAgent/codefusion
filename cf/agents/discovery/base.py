@@ -1,5 +1,7 @@
 """
-Discovery Strategies for CodeFusion
+Discovery Strategy Base Class
+
+Base class for all file discovery strategies.
 """
 
 from typing import Dict, List, Any, Optional
@@ -15,4 +17,3 @@ class DiscoveryStrategy:
     def execute(self, question: str, context: Dict[str, Any]) -> List[FileCandidate]:
         """Execute discovery strategy and return candidates"""
         raise NotImplementedError
-

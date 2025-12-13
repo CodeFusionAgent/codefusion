@@ -65,8 +65,8 @@ class DiscoveryResult:
             sorted_files = sorted(self.files, key=lambda f: f.relevance_score, reverse=True)
             return sorted_files[:n]
 
-# Import discovery strategies
-from cf.agents.pipelines.discovery_strategies import (
+# Import discovery strategies from consolidated module
+from cf.agents.discovery import (
     DiscoveryStrategy,
     DomainDetectionStrategy,
     KeywordMatchingStrategy,

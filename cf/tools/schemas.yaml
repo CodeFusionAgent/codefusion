@@ -1,0 +1,1027 @@
+# Tool Schemas for CodeFusion LLM Function Calling
+# OpenAPI-style function schemas for all tools in the registry
+
+# Repository Tools
+scan_directory:
+  type: function
+  function:
+    name: scan_directory
+    description: Recursively scan directory to discover files and structure
+    parameters:
+      type: object
+      properties:
+        directory:
+          type: string
+          description: Directory to scan
+        max_depth:
+          type: integer
+          description: Maximum recursion depth
+      required:
+        - directory
+
+list_files:
+  type: function
+  function:
+    name: list_files
+    description: List files matching pattern in directory
+    parameters:
+      type: object
+      properties:
+        pattern:
+          type: string
+          description: File pattern (e.g., *.py)
+        directory:
+          type: string
+          description: Directory to search
+        recursive:
+          type: boolean
+          description: Search recursively
+      required:
+        - pattern
+
+read_file:
+  type: function
+  function:
+    name: read_file
+    description: Read contents of a specific file
+    parameters:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: Path to file to read
+        max_lines:
+          type: integer
+          description: Maximum lines to read
+      required:
+        - file_path
+
+search_files:
+  type: function
+  function:
+    name: search_files
+    description: Search for pattern across multiple files
+    parameters:
+      type: object
+      properties:
+        pattern:
+          type: string
+          description: Search pattern
+        file_types:
+          type: array
+          items:
+            type: string
+          description: File extensions to search
+        max_results:
+          type: integer
+          description: Maximum results to return
+      required:
+        - pattern
+
+get_file_info:
+  type: function
+  function:
+    name: get_file_info
+    description: Get metadata about a file
+    parameters:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: Path to file
+      required:
+        - file_path
+
+# Enhanced File Tools (tail, wc, sed, stat equivalents)
+tail_file:
+  type: function
+  function:
+    name: tail_file
+    description: Read last N lines of a file (like Unix tail command)
+    parameters:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: Path to file (relative to repo root)
+        lines:
+          type: integer
+          description: Number of lines to read from end (default 10)
+          default: 10
+      required:
+        - file_path
+
+head_file:
+  type: function
+  function:
+    name: head_file
+    description: Read first N lines of a file (like Unix head command)
+    parameters:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: Path to file (relative to repo root)
+        lines:
+          type: integer
+          description: Number of lines to read from start (default 10)
+          default: 10
+      required:
+        - file_path
+
+cat_file:
+  type: function
+  function:
+    name: cat_file
+    description: Read entire file contents (like Unix cat command). Returns full content with line count and size.
+    parameters:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: Path to file (relative to repo root)
+      required:
+        - file_path
+
+word_count:
+  type: function
+  function:
+    name: word_count
+    description: Count lines, words, and characters in a file (like Unix wc command)
+    parameters:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: Path to file (relative to repo root)
+      required:
+        - file_path
+
+regex_replace:
+  type: function
+  function:
+    name: regex_replace
+    description: Preview or apply regex substitution on file content (like Unix sed command). Default is preview-only for safety.
+    parameters:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: Path to file (relative to repo root)
+        pattern:
+          type: string
+          description: Regex pattern to match
+        replacement:
+          type: string
+          description: Replacement string (supports \1, \2 backreferences)
+        flags:
+          type: string
+          description: "Regex flags: 'i' for ignore case, 'm' for multiline"
+          default: ""
+        preview_only:
+          type: boolean
+          description: If true, only show preview without modifying file (default true)
+          default: true
+      required:
+        - file_path
+        - pattern
+        - replacement
+
+get_file_stat:
+  type: function
+  function:
+    name: get_file_stat
+    description: Get comprehensive file statistics including permissions, size, timestamps, inode (like Unix stat command)
+    parameters:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: Path to file (relative to repo root)
+      required:
+        - file_path
+
+# Shell Execution Tool
+bash_exec:
+  type: function
+  function:
+    name: bash_exec
+    description: Execute whitelisted shell commands (git, pytest, linters) within the repository. Only safe, read-only commands are allowed for security.
+    parameters:
+      type: object
+      properties:
+        command:
+          type: string
+          description: Shell command to execute (must match whitelist - git status/log/diff, pytest --collect-only, flake8, pylint, etc.)
+        timeout_seconds:
+          type: integer
+          description: Max execution time in seconds (default 30, max 60)
+          default: 30
+      required:
+        - command
+
+# LLM Analysis Tools
+analyze_code_structure:
+  type: function
+  function:
+    name: analyze_code_structure
+    description: Analyze code architecture and structure using LLM
+    parameters:
+      type: object
+      properties:
+        code_content:
+          type: string
+          description: Code to analyze
+        file_path:
+          type: string
+          description: Path of the code file
+        focus:
+          type: string
+          description: What to focus on (functions, classes, patterns)
+      required:
+        - code_content
+
+extract_functions:
+  type: function
+  function:
+    name: extract_functions
+    description: Extract function signatures and documentation from code
+    parameters:
+      type: object
+      properties:
+        code_content:
+          type: string
+          description: Code to analyze
+        file_path:
+          type: string
+          description: Path of the code file
+      required:
+        - code_content
+
+extract_classes:
+  type: function
+  function:
+    name: extract_classes
+    description: Extract class definitions and methods from code
+    parameters:
+      type: object
+      properties:
+        code_content:
+          type: string
+          description: Code to analyze
+        file_path:
+          type: string
+          description: Path of the code file
+      required:
+        - code_content
+
+detect_patterns:
+  type: function
+  function:
+    name: detect_patterns
+    description: Detect design and architectural patterns in code
+    parameters:
+      type: object
+      properties:
+        code_content:
+          type: string
+          description: Code to analyze
+        file_path:
+          type: string
+          description: Path of the code file
+        pattern_types:
+          type: array
+          items:
+            type: string
+          description: Types of patterns to look for
+      required:
+        - code_content
+
+summarize_code:
+  type: function
+  function:
+    name: summarize_code
+    description: Generate summary of code functionality and structure
+    parameters:
+      type: object
+      properties:
+        code_content:
+          type: string
+          description: Code to summarize
+        file_path:
+          type: string
+          description: Path of the code file
+        summary_type:
+          type: string
+          description: Type of summary (overview, detailed, technical)
+      required:
+        - code_content
+
+# Web Search Tools
+web_search:
+  type: function
+  function:
+    name: web_search
+    description: Search web for information about topic
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query
+        max_results:
+          type: integer
+          description: Maximum results to return
+      required:
+        - query
+
+search_documentation:
+  type: function
+  function:
+    name: search_documentation
+    description: Search for official documentation and guides
+    parameters:
+      type: object
+      properties:
+        topic:
+          type: string
+          description: Documentation topic to search
+        framework:
+          type: string
+          description: Framework or technology name
+      required:
+        - topic
+
+# ==========================================
+# KB TOOLS (with grep/AST fallback)
+# These tools work with or without KB built
+# ==========================================
+
+find_callers:
+  type: function
+  function:
+    name: find_callers
+    description: Find all functions that call a specific function. Uses KB graph query if available, falls back to grep + AST parsing.
+    parameters:
+      type: object
+      properties:
+        function_name:
+          type: string
+          description: Name of the function to find callers for
+        max_results:
+          type: integer
+          description: Maximum results to return
+          default: 100
+      required:
+        - function_name
+
+find_callees:
+  type: function
+  function:
+    name: find_callees
+    description: Find all functions called by a specific function. Uses KB graph query if available, falls back to AST parsing.
+    parameters:
+      type: object
+      properties:
+        function_name:
+          type: string
+          description: Name of the function to find callees for
+        max_results:
+          type: integer
+          description: Maximum results to return
+          default: 100
+      required:
+        - function_name
+
+find_usages:
+  type: function
+  function:
+    name: find_usages
+    description: Find all usages of a symbol (function, class, variable). Uses KB if available, falls back to grep.
+    parameters:
+      type: object
+      properties:
+        symbol_name:
+          type: string
+          description: Name of the symbol to find usages for
+        symbol_type:
+          type: string
+          description: Type of symbol (any, function, class, variable)
+          default: any
+        max_results:
+          type: integer
+          description: Maximum results to return
+          default: 100
+      required:
+        - symbol_name
+
+search_by_semantics:
+  type: function
+  function:
+    name: search_by_semantics
+    description: Search code by semantic meaning. Uses KB embeddings if available, falls back to keyword search.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Semantic search query (e.g., "authentication logic", "database connection")
+        scope:
+          type: string
+          description: Search scope (all, module, package)
+          default: all
+        limit:
+          type: integer
+          description: Maximum results to return
+          default: 20
+      required:
+        - query
+
+search_by_functionality:
+  type: function
+  function:
+    name: search_by_functionality
+    description: Find code that implements specific functionality. Uses KB if available, falls back to keyword + pattern matching.
+    parameters:
+      type: object
+      properties:
+        description:
+          type: string
+          description: Functional description (e.g., "validates email addresses", "parses JSON")
+        limit:
+          type: integer
+          description: Maximum results
+          default: 20
+      required:
+        - description
+
+find_dependencies:
+  type: function
+  function:
+    name: find_dependencies
+    description: Find what a module/function depends on (imports and calls). Uses KB if available, falls back to AST import analysis.
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: Target module or function name to analyze
+        dependency_type:
+          type: string
+          description: Type of dependencies (imports, calls, or all)
+          default: all
+      required:
+        - target
+
+find_files_for_question:
+  type: function
+  function:
+    name: find_files_for_question
+    description: Find relevant files to answer a question. Uses KB semantic search if available, falls back to keyword matching.
+    parameters:
+      type: object
+      properties:
+        question:
+          type: string
+          description: The question to find files for
+        max_results:
+          type: integer
+          description: Maximum number of files to return
+          default: 50
+      required:
+        - question
+
+find_related_tests:
+  type: function
+  function:
+    name: find_related_tests
+    description: Find test files related to a source file. Uses KB if available, falls back to naming conventions and import analysis.
+    parameters:
+      type: object
+      properties:
+        source_file:
+          type: string
+          description: Path to the source file to find related tests for
+        max_results:
+          type: integer
+          description: Maximum number of test files to return
+          default: 20
+      required:
+        - source_file
+
+# Knowledge Base Tool Schemas
+# These are the 22 structural KB tools that should be available for LLM function calling
+
+# ==========================================
+# HIGH-LEVEL DISCOVERY
+# ==========================================
+
+structural_kb_find_files_for_question:
+  type: function
+  function:
+    name: structural_kb_find_files_for_question
+    description: Find relevant files to answer a specific question using KB-powered discovery (semantic search + graph queries)
+    parameters:
+      type: object
+      properties:
+        question:
+          type: string
+          description: The question to find files for
+        max_results:
+          type: integer
+          description: Maximum number of files to return
+          default: 50
+      required:
+        - question
+
+# ==========================================
+# SEMANTIC LAYER TOOLS
+# ==========================================
+
+structural_kb_search_by_semantics:
+  type: function
+  function:
+    name: structural_kb_search_by_semantics
+    description: Search code by semantic meaning using embeddings (finds code that conceptually matches the query)
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Semantic search query (e.g., "authentication logic", "database connection")
+        scope:
+          type: string
+          description: Search scope (all, module, package)
+          default: all
+        limit:
+          type: integer
+          description: Maximum results to return
+          default: 20
+      required:
+        - query
+
+structural_kb_search_by_functionality:
+  type: function
+  function:
+    name: structural_kb_search_by_functionality
+    description: Find code that implements specific behavior or functionality
+    parameters:
+      type: object
+      properties:
+        description:
+          type: string
+          description: Functional description (e.g., "validates email addresses", "parses JSON")
+        limit:
+          type: integer
+          description: Maximum results
+          default: 20
+      required:
+        - description
+
+structural_kb_find_similar_components:
+  type: function
+  function:
+    name: structural_kb_find_similar_components
+    description: Find components similar to a given component (useful for finding analogous implementations)
+    parameters:
+      type: object
+      properties:
+        component_id:
+          type: string
+          description: ID of the reference component (file path, function name, or class name)
+        limit:
+          type: integer
+          description: Maximum similar components to find
+          default: 10
+      required:
+        - component_id
+
+structural_kb_detect_duplicate_code:
+  type: function
+  function:
+    name: structural_kb_detect_duplicate_code
+    description: Detect duplicate or highly similar code blocks across the codebase
+    parameters:
+      type: object
+      properties:
+        similarity_threshold:
+          type: number
+          description: Similarity threshold (0.0-1.0), higher = more similar
+          default: 0.85
+      required: []
+
+structural_kb_search_by_example:
+  type: function
+  function:
+    name: structural_kb_search_by_example
+    description: Search for code similar to a provided example code snippet
+    parameters:
+      type: object
+      properties:
+        code_snippet:
+          type: string
+          description: Example code snippet to find similar code for
+        limit:
+          type: integer
+          description: Maximum results
+          default: 10
+      required:
+        - code_snippet
+
+# ==========================================
+# PATTERN LAYER TOOLS
+# ==========================================
+
+structural_kb_find_design_patterns:
+  type: function
+  function:
+    name: structural_kb_find_design_patterns
+    description: Find implementations of design patterns (Singleton, Factory, Observer, etc.)
+    parameters:
+      type: object
+      properties:
+        pattern_type:
+          type: string
+          description: Pattern type to find (all, Singleton, Factory, Observer, Strategy, etc.)
+          default: all
+      required: []
+
+structural_kb_detect_code_smells:
+  type: function
+  function:
+    name: structural_kb_detect_code_smells
+    description: Detect code smells and anti-patterns in the codebase
+    parameters:
+      type: object
+      properties:
+        scope:
+          type: string
+          description: Scope to check (all, file, module, package)
+          default: all
+      required: []
+
+structural_kb_find_similar_patterns:
+  type: function
+  function:
+    name: structural_kb_find_similar_patterns
+    description: Find similar pattern implementations across the codebase (useful for identifying pattern variations and refactoring opportunities)
+    parameters:
+      type: object
+      properties:
+        pattern_name:
+          type: string
+          description: Name of the pattern to find similar implementations of (e.g., "Factory", "Singleton", "Observer")
+        similarity_threshold:
+          type: number
+          description: Similarity threshold (0.0-1.0), higher = more similar
+          default: 0.7
+        limit:
+          type: integer
+          description: Maximum number of similar patterns to return
+          default: 10
+      required:
+        - pattern_name
+
+# ==========================================
+# ARCHITECTURE LAYER TOOLS
+# ==========================================
+
+structural_kb_get_architecture_overview:
+  type: function
+  function:
+    name: structural_kb_get_architecture_overview
+    description: Get high-level architectural overview of the system or a specific scope
+    parameters:
+      type: object
+      properties:
+        scope:
+          type: string
+          description: Scope of overview (all, module name, package name)
+          default: all
+      required: []
+
+structural_kb_get_module_boundaries:
+  type: function
+  function:
+    name: structural_kb_get_module_boundaries
+    description: Get module boundaries, interfaces, and encapsulation information
+    parameters:
+      type: object
+      properties: {}
+      required: []
+
+structural_kb_identify_cross_cutting_concerns:
+  type: function
+  function:
+    name: structural_kb_identify_cross_cutting_concerns
+    description: Identify cross-cutting concerns (logging, auth, caching) that span multiple components
+    parameters:
+      type: object
+      properties: {}
+      required: []
+
+structural_kb_find_layer_components:
+  type: function
+  function:
+    name: structural_kb_find_layer_components
+    description: Find all components in a specific architectural layer
+    parameters:
+      type: object
+      properties:
+        layer:
+          type: string
+          description: Layer name (presentation, business, data, service, controller, model, etc.)
+      required:
+        - layer
+
+# ==========================================
+# CODE NAVIGATION TOOLS
+# ==========================================
+
+structural_kb_find_callers:
+  type: function
+  function:
+    name: structural_kb_find_callers
+    description: Find all functions/methods that call a specific function
+    parameters:
+      type: object
+      properties:
+        function_name:
+          type: string
+          description: Name of the function to find callers for
+        max_results:
+          type: integer
+          description: Maximum results
+          default: 100
+      required:
+        - function_name
+
+structural_kb_find_callees:
+  type: function
+  function:
+    name: structural_kb_find_callees
+    description: Find all functions/methods called by a specific function
+    parameters:
+      type: object
+      properties:
+        function_name:
+          type: string
+          description: Name of the function to find callees for
+        max_results:
+          type: integer
+          description: Maximum results
+          default: 100
+      required:
+        - function_name
+
+structural_kb_find_usages:
+  type: function
+  function:
+    name: structural_kb_find_usages
+    description: Find all usages of a symbol (variable, function, class, etc.)
+    parameters:
+      type: object
+      properties:
+        symbol_name:
+          type: string
+          description: Name of the symbol to find usages for
+        symbol_type:
+          type: string
+          description: Type of symbol (any, function, class, variable, module)
+          default: any
+        max_results:
+          type: integer
+          description: Maximum results
+          default: 100
+      required:
+        - symbol_name
+
+structural_kb_find_related_tests:
+  type: function
+  function:
+    name: structural_kb_find_related_tests
+    description: Find test files related to a specific source file
+    parameters:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: Path to the source file
+        include_indirect:
+          type: boolean
+          description: Include indirectly related tests
+          default: false
+      required:
+        - file_path
+
+structural_kb_find_implementations:
+  type: function
+  function:
+    name: structural_kb_find_implementations
+    description: Find implementations of an interface or abstract class
+    parameters:
+      type: object
+      properties:
+        interface_name:
+          type: string
+          description: Name of the interface or abstract class
+        include_indirect:
+          type: boolean
+          description: Include indirect implementations
+          default: false
+      required:
+        - interface_name
+
+structural_kb_find_subclasses:
+  type: function
+  function:
+    name: structural_kb_find_subclasses
+    description: Find all subclasses of a given class
+    parameters:
+      type: object
+      properties:
+        class_name:
+          type: string
+          description: Name of the parent class
+        include_indirect:
+          type: boolean
+          description: Include indirect subclasses (grandchildren, etc.)
+          default: false
+        max_results:
+          type: integer
+          description: Maximum results
+          default: 50
+      required:
+        - class_name
+
+structural_kb_find_type_usages:
+  type: function
+  function:
+    name: structural_kb_find_type_usages
+    description: Find where a type is used (parameters, return types, annotations)
+    parameters:
+      type: object
+      properties:
+        type_name:
+          type: string
+          description: Name of the type to find usages for
+        max_results:
+          type: integer
+          description: Maximum results
+          default: 50
+      required:
+        - type_name
+
+# ==========================================
+# LIFE-OF-X LAYER TOOLS (Execution Tracing)
+# ==========================================
+
+structural_kb_trace_execution_path:
+  type: function
+  function:
+    name: structural_kb_trace_execution_path
+    description: Trace execution path from an entry point (shows how code flows through the system)
+    parameters:
+      type: object
+      properties:
+        entry_point:
+          type: string
+          description: Entry point function/method name (e.g., "authenticate", "process_request")
+        max_depth:
+          type: integer
+          description: Maximum depth to trace
+          default: 10
+        max_paths:
+          type: integer
+          description: Maximum number of paths to return
+          default: 5
+      required:
+        - entry_point
+
+structural_kb_trace_data_flow:
+  type: function
+  function:
+    name: structural_kb_trace_data_flow
+    description: Trace how data flows through the system from a starting point
+    parameters:
+      type: object
+      properties:
+        start_element:
+          type: string
+          description: Starting element (variable, parameter, function) to trace data from
+        max_depth:
+          type: integer
+          description: Maximum depth to trace
+          default: 10
+      required:
+        - start_element
+
+structural_kb_trace_request_lifecycle:
+  type: function
+  function:
+    name: structural_kb_trace_request_lifecycle
+    description: Trace the complete lifecycle of a request from entry to exit
+    parameters:
+      type: object
+      properties:
+        endpoint_function:
+          type: string
+          description: Entry point/endpoint function name
+        max_depth:
+          type: integer
+          description: Maximum depth to trace
+          default: 15
+      required:
+        - endpoint_function
+
+# Dependency Analysis Tools
+structural_kb_find_dependencies:
+  type: function
+  function:
+    name: structural_kb_find_dependencies
+    description: Find what a module/function depends on (imports and calls)
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: Target module or function name to analyze
+        dependency_type:
+          type: string
+          description: Type of dependencies (imports, calls, or all)
+          default: all
+          enum: [imports, calls, all]
+      required:
+        - target
+
+structural_kb_find_dependents:
+  type: function
+  function:
+    name: structural_kb_find_dependents
+    description: Find what depends on a module/function (reverse dependencies)
+    parameters:
+      type: object
+      properties:
+        target:
+          type: string
+          description: Target module or function name to analyze
+      required:
+        - target
+
+structural_kb_detect_circular_dependencies:
+  type: function
+  function:
+    name: structural_kb_detect_circular_dependencies
+    description: Detect circular import dependencies in the codebase
+    parameters:
+      type: object
+      properties: {}
+
+structural_kb_get_dependency_graph:
+  type: function
+  function:
+    name: structural_kb_get_dependency_graph
+    description: Get dependency graph for visualization
+    parameters:
+      type: object
+      properties:
+        root_module:
+          type: string
+          description: Optional root module to start from (if not provided, returns full graph)
+        max_depth:
+          type: integer
+          description: Maximum depth to traverse from root
+          default: 3
+
+# Documentation Tools
+structural_kb_search_docstrings:
+  type: function
+  function:
+    name: structural_kb_search_docstrings
+    description: Search indexed function and class docstrings
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query to match in docstrings
+        limit:
+          type: integer
+          description: Maximum number of results to return
+          default: 10
+      required:
+        - query
+
+structural_kb_search_readme:
+  type: function
+  function:
+    name: structural_kb_search_readme
+    description: Search README and documentation files for information
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Search query to find in documentation
+      required:
+        - query

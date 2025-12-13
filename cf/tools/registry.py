@@ -7,20 +7,22 @@ Tracks per-tool metrics for cost analysis.
 """
 
 import time
+import yaml
 from typing import Dict, Any, Callable, Optional
 from pathlib import Path
 
 from cf.tools.repo_tools import RepoTools
 from cf.tools.llm_tools import LLMTools
 from cf.tools.web_tools import WebTools
-from cf.tools.metrics import ToolMetricsTracker
-from cf.tools.resolver import ToolNameResolver
+from cf.tools.kb_tools import KBTools
+from cf.tools.registry_helpers import ToolMetricsTracker, ToolNameResolver
 
 
 class ToolRegistry:
     """Central registry for all CodeFusion tools"""
 
-    def __init__(self, repo_path: str, agent_registry: Optional[Any] = None):
+    def __init__(self, repo_path: str, agent_registry: Optional[Any] = None,
+                 kb_orchestrator: Optional[Any] = None):
         self.repo_path = repo_path
         self.agent_registry = agent_registry
 
@@ -28,12 +30,16 @@ class ToolRegistry:
         self.repo_tools = RepoTools(repo_path)
         self.llm_tools = LLMTools()
         self.web_tools = WebTools()
+        self.kb_tools = KBTools(repo_path, kb_orchestrator)
 
         # Initialize metrics tracker
         self.metrics_tracker = ToolMetricsTracker()
 
         # Initialize tool name resolver
         self.resolver = ToolNameResolver()
+
+        # Load tool schemas from YAML
+        self._schemas = self._load_schemas()
 
         # Register all available tools
         self.tools: Dict[str, Callable] = {}
@@ -42,7 +48,22 @@ class ToolRegistry:
         # Register agent tools if registry provided
         if self.agent_registry:
             self._register_agent_tools()
-    
+
+    def _load_schemas(self) -> Dict[str, Any]:
+        """Load tool schemas from YAML file"""
+        schema_path = Path(__file__).parent / 'schemas.yaml'
+
+        try:
+            with open(schema_path, 'r') as f:
+                schemas = yaml.safe_load(f)
+            return schemas if schemas else {}
+        except FileNotFoundError:
+            print(f"⚠️ Schema file not found: {schema_path}")
+            return {}
+        except Exception as e:
+            print(f"⚠️ Failed to load schemas: {e}")
+            return {}
+
     def _register_tools(self):
         """Register all available tools"""
         
@@ -52,7 +73,18 @@ class ToolRegistry:
         self.tools['read_file'] = self.repo_tools.read_file
         self.tools['search_files'] = self.repo_tools.search_files
         self.tools['get_file_info'] = self.repo_tools.get_file_info
-        
+
+        # Enhanced file tools (head, tail, cat, wc, sed, stat equivalents)
+        self.tools['head_file'] = self.repo_tools.head_file
+        self.tools['tail_file'] = self.repo_tools.tail_file
+        self.tools['cat_file'] = self.repo_tools.cat_file
+        self.tools['word_count'] = self.repo_tools.word_count
+        self.tools['regex_replace'] = self.repo_tools.regex_replace
+        self.tools['get_file_stat'] = self.repo_tools.get_file_stat
+
+        # Shell execution tool (with security whitelist)
+        self.tools['bash_exec'] = self.repo_tools.bash_exec
+
         # LLM-based analysis tools
         self.tools['analyze_code_structure'] = self.llm_tools.analyze_code_structure
         self.tools['extract_functions'] = self.llm_tools.extract_functions
@@ -63,6 +95,16 @@ class ToolRegistry:
         # Web search tools
         self.tools['web_search'] = self.web_tools.search
         self.tools['search_documentation'] = self.web_tools.search_documentation
+
+        # KB tools (work with or without KB - fallback to grep/AST)
+        self.tools['find_callers'] = self.kb_tools.find_callers
+        self.tools['find_callees'] = self.kb_tools.find_callees
+        self.tools['find_usages'] = self.kb_tools.find_usages
+        self.tools['search_by_semantics'] = self.kb_tools.search_by_semantics
+        self.tools['search_by_functionality'] = self.kb_tools.search_by_functionality
+        self.tools['find_dependencies'] = self.kb_tools.find_dependencies
+        self.tools['find_files_for_question'] = self.kb_tools.find_files_for_question
+        self.tools['find_related_tests'] = self.kb_tools.find_related_tests
     
     def execute(self, tool_name: str, **params) -> Dict[str, Any]:
         """Execute a tool with parameters and track metrics"""
@@ -72,6 +114,10 @@ class ToolRegistry:
         # If resolution failed, return helpful error
         if resolved_name is None:
             return self.resolver.get_resolution_error(tool_name, self.tools)
+
+        # Log tool call with truncated params
+        param_str = ", ".join([f"{k}={str(v)[:50]}..." if len(str(v)) > 50 else f"{k}={v}" for k, v in params.items()])
+        print(f"🔧 Tool call: {resolved_name}({param_str})")
 
         start_time = time.time()
         success = False
@@ -106,6 +152,12 @@ class ToolRegistry:
         finally:
             duration = time.time() - start_time
 
+            # Log tool completion with metrics
+            status_icon = "✅" if success else "❌"
+            metrics_str = f" | {tokens} tokens" if tokens > 0 else ""
+            metrics_str += f" | ${cost:.4f}" if cost > 0 else ""
+            print(f"   {status_icon} Completed in {duration:.2f}s{metrics_str}")
+
             # Record metrics
             self.metrics_tracker.record_call(
                 tool_name=resolved_name,
@@ -128,214 +180,57 @@ class ToolRegistry:
             'read_file': 'Read file contents',
             'search_files': 'Search for pattern across files',
             'get_file_info': 'Get file metadata',
-            
+
+            # Enhanced file tools (head, tail, cat, wc, sed, stat equivalents)
+            'head_file': 'Read first N lines of a file (like head)',
+            'tail_file': 'Read last N lines of a file (like tail)',
+            'cat_file': 'Read entire file contents (like cat)',
+            'word_count': 'Count lines, words, and characters (like wc)',
+            'regex_replace': 'Preview/apply regex substitution (like sed)',
+            'get_file_stat': 'Get comprehensive file statistics (like stat)',
+
+            # Shell execution tool
+            'bash_exec': 'Execute whitelisted shell commands (git, pytest, linters)',
+
             # LLM analysis tools
             'analyze_code_structure': 'Analyze code architecture using LLM',
             'extract_functions': 'Extract function signatures and docs',
             'extract_classes': 'Extract class definitions and methods',
             'detect_patterns': 'Detect design/architectural patterns',
             'summarize_code': 'Generate code summary',
-            
+
             # Web search tools
             'web_search': 'Search web for information',
-            'search_documentation': 'Search for official documentation'
+            'search_documentation': 'Search for official documentation',
+
+            # KB tools (work with or without KB - fallback to grep/AST)
+            'find_callers': 'Find functions that call a specific function',
+            'find_callees': 'Find functions called by a specific function',
+            'find_usages': 'Find all usages of a symbol',
+            'search_by_semantics': 'Search code by semantic meaning',
+            'search_by_functionality': 'Find code implementing specific functionality',
+            'find_dependencies': 'Find what a module/function depends on',
+            'find_files_for_question': 'Find relevant files to answer a question',
+            'find_related_tests': 'Find test files related to a source file'
         }
     
     def get_tool_schema(self, tool_name: str) -> Dict[str, Any]:
         """Get OpenAPI-style schema for tool (for LLM function calling)"""
-        schemas = {
-            # Repository tools
-            'scan_directory': {
-                'type': 'function',
-                'function': {
-                    'name': 'scan_directory',
-                    'description': 'Recursively scan directory to discover files and structure',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'directory': {'type': 'string', 'description': 'Directory to scan'},
-                            'max_depth': {'type': 'integer', 'description': 'Maximum recursion depth'}
-                        },
-                        'required': ['directory']
-                    }
-                }
-            },
-            'list_files': {
-                'type': 'function',
-                'function': {
-                    'name': 'list_files',
-                    'description': 'List files matching pattern in directory',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'pattern': {'type': 'string', 'description': 'File pattern (e.g., *.py)'},
-                            'directory': {'type': 'string', 'description': 'Directory to search'},
-                            'recursive': {'type': 'boolean', 'description': 'Search recursively'}
-                        },
-                        'required': ['pattern']
-                    }
-                }
-            },
-            'read_file': {
-                'type': 'function',
-                'function': {
-                    'name': 'read_file',
-                    'description': 'Read contents of a specific file',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'file_path': {'type': 'string', 'description': 'Path to file to read'},
-                            'max_lines': {'type': 'integer', 'description': 'Maximum lines to read'}
-                        },
-                        'required': ['file_path']
-                    }
-                }
-            },
-            'search_files': {
-                'type': 'function', 
-                'function': {
-                    'name': 'search_files',
-                    'description': 'Search for pattern across multiple files',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'pattern': {'type': 'string', 'description': 'Search pattern'},
-                            'file_types': {'type': 'array', 'items': {'type': 'string'}, 'description': 'File extensions to search'},
-                            'max_results': {'type': 'integer', 'description': 'Maximum results to return'}
-                        },
-                        'required': ['pattern']
-                    }
-                }
-            },
-            'get_file_info': {
-                'type': 'function',
-                'function': {
-                    'name': 'get_file_info',
-                    'description': 'Get metadata about a file',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'file_path': {'type': 'string', 'description': 'Path to file'}
-                        },
-                        'required': ['file_path']
-                    }
-                }
-            },
-            
-            # LLM analysis tools
-            'analyze_code_structure': {
-                'type': 'function',
-                'function': {
-                    'name': 'analyze_code_structure',
-                    'description': 'Analyze code architecture and structure using LLM',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'code_content': {'type': 'string', 'description': 'Code to analyze'},
-                            'file_path': {'type': 'string', 'description': 'Path of the code file'},
-                            'focus': {'type': 'string', 'description': 'What to focus on (functions, classes, patterns)'}
-                        },
-                        'required': ['code_content']
-                    }
-                }
-            },
-            'extract_functions': {
-                'type': 'function',
-                'function': {
-                    'name': 'extract_functions',
-                    'description': 'Extract function signatures and documentation from code',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'code_content': {'type': 'string', 'description': 'Code to analyze'},
-                            'file_path': {'type': 'string', 'description': 'Path of the code file'}
-                        },
-                        'required': ['code_content']
-                    }
-                }
-            },
-            'extract_classes': {
-                'type': 'function',
-                'function': {
-                    'name': 'extract_classes',
-                    'description': 'Extract class definitions and methods from code',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'code_content': {'type': 'string', 'description': 'Code to analyze'},
-                            'file_path': {'type': 'string', 'description': 'Path of the code file'}
-                        },
-                        'required': ['code_content']
-                    }
-                }
-            },
-            'detect_patterns': {
-                'type': 'function',
-                'function': {
-                    'name': 'detect_patterns',
-                    'description': 'Detect design and architectural patterns in code',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'code_content': {'type': 'string', 'description': 'Code to analyze'},
-                            'file_path': {'type': 'string', 'description': 'Path of the code file'},
-                            'pattern_types': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Types of patterns to look for'}
-                        },
-                        'required': ['code_content']
-                    }
-                }
-            },
-            'summarize_code': {
-                'type': 'function',
-                'function': {
-                    'name': 'summarize_code',
-                    'description': 'Generate summary of code functionality and structure',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'code_content': {'type': 'string', 'description': 'Code to summarize'},
-                            'file_path': {'type': 'string', 'description': 'Path of the code file'},
-                            'summary_type': {'type': 'string', 'description': 'Type of summary (overview, detailed, technical)'}
-                        },
-                        'required': ['code_content']
-                    }
-                }
-            },
-            
-            # Web search tools
-            'web_search': {
-                'type': 'function',
-                'function': {
-                    'name': 'web_search',
-                    'description': 'Search web for information about topic',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'query': {'type': 'string', 'description': 'Search query'},
-                            'max_results': {'type': 'integer', 'description': 'Maximum results to return'}
-                        },
-                        'required': ['query']
-                    }
-                }
-            },
-            'search_documentation': {
-                'type': 'function',
-                'function': {
-                    'name': 'search_documentation',
-                    'description': 'Search for official documentation and guides',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'topic': {'type': 'string', 'description': 'Documentation topic to search'},
-                            'framework': {'type': 'string', 'description': 'Framework or technology name'}
-                        },
-                        'required': ['topic']
-                    }
-                }
-            }
-        }
-        
-        return schemas.get(tool_name, {})
+        # First check local schemas
+        schema = self._schemas.get(tool_name)
+        if schema:
+            return schema
+
+        # Check agent registry for KB tool schemas
+        if self.agent_registry:
+            all_agent_schemas = self.agent_registry.get_all_tool_schemas()
+            for agent_schema in all_agent_schemas:
+                # Agent schemas have 'function.name' structure
+                func = agent_schema.get('function', agent_schema)
+                if func.get('name') == tool_name:
+                    return agent_schema
+
+        return {}
     
     def get_all_schemas(self) -> list:
         """Get all tool schemas for LLM function calling"""

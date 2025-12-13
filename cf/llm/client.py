@@ -10,13 +10,40 @@ import os
 import re
 import time
 import requests
-from typing import Dict, List, Any, Optional, Callable
+from typing import Dict, List, Any, Optional, Callable, Tuple
 import traceback
 import hashlib
 import random
 from cf.trace.tracer import trace_method
 
-# Import provider SDKs
+
+class LLMError(Exception):
+    """Base exception for LLM client errors."""
+    pass
+
+
+class RateLimitError(LLMError):
+    """Raised when rate limit is exceeded."""
+    pass
+
+
+class ServerError(LLMError):
+    """Raised when server returns 5xx error."""
+    pass
+
+
+class NetworkError(LLMError):
+    """Raised when network/timeout issues occur."""
+    pass
+
+
+class AuthenticationError(LLMError):
+    """Raised when authentication fails."""
+    pass
+
+# Optional SDK imports - these are optional dependencies that may not be installed.
+# The pattern uses try/except to gracefully degrade when SDKs are missing,
+# allowing the client to work with whichever providers are available.
 try:
     from openai import OpenAI, AzureOpenAI
     OPENAI_AVAILABLE = True
@@ -38,7 +65,7 @@ class LLMClient:
         self.max_tokens = llm_config.get('max_tokens', 2000)
         # Do not set a default temperature; many provider deployments only allow default (1) or reject custom values
         self.temperature = llm_config.get('temperature', None)
-        self.timeout = llm_config.get('timeout', 60)
+        self.timeout = llm_config.get('timeout', 180)
 
         # Retry configuration
         self.max_retries = llm_config.get('max_retries', 3)
@@ -146,6 +173,69 @@ class LLMClient:
         self.tracer = tracer
         self.session_id = session_id
 
+    def _classify_error(self, exception: Exception) -> Tuple[bool, str, Optional[Exception]]:
+        """
+        Classify error and determine if it should be retried.
+
+        Args:
+            exception: The exception that occurred
+
+        Returns:
+            Tuple of (should_retry, error_type, wrapped_exception)
+        """
+        # Handle OpenAI SDK exceptions
+        if OPENAI_AVAILABLE and hasattr(exception, 'status_code'):
+            status_code = getattr(exception, 'status_code', None)
+            if status_code == 429:
+                return (True, f"HTTP {status_code}", RateLimitError(str(exception)))
+            elif status_code in [500, 502, 503, 504]:
+                return (True, f"HTTP {status_code}", ServerError(str(exception)))
+            elif status_code in [401, 403]:
+                return (False, f"HTTP {status_code}", AuthenticationError(str(exception)))
+
+        # Handle Anthropic SDK exceptions
+        if ANTHROPIC_AVAILABLE and 'anthropic' in str(type(exception).__module__):
+            error_str = str(exception).lower()
+            status_code_str = str(getattr(exception, 'status_code', ''))
+
+            if 'rate' in error_str or '429' in error_str:
+                return (True, "rate limit", RateLimitError(str(exception)))
+            elif '5' in status_code_str:
+                return (True, "server error", ServerError(str(exception)))
+            elif 'auth' in error_str or '401' in error_str or '403' in error_str:
+                return (False, "authentication error", AuthenticationError(str(exception)))
+
+        # Handle legacy requests exceptions
+        if hasattr(exception, 'response'):
+            status_code = getattr(exception.response, 'status_code', None) if hasattr(exception, 'response') else None
+            if status_code == 429:
+                return (True, f"HTTP {status_code}", RateLimitError(str(exception)))
+            elif status_code in [500, 502, 503, 504]:
+                return (True, f"HTTP {status_code}", ServerError(str(exception)))
+
+        # Handle timeout/connection errors
+        exception_name = str(type(exception).__name__).lower()
+        if 'timeout' in exception_name or 'connection' in exception_name:
+            return (True, "network error", NetworkError(str(exception)))
+
+        # Unknown error - don't retry
+        return (False, "unknown", exception)
+
+    def _calculate_retry_delay(self, attempt: int) -> float:
+        """
+        Calculate retry delay with optional exponential backoff.
+
+        Args:
+            attempt: Current attempt number (0-indexed)
+
+        Returns:
+            Delay in seconds
+        """
+        if self.use_exponential_backoff:
+            return self.retry_delay * (2 ** attempt)  # 2s, 4s, 8s
+        else:
+            return self.retry_delay
+
     def _retry_with_backoff(self, api_call: Callable, *args, **kwargs) -> Dict[str, Any]:
         """
         Retry API calls with exponential backoff on rate limit errors.
@@ -171,52 +261,24 @@ class LLMClient:
             except Exception as e:
                 last_exception = e
 
-                # Check if it's a retryable error
-                should_retry = False
-                error_type = "unknown"
-
-                # Handle OpenAI SDK exceptions
-                if OPENAI_AVAILABLE and hasattr(e, 'status_code'):
-                    status_code = getattr(e, 'status_code', None)
-                    if status_code in [429, 500, 502, 503, 504]:
-                        should_retry = True
-                        error_type = f"HTTP {status_code}"
-
-                # Handle Anthropic SDK exceptions
-                elif ANTHROPIC_AVAILABLE and 'anthropic' in str(type(e).__module__):
-                    error_str = str(e).lower()
-                    if 'rate' in error_str or '429' in error_str or '5' in str(getattr(e, 'status_code', '')):
-                        should_retry = True
-                        error_type = "rate limit/server error"
-
-                # Handle legacy requests exceptions
-                elif hasattr(e, 'response'):
-                    status_code = getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
-                    if status_code in [429, 500, 502, 503, 504]:
-                        should_retry = True
-                        error_type = f"HTTP {status_code}"
-
-                # Handle timeout/connection errors
-                elif 'timeout' in str(type(e).__name__).lower() or 'connection' in str(type(e).__name__).lower():
-                    should_retry = True
-                    error_type = "network error"
+                # Classify error using helper method
+                should_retry, error_type, wrapped_exception = self._classify_error(e)
 
                 if should_retry and attempt < self.max_retries:
-                    # Calculate delay with exponential backoff
-                    if self.use_exponential_backoff:
-                        delay = self.retry_delay * (2 ** attempt)  # 2s, 4s, 8s
-                    else:
-                        delay = self.retry_delay
+                    # Calculate delay using helper method
+                    delay = self._calculate_retry_delay(attempt)
 
                     print(f"⚠️ API {error_type}, retrying in {delay}s (attempt {attempt + 1}/{self.max_retries})...")
+                    print(f"   Error: {str(e)[:100]}...")  # Show first 100 chars of error
                     time.sleep(delay)
                     continue
                 elif should_retry:
-                    print(f"❌ API call failed after {self.max_retries} retries")
-                    raise
+                    print(f"❌ API call failed after {self.max_retries} retries: {error_type}")
+                    raise wrapped_exception if wrapped_exception else e
                 else:
                     # Don't retry on other errors (auth, bad request, etc.)
-                    raise
+                    print(f"❌ Non-retryable error: {error_type}")
+                    raise wrapped_exception if wrapped_exception else e
 
         # Should never reach here, but just in case
         if last_exception:
@@ -332,6 +394,42 @@ class LLMClient:
         api_url = f"{self.azure_endpoint}/openai/deployments/{self.azure_deployment}/chat/completions?api-version={self.azure_api_version}"
         return self._call_azure_openai_custom(messages, self.azure_deployment, api_key, api_url, **kwargs)
 
+    def _normalize_messages_for_azure_2025(self, messages: List[Dict]) -> List[Dict]:
+        """
+        Normalize messages for Azure OpenAI API version 2025-01-01-preview+.
+
+        Converts simple string content to array format with type information:
+        From: {'role': 'user', 'content': 'text'}
+        To: {'role': 'user', 'content': [{'type': 'text', 'text': 'text'}]}
+
+        Args:
+            messages: Original messages list
+
+        Returns:
+            Normalized messages list
+        """
+        normalized = []
+        for msg in messages:
+            role = msg.get('role')
+            content = msg.get('content')
+
+            # Skip if content is already in array format
+            if isinstance(content, list):
+                normalized.append(msg)
+                continue
+
+            # Convert string content to array format
+            if isinstance(content, str):
+                normalized.append({
+                    'role': role,
+                    'content': [{'type': 'text', 'text': content}]
+                })
+            else:
+                # Keep other content types as-is
+                normalized.append(msg)
+
+        return normalized
+
     def _call_azure_openai_custom(self, messages: List[Dict], deployment: str, api_key: str, api_url: str, **kwargs) -> Dict[str, Any]:
         """Call Azure OpenAI API using their SDK"""
         if not OPENAI_AVAILABLE:
@@ -344,6 +442,11 @@ class LLMClient:
 
         endpoint = endpoint_match.group(1) if endpoint_match else api_url.split('/openai')[0]
         api_version = version_match.group(1) if version_match else '2024-02-15-preview'
+
+        # Normalize messages for API version 2025-01-01-preview+
+        # These versions require content as array of objects with type information
+        if api_version >= "2025-01-01":
+            messages = self._normalize_messages_for_azure_2025(messages)
 
         # Initialize Azure OpenAI client
         client = AzureOpenAI(
@@ -408,6 +511,17 @@ class LLMClient:
 
         if provider == 'anthropic':
             api_key = model_config.get('api_key', '')
+
+            # Proper environment variable fallback for Anthropic credentials
+            if not api_key:
+                api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+                if not api_key:
+                    raise AuthenticationError(
+                        f"No API key found for Anthropic model '{model_name}'. "
+                        f"Please set 'api_key' in cf/configs/llm.yaml or export ANTHROPIC_API_KEY environment variable.\n"
+                        f"Example: export ANTHROPIC_API_KEY='your-key-here'"
+                    )
+
             base_url = model_config.get('base_url', 'https://api.anthropic.com/v1/')
             api_url = f"{base_url.rstrip('/')}/messages"
             return self._call_anthropic(messages, model_name, api_key, api_url, **kwargs)
@@ -416,6 +530,17 @@ class LLMClient:
             endpoint = model_config.get('endpoint', '')
             deployment = model_config.get('deployment', model_name)
             api_key = model_config.get('subscription_key', '')
+
+            # Proper environment variable fallback for Azure credentials
+            if not api_key:
+                api_key = os.environ.get('AZURE_OPENAI_API_KEY', '')
+                if not api_key:
+                    raise AuthenticationError(
+                        f"No API key found for Azure model '{model_name}'. "
+                        f"Please set 'subscription_key' in cf/configs/llm.yaml or export AZURE_OPENAI_API_KEY environment variable.\n"
+                        f"Example: export AZURE_OPENAI_API_KEY='your-key-here'"
+                    )
+
             api_version = model_config.get('api_version', '2024-02-15-preview')
 
             # Build Azure URL
@@ -426,6 +551,22 @@ class LLMClient:
 
         elif provider in ['openai', 'openai-compatible', 'gemini']:
             api_key = model_config.get('api_key', '')
+
+            # Proper environment variable fallback for OpenAI/Gemini credentials
+            if not api_key:
+                if provider == 'gemini':
+                    api_key = os.environ.get('GEMINI_API_KEY', '')
+                else:
+                    api_key = os.environ.get('OPENAI_API_KEY', '')
+
+                if not api_key:
+                    env_var = 'GEMINI_API_KEY' if provider == 'gemini' else 'OPENAI_API_KEY'
+                    raise AuthenticationError(
+                        f"No API key found for {provider} model '{model_name}'. "
+                        f"Please set 'api_key' in cf/configs/llm.yaml or export {env_var} environment variable.\n"
+                        f"Example: export {env_var}='your-key-here'"
+                    )
+
             base_url = model_config.get('base_url', 'https://api.openai.com/v1/chat/completions')
 
             # For OpenAI-compatible APIs, ensure URL ends with /chat/completions
@@ -612,3 +753,46 @@ class LLMClient:
                 'success': False,
                 'error': str(e)
             }
+
+
+# ============================================================================
+# Factory Function (merged from factory.py)
+# ============================================================================
+
+def create_llm_client(model_name: str, config: Dict[str, Any]) -> LLMClient:
+    """
+    Create an LLM client instance with a specific model.
+    
+    Factory function for creating LLM clients with different model configurations.
+    
+    Args:
+        model_name: Name of the model to use
+        config: LLM configuration dictionary
+    
+    Returns:
+        LLMClient instance configured for the specified model
+    """
+    # Override model in config
+    llm_config = config.copy()
+    llm_config['model'] = model_name
+    
+    return LLMClient(llm_config)
+
+
+# Backward compatibility: LLMFactory class wrapper
+class LLMFactory:
+    """Factory for creating LLM client instances (backward compatibility)"""
+    
+    @staticmethod
+    def create_llm(model_name: str, config: Dict[str, Any]) -> LLMClient:
+        """
+        Create an LLM client instance.
+        
+        Args:
+            model_name: Name of the model to use
+            config: LLM configuration dictionary
+        
+        Returns:
+            LLMClient instance configured for the specified model
+        """
+        return create_llm_client(model_name, config)

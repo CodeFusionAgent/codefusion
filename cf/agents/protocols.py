@@ -1,306 +1,210 @@
 """
-Agent Protocols - Interface Definitions
+Agent Registry - Central Registration System
 
-Defines protocols (structural subtyping interfaces) for agent dependencies.
-This enables loose coupling and easier testing through dependency injection.
-
-Using Protocol instead of ABC allows duck typing while maintaining type safety.
+Manages runtime registration and discovery of knowledge agents.
+Provides dynamic tool discovery with consistent naming.
 """
 
-from typing import Protocol, List, Dict, Any, Optional
+from typing import Dict, List, Any, Optional, Callable
 
 
-class KnowledgeBaseProtocol(Protocol):
+class AgentRegistry:
     """
-    Protocol for knowledge base backends.
+    Central registry for all knowledge agents.
 
-    Any class implementing these methods can be used as a KB backend
-    for agents, regardless of inheritance hierarchy.
-
-    This enables:
-    - Swapping KB implementations (Neo4j, in-memory, mock)
-    - Testing agents without full KB infrastructure
-    - Loose coupling between agents and KB layers
-
-    Example:
-        # Real implementation
-        class Neo4jKnowledgeBase:
-            def search_by_natural_language(self, query, top_k):
-                # Query Neo4j with embeddings
-                ...
-
-        # Mock for testing
-        class MockKnowledgeBase:
-            def search_by_natural_language(self, query, top_k):
-                return [{'file': 'test.py', 'score': 0.9}]
-
-        # Both work with StructuralKBAgent!
-        agent = StructuralKBAgent(kb=real_kb, config={})
-        agent = StructuralKBAgent(kb=mock_kb, config={})  # For testing
+    Enables:
+    - Runtime registration of custom agents
+    - Dynamic tool discovery
+    - Agent lifecycle management
+    - Consistent tool naming (always prefixed)
     """
 
-    # Semantic Search Methods
-    def search_by_natural_language(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+    def __init__(self):
+        self._agents: Dict[str, Any] = {}  # agent_name -> KnowledgeAgent
+        self._capabilities: Dict[str, List[str]] = {}  # capability -> agent names
+        self._initialized = set()
+
+    def register(self, agent: Any) -> bool:
         """
-        Search code using natural language query.
+        Register a knowledge agent.
 
         Args:
-            query: Natural language description
-            top_k: Maximum results to return
+            agent: Agent to register (must have 'name' attribute)
 
         Returns:
-            List of matching code elements with metadata
+            True if successful, False if agent name already exists
         """
-        ...
+        if agent.name in self._agents:
+            print(f"⚠️ Agent '{agent.name}' already registered")
+            return False
 
-    def find_similar_code(self, component_id: str, top_k: int = 10) -> List[Dict[str, Any]]:
+        # Register agent
+        self._agents[agent.name] = agent
+
+        # Register capabilities
+        if hasattr(agent, 'get_capabilities'):
+            for capability in agent.get_capabilities():
+                if capability not in self._capabilities:
+                    self._capabilities[capability] = []
+                self._capabilities[capability].append(agent.name)
+
+        print(f"✅ Registered agent: {agent.name}")
+        return True
+
+    def unregister(self, agent_name: str) -> bool:
         """
-        Find code similar to a given component.
+        Unregister an agent.
 
         Args:
-            component_id: Reference component identifier
-            top_k: Maximum similar components
+            agent_name: Name of agent to remove
 
         Returns:
-            List of similar components with similarity scores
+            True if successful, False if not found
         """
-        ...
+        if agent_name not in self._agents:
+            return False
 
-    def detect_duplicate_code(self, similarity_threshold: float = 0.8) -> List[Dict[str, Any]]:
+        agent = self._agents[agent_name]
+
+        # Remove from capabilities
+        if hasattr(agent, 'get_capabilities'):
+            for capability in agent.get_capabilities():
+                if capability in self._capabilities:
+                    self._capabilities[capability].remove(agent_name)
+                    if not self._capabilities[capability]:
+                        del self._capabilities[capability]
+
+        # Remove agent
+        del self._agents[agent_name]
+        self._initialized.discard(agent_name)
+
+        print(f"🗑️ Unregistered agent: {agent_name}")
+        return True
+
+    def get_agent(self, agent_name: str) -> Optional[Any]:
+        """Get agent by name"""
+        return self._agents.get(agent_name)
+
+    def get_agents_by_capability(self, capability: str) -> List[Any]:
+        """Get all agents that provide a specific capability"""
+        agent_names = self._capabilities.get(capability, [])
+        return [self._agents[name] for name in agent_names if name in self._agents]
+
+    def list_agents(self) -> List[str]:
+        """Get list of all registered agent names"""
+        return list(self._agents.keys())
+
+    def list_capabilities(self) -> Dict[str, List[str]]:
+        """Get all capabilities and the agents that provide them"""
+        return self._capabilities.copy()
+
+    def initialize_all(self) -> Dict[str, bool]:
         """
-        Detect duplicate or highly similar code.
-
-        Args:
-            similarity_threshold: Minimum similarity (0.0-1.0)
+        Initialize all registered agents.
 
         Returns:
-            List of duplicate code clusters
+            Dictionary mapping agent names to success status
         """
-        ...
+        results = {}
+        for name, agent in self._agents.items():
+            if name not in self._initialized:
+                try:
+                    if hasattr(agent, 'initialize'):
+                        success = agent.initialize()
+                    else:
+                        success = True
 
-    # Pattern Detection Methods
-    def detect_design_patterns(self, classes: List[Any]) -> List[Dict[str, Any]]:
+                    if success:
+                        self._initialized.add(name)
+                    results[name] = success
+                except Exception as e:
+                    print(f"⚠️ Failed to initialize agent '{name}': {e}")
+                    results[name] = False
+            else:
+                results[name] = True
+        return results
+
+    def get_all_tools(self) -> Dict[str, Callable]:
         """
-        Detect design patterns in code.
+        Get all tools from all registered agents.
 
-        Args:
-            classes: List of class AST nodes or metadata
+        Tool names are ALWAYS prefixed with agent name to prevent collisions:
+        Format: {agent_name}_{tool_name}
 
         Returns:
-            List of detected patterns with locations
-        """
-        ...
+            Dictionary mapping prefixed tool names to callables
 
-    def detect_code_smells(self, classes: List[Any], functions: List[Any]) -> List[Dict[str, Any]]:
+        Raises:
+            ValueError: If tool name collision detected
         """
-        Detect code smells and anti-patterns.
+        tools = {}
 
-        Args:
-            classes: List of class nodes
-            functions: List of function nodes
+        for agent in self._agents.values():
+            # Check if agent is available
+            if hasattr(agent, 'is_available') and not agent.is_available():
+                continue
+
+            # Get agent tools
+            if hasattr(agent, 'register_tools'):
+                agent_tools = agent.register_tools()
+
+                # ALWAYS prefix tool names to prevent collisions
+                for tool_name, tool_func in agent_tools.items():
+                    prefixed_name = f"{agent.name}_{tool_name}"
+
+                    # Check for collisions
+                    if prefixed_name in tools:
+                        raise ValueError(
+                            f"⚠️ Tool name collision: '{prefixed_name}' "
+                            f"already registered by another agent"
+                        )
+
+                    tools[prefixed_name] = tool_func
+
+        return tools
+
+    def get_all_tool_schemas(self) -> List[Dict[str, Any]]:
+        """
+        Get all tool schemas from all registered agents.
 
         Returns:
-            List of code smells with severity
+            List of OpenAPI-style tool schemas
         """
-        ...
+        schemas = []
 
-    # Architecture Analysis Methods
-    def get_repository_stats(self) -> Dict[str, Any]:
+        for agent in self._agents.values():
+            if hasattr(agent, 'is_available') and not agent.is_available():
+                continue
+
+            if hasattr(agent, 'get_tool_schemas'):
+                schemas.extend(agent.get_tool_schemas())
+
+        return schemas
+
+    def get_metrics_summary(self) -> Dict[str, Any]:
         """
-        Get repository statistics.
+        Get performance metrics from all agents.
 
         Returns:
-            Statistics about codebase (files, classes, functions, LOC, etc.)
+            Dictionary with aggregated metrics
         """
-        ...
+        summary = {}
 
-    # Query Execution (for custom queries)
-    def execute_query(self, query: str, params: Dict[str, Any]) -> Any:
-        """
-        Execute a custom query on the knowledge base.
+        for name, agent in self._agents.items():
+            available = True
+            if hasattr(agent, 'is_available'):
+                available = agent.is_available()
 
-        Args:
-            query: Query string (e.g., Cypher for Neo4j)
-            params: Query parameters
+            if available and hasattr(agent, 'get_metrics'):
+                summary[name] = agent.get_metrics()
 
-        Returns:
-            Query results
-        """
-        ...
-
-    # High-Level Discovery Method
-    def find_files_for_question(self, question: str, max_results: int = 50,
-                                question_context: Dict[str, Any] = None) -> List[str]:
-        """
-        Find relevant files for a question using multiple KB strategies.
-
-        Combines semantic search, pattern detection, life-of-x tracing, etc.
-
-        Args:
-            question: User question
-            max_results: Maximum files to return
-            question_context: Optional LLM classification context
-
-        Returns:
-            List of file paths ranked by relevance
-        """
-        ...
-
-    # Life-of-X Methods
-    def trace_execution_path(self, entry_point: str, max_depth: int = 10,
-                            max_paths: int = 5) -> List[Dict[str, Any]]:
-        """
-        Trace execution paths from an entry point.
-
-        Args:
-            entry_point: Function name to start from
-            max_depth: Maximum call depth
-            max_paths: Maximum paths to return
-
-        Returns:
-            List of execution paths
-        """
-        ...
-
-    def trace_data_flow(self, start_element: str, max_depth: int = 20) -> List[Dict[str, Any]]:
-        """
-        Trace data flow from a variable or function.
-
-        Args:
-            start_element: Starting variable/function name
-            max_depth: Maximum trace depth
-
-        Returns:
-            List of data flow edges
-        """
-        ...
-
-    def trace_request_lifecycle(self, endpoint_function: str,
-                                max_depth: int = 20) -> Dict[str, Any]:
-        """
-        Trace HTTP request lifecycle for web applications.
-
-        Args:
-            endpoint_function: API endpoint function name
-            max_depth: Maximum trace depth
-
-        Returns:
-            Request lifecycle information
-        """
-        ...
+        return summary
 
 
-class LLMClientProtocol(Protocol):
-    """
-    Protocol for LLM clients.
-
-    Enables swapping LLM providers (OpenAI, Anthropic, local models)
-    without changing agent code.
-    """
-
-    def generate(self, prompt: str, system_prompt: str = "", **kwargs) -> Dict[str, Any]:
-        """
-        Generate completion from LLM.
-
-        Args:
-            prompt: User prompt
-            system_prompt: System prompt
-            **kwargs: Provider-specific arguments
-
-        Returns:
-            Response with content, usage, model info
-        """
-        ...
-
-    def generate_fast(self, prompt: str, system_prompt: str = "", **kwargs) -> Dict[str, Any]:
-        """
-        Generate using fast/cheap model.
-
-        Args:
-            prompt: User prompt
-            system_prompt: System prompt
-            **kwargs: Provider-specific arguments
-
-        Returns:
-            Response with content, usage, model info
-        """
-        ...
+# Global agent registry instance
+_global_registry = AgentRegistry()
 
 
-class ToolRegistryProtocol(Protocol):
-    """
-    Protocol for tool registries.
-
-    Enables different tool registry implementations.
-    """
-
-    def execute(self, tool_name: str, **params) -> Dict[str, Any]:
-        """
-        Execute a tool with parameters.
-
-        Args:
-            tool_name: Name of tool to execute
-            **params: Tool parameters
-
-        Returns:
-            Tool execution results
-        """
-        ...
-
-    def get_available_tools(self) -> Dict[str, str]:
-        """
-        Get all available tools with descriptions.
-
-        Returns:
-            Dictionary mapping tool names to descriptions
-        """
-        ...
-
-    def get_metrics(self) -> Dict[str, Any]:
-        """
-        Get tool usage metrics.
-
-        Returns:
-            Metrics for all tools
-        """
-        ...
-
-
-class TracerProtocol(Protocol):
-    """
-    Protocol for tracers.
-
-    Enables different tracing implementations (local, Langfuse, custom).
-    """
-
-    def start_session(self, session_name: str) -> str:
-        """
-        Start a tracing session.
-
-        Args:
-            session_name: Name of session
-
-        Returns:
-            Session ID
-        """
-        ...
-
-    def end_session(self, session_id: str):
-        """
-        End a tracing session.
-
-        Args:
-            session_id: Session to end
-        """
-        ...
-
-    def log_event(self, session_id: str, event_type: str, metadata: Dict[str, Any]):
-        """
-        Log a trace event.
-
-        Args:
-            session_id: Session ID
-            event_type: Type of event
-            metadata: Event metadata
-        """
-        ...
+def get_global_registry() -> AgentRegistry:
+    """Get the global agent registry instance"""
+    return _global_registry

@@ -1,607 +1,160 @@
 # CodeFusion Configuration
-# LLM Settings
+# Simplified config with only essential user-configurable parameters
+# All tuning parameters are now hardcoded constants in the code
+
+# =================================================================
+# LLM Configuration
+# =================================================================
 llm:
-  # Global LLM settings (defaults for all models)
-  max_tokens: 2000
-  max_retries: 3  # Number of retry attempts for API calls (429, 5xx errors)
-  retry_delay_seconds: 2  # Initial delay between retries
-  use_exponential_backoff: true  # Use exponential backoff (2s, 4s, 8s, ...)
-  # Multi-Model Tiered Strategy
-  # FAST tier: Cheapest, fastest for simple tasks (file summaries, classification)
-  # STANDARD tier: Balanced for most tasks (general analysis, moderate reasoning)
-  # ADVANCED tier: Best quality for complex reasoning (final synthesis, deep reasoning)
+  timeout: 180
+
+  # Retry settings
+  max_retries: 3
+  retry_delay_seconds: 2
+  use_exponential_backoff: true
+
+  # Tiered model strategy (fast/standard/advanced)
   tiers:
     fast:
-      model: "gpt-4.1-mini"  # Anthropic - $0.25/1M tokens
-      use_cases: ["file_summaries", "classification", "coordination"]
-      cost_per_1m: 0.25
+      model: gpt-4.1-mini
+      use_cases: [file_summaries, classification, coordination]
     standard:
-      model: "gpt-4.1-mini"  # Full GPT-4.1 for better analysis quality
-      use_cases: ["general_analysis", "moderate_reasoning"]
-      cost_per_1m: 2.50
+      model: gpt-4.1-mini
+      use_cases: [general_analysis, moderate_reasoning]
     advanced:
-      model: "gpt-4.1-mini"  # Full GPT-4.1 for better instruction-following on synthesis
-      use_cases: ["final_synthesis", "deep_reasoning"]
-      cost_per_1m: 3.00
+      model: gpt-4.1-mini
+      use_cases: [final_synthesis, deep_reasoning]
 
-  # Tiered LLM operation-specific max_tokens
-  # Each operation type can have different token limits based on complexity
-  operation_limits:
-    file_summary: 500  # Fast tier: file summarization
-    question_classification: 200  # Fast tier: classify question type
-    coordination_decision: 150  # Fast tier: decide next step in multi-pass
-    answer_synthesis: 2000  # Advanced tier: generate final comprehensive answer
-
-  # Per-Model Configurations
-  # Each model can have its own endpoint, API keys, and provider-specific settings
+  # Model configurations - add API keys via environment variables
   models:
-    # Azure OpenAI Models
-    gpt-4o:
-      provider: "azure"
-      endpoint: ""  # e.g., "https://your-resource.openai.azure.com/"
-      deployment: "gpt-4o"  # Your Azure deployment name
-      subscription_key: ""  # Or set AZURE_OPENAI_API_KEY env var
-      api_version: "2024-02-15-preview"
-    gpt-5:
-      provider: "azure"
-      endpoint: "https://arune-mfpva4eo-eastus2.cognitiveservices.azure.com/"
-      model_name: "gpt-5"
-      deployment: "gpt-5"
-      subscription_key: ""  # Set via AZURE_OPENAI_API_KEY environment variable
-      api_version: "2025-01-01-preview"
-    gpt-4.1:
-      provider: "azure"
-      endpoint: "https://ai-arunesh8579ai720415905130.cognitiveservices.azure.com/"
-      model_name: "gpt-4.1"
-      deployment: "gpt-4.1"
-      subscription_key: ""  # Set via environment variable
-      api_version: "2024-12-01-preview"
     gpt-4.1-mini:
-      provider: "azure"
-      endpoint: "https://arune-mfpva4eo-eastus2.openai.azure.com/"
-      subscription_key: ""
-      model_name: "gpt-4.1-mini"
-      deployment: "gpt-4.1-mini"
-      api_version: "2025-01-01-preview"
-    # Anthropic Models
-    claude-3-5-haiku-20241022:
-      provider: "anthropic"
-      api_key: ""  # Or set ANTHROPIC_API_KEY env var
-      base_url: "https://api.anthropic.com/v1/"
+      provider: azure
+      endpoint: https://arune-mfpva4eo-eastus2.openai.azure.com/
+      subscription_key: ''  # Use AZURE_OPENAI_API_KEY env var
+      model_name: gpt-4.1-mini
+      deployment: gpt-4.1-mini
+      api_version: 2024-08-01-preview
+
+    gpt-4o:
+      provider: azure
+      endpoint: ''
+      deployment: gpt-4o
+      subscription_key: ''
+      api_version: 2024-02-15-preview
 
     claude-sonnet-4-5:
-      provider: "anthropic"
-      api_key: ""  # Or set ANTHROPIC_API_KEY env var
-      base_url: "https://api.anthropic.com/v1/"
+      provider: anthropic
+      api_key: ''  # Use ANTHROPIC_API_KEY env var
+      base_url: https://api.anthropic.com/v1/
 
-    # Google Gemini Models (via OpenAI-compatible API)
-    gemini-2.5-flash:
-      provider: "gemini"
-      api_key: ""  # Or set GOOGLE_API_KEY env var
-      base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
-
-    # Meta Llama Models (via OpenAI-compatible API)
-    meta-llama/llama-4-maverick-17b-128e-instruct:
-      provider: "openai-compatible"
-      api_key: ""  # Provider-specific API key
-      base_url: ""  # Provider's base URL
-
-# Agent Settings
+# =================================================================
+# Analysis Configuration
+# =================================================================
 agents:
-  max_iterations: 20  # Increased from 10 to support 3 passes with 3 agents (worst case: 13 iterations + margin)
-  timeout: 300  # seconds
-  max_files_to_analyze: 50  # Maximum files for discovery pipeline
-  min_files_threshold: 3  # Minimum files needed for good analysis (lowered from 8 to 3)
+  # Core limits
+  max_files_to_analyze: 100  # Increased for better coverage
+  max_iterations: 30         # Allow more tool calls per question
+  timeout: 600  # 10 minutes
 
-  # Supervisor coordination settings
-  supervisor:
-    coordination_temperature: 0.1  # Low temperature for consistent agent selection
-    coordination_max_tokens: 150  # Short response for agent selection
-    max_pass_attempts: 3  # Maximum retry attempts for each pass
-    agent_execution_max_workers: 1  # Thread pool workers for agent execution
-    pass_config:
-      standard:
-        max_passes: 3
-      summary:
-        max_passes: 2
-      life_of_x:
-        max_passes: 2
+  # File enrichment limit (how many files get AST analysis)
+  max_files_to_enrich: 25    # Increased from 10
 
-  # Discovery configuration
-  discovery:
-    max_attempts: 3  # Maximum discovery retry attempts if insufficient files found
-    default_max_files: 50  # Default max files to return in get_top_files()
-    max_directories_display: 50  # Max directories to show in directory list
-    max_keyword_matched_dirs: 5  # Max keyword-matched directories to show in prompt
-    max_matched_dirs_return: 5  # Max matched directories to return from keyword search
-    top_keywords_for_grep: 3  # Top keywords to use for grep search
-    relevance_increment: 0.01  # Increment per match count for relevance calculation
-    max_relevance_score: 0.9  # Maximum relevance score
-    truncate_tools_display: 30  # Max tools to show in error messages
-    kb_query_max_results: 100  # Max results for KB queries
-    similarity_to_relevance_factor: 100  # Factor to convert similarity (0-1) to relevance (0-100)
+  # Import following limit (how many imported files to analyze in second pass)
+  max_import_follow: 15
 
-  # Synthesis retry configuration
-  synthesis_retries:
-    max_attempts: 2  # Maximum synthesis retry attempts if validation fails
+  # Multi-pass analysis
+  max_passes: 3
 
-  # Parallel Processing Settings (NEW)
-  # Dramatically improves performance for file analysis
-  parallel_analysis: true  # Enable parallel file analysis (recommended)
-  parallel_workers: 10  # Number of concurrent LLM calls (adjust based on API limits)
-  parallel_min_files: 3  # Minimum files to enable parallel processing
-  max_llm_json_size: 10000  # Maximum JSON response size from LLM (chars)
-  enable_adaptive_workers: true  # Automatically reduce workers on rate limiting (NEW)
+  # Parallel processing (adjust based on API rate limits)
+  parallel_analysis: true
+  parallel_workers: 10
 
-  # Synthesis configuration
-  synthesis:
-    # Proportional word count (scales with number of files analyzed)
-    words_per_file_min: 400     # Minimum words per file (e.g., 3 files = 1200 words)
-    words_per_file_max: 700     # Maximum words per file (e.g., 3 files = 2100 words)
+  # Agent enablement (code-only focus)
+  docs_enabled: false
+  web_enabled: false
 
-    # Absolute limits (fallback for very large/small file counts)
-    target_narrative_min: 1200  # Absolute minimum (for 1-3 files)
-    target_narrative_max: 5000  # Absolute maximum (caps at ~7 files)
+  # LLM-driven adaptive exploration
+  # Enables ReAct-style tool selection for deeper code exploration
+  exploration:
+    enabled: true          # Enable adaptive exploration after file analysis
+    max_iterations: 10     # Max LLM decision loops per question
+    max_tool_calls: 15     # Max tool invocations per exploration
+    tool_timeout_seconds: 30  # Timeout for individual tool calls
 
-    max_key_files_cited: 7      # Maximum files to cite
-    min_key_files_cited: 3      # Minimum files to cite
+# =================================================================
+# Knowledge Base Configuration
+# =================================================================
+knowledge_base:
+  # Enable/disable KB
+  enabled: true
 
-    # LLM generation parameters
-    narrative_max_tokens: 2000  # Max tokens for narrative generation
-    completeness_eval_chars: 2000  # Narrative chars to send for completeness evaluation
+  # KB type: 'sqlite' (default, no setup) or 'neo4j' (requires Neo4j install)
+  type: sqlite
 
-    # KB query limits
-    kb_pattern_query_limit: 500  # Max classes to query for pattern detection
-    kb_execution_max_paths: 10  # Max execution paths to trace from each entry point
+  # Neo4j configuration (if type=neo4j)
+  neo4j:
+    uri: bolt://localhost:7687
+    user: neo4j
+    password: ''  # Use NEO4J_PASSWORD env var
+    database: codefusion
 
-    # Display limits for narrative formatting
-    max_functions_per_file: 5  # Max functions to show per file summary
-    max_classes_per_file: 5    # Max classes to show per file summary
-    max_usage_examples: 3       # Max usage examples from tests
-    max_edge_cases: 3           # Max edge cases from tests
-    max_pattern_files: 3        # Max files to show per design pattern
-    max_entry_points: 3         # Max entry points in architectural summary
-    max_core_abstractions: 3    # Max core abstractions in architectural summary
-    max_execution_paths: 3      # Max execution paths to display
-    max_steps_per_path: 10      # Max steps to show per execution path
-    max_shared_abstractions: 5  # Max shared abstractions in cross-file relationships
-    max_files_per_abstraction: 2  # Max files to show per shared abstraction
-    max_dependencies: 5         # Max component dependencies to display
-    max_data_flows: 5           # Max data flow roles to display
-    max_validation_errors: 5    # Max validation errors to show
-    max_validation_warnings: 5  # Max validation warnings to show
-    max_insights: 20            # Max insights to include in narrative prompt
+  # SQLite configuration (if type=sqlite)
+  sqlite:
+    db_path: .codefusion/knowledge.db
 
-  # Structural KB Agent Tool Defaults
-  structural_kb_agent:
-    # Semantic search limits
-    default_search_limit: 10  # Default number of results for semantic/functionality search
-    default_similar_components_limit: 10  # Default for finding similar components
-    default_example_search_limit: 10  # Default for search by code example
-    duplicate_code_similarity_threshold: 0.8  # Similarity threshold for duplicate detection
-    snippet_preview_length: 100  # Characters to show in code snippet previews
+  # Build settings
+  build:
+    auto_build: true
+    parallel_workers: 10
+    languages: [python]
 
-    # Code navigation limits
-    default_callers_limit: 20  # Default max callers to return
-    default_callees_limit: 20  # Default max callees to return
-    default_usages_limit: 30  # Default max symbol usages to return
+  # Semantic search
+  semantic:
+    enabled: true
+    embedding_model: all-MiniLM-L6-v2  # Local model, no API needed
+    cache_file: .codefusion/embeddings.pkl
 
-    # Execution tracing limits
-    trace_execution_max_depth: 10  # Default max depth for execution path tracing
-    trace_execution_max_paths: 5  # Default max paths to return for execution tracing
-    trace_dataflow_max_depth: 20  # Default max depth for data flow tracing
-    trace_lifecycle_max_depth: 20  # Default max depth for request lifecycle tracing
+  # Pattern detection
+  patterns:
+    enabled: true
+    detect_design_patterns: true
+    detect_code_smells: true
 
-    # File discovery limits
-    default_file_discovery_limit: 50  # Default max files to return for question
-    query_result_limit: 1000  # Maximum results for large KB queries
-
-  # Thresholds for confidence scoring and decision making
-  thresholds:
-    high_confidence: 0.8
-    medium_confidence: 0.7
-    low_confidence: 0.6
-    error_confidence: 0.2
-    partial_confidence: 0.5
-    max_confidence: 0.9
-    min_confidence: 0.3  # Minimum confidence for accepting results
-    min_insights_for_pass: 2  # Minimum insights required before moving to next pass
-    loop_detection_min_actions: 3  # Minimum actions before checking for loops
-    min_relevance_score: 0.3  # Minimum relevance score for file inclusion (0.0-1.0)
-
-    # Validation thresholds
-    # ADJUSTED: Line coverage lowered to 0.05 based on real-world testing (4-10% is typical for quality narratives)
-    # Path accuracy and invalid line number issues are resolved, so we can enforce higher quality
-    min_analysis_certainty: 0.6  # Minimum grounding score for validation (lowered from 0.7)
-    min_line_coverage: 0.05  # Minimum line number coverage (lowered from 0.10 to 0.05 to prevent excessive retries)
-    min_path_accuracy: 0.5  # Minimum file path accuracy (lowered from 0.9 to 50%)
-    validation_no_refs_score: 0.3  # Score when no references found
-    validation_refs_base: 0.5  # Base score for grounding calculation
-    validation_refs_increment: 0.05  # Increment per reference
-
-  # Synthesis quality thresholds
-  synthesis_thresholds:
-    word_count_tolerance: 0.83  # Accept if >= 83% of target (minimum acceptable)
-    line_refs_high: 5  # High quality line reference count
-    line_refs_medium: 3  # Medium quality line reference count
-    path_refs_high: 5  # High quality path reference count
-    path_refs_medium: 3  # Medium quality path reference count
-    code_blocks_min: 4  # Minimum code blocks for bonus
-    sections_min: 3  # Minimum sections for structure bonus
-
-  # Validation configuration (Anti-hallucination)
-  validation:
-    enable_fact_verification: true  # Verify claims against actual code
-    max_claims_to_verify: 20  # Limit for performance (verify top 20 claims)
-    min_identifier_match: 0.2  # Minimum % of identifiers that must match (lowered from 0.3 to reduce false negatives)
-    use_llm_verification: false  # Use LLM for complex verification (costs more)
-
-    # File path patterns for validation (configurable for different repo structures)
-    file_path_prefixes:  # Common source code directory prefixes
-      - apps
-      - src
-      - lib
-      - test
-      - tests
-      - cf
-      - backend
-      - frontend
-      - server
-      - client
-      - pkg
-      - internal
-      - cmd
-      - api
-      - core
-      - services
-      - components
-      - modules
-    max_file_line_gap_chars: 100  # Max chars between file path and line number (reduced from 500 to prevent cross-paragraph pairing)
-    claim_context_chars: 200  # Number of chars to search backwards for file path context
-    line_verification_context: 5  # Number of context lines to read around target line for verification
-    max_architectural_claims: 10  # Maximum architectural claims to verify
-    read_code_context_lines: 3  # Default context lines when reading code
-    llm_verification_temperature: 0.0  # Temperature for LLM-based fact verification
-    llm_verification_max_tokens: 10  # Max tokens for LLM verification response
-
-  # Life-of-X Configuration (NEW)
-  # Execution path tracing for "how does X work?" questions
-  max_execution_trace_depth: 10  # Maximum call chain depth to trace
-  enable_execution_tracing: true  # Enable automatic execution path tracing
-
-  # Semantic Search Configuration (NEW)
-  semantic_search_top_k: 30  # Number of semantically similar files to return (increased from 20)
-  min_semantic_similarity: 0.4  # Minimum similarity threshold (0-1) (lowered from 0.5)
-
-  # Incremental Context Building (NEW)
-  # Analyze files in phases: core → dependencies → periphery
-  enable_incremental_analysis: false  # Enable phased analysis (experimental)
-  incremental_phase_delay_ms: 100  # Delay between phases for context propagation
-
-# Cache Settings
+# =================================================================
+# System Configuration
+# =================================================================
 cache:
-  enabled: false                 # Set to false to disable caching for debugging
-  cache_dir: "cf_cache"          # Directory to store cache files
-  ttl: 3600                      # Time to live in seconds (1 hour)
-  similarity_threshold: 0.8      # Semantic similarity threshold (0.0-1.0)
+  enabled: false  # Disable for deterministic eval results
+  cache_dir: cf_cache
 
-# Tracing Settings
+logging:
+  level: INFO
+  verbose: false
+
 trace:
   enabled: true
-  output_dir: "cf_trace"
+  output_dir: cf_trace
 
-# Logging Settings
-logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-  verbose: false  # Enable detailed agent activity logging
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+# =================================================================
+# Discovery & Validation
+# =================================================================
+discovery:
+  prioritize_test_files: true  # Analyze tests first to understand behavior
+  use_kb_queries: true
+  fallback_to_keywords: true
 
-# Repository Settings
-repo:
-  max_files: 1000
-  max_file_size: 1048576  # 1MB
-  max_scan_depth: 5  # Maximum directory depth for repository scanning
-  max_analysis_files: 50  # Maximum files to analyze for performance control
-  # Source code extensions (analyzed by CodeAgent)
-  source_code_extensions:
-    - ".py"
-    - ".js" 
-    - ".ts"
-    - ".jsx"
-    - ".tsx"
-    - ".java"
-    - ".cpp"
-    - ".c"
-    - ".h"
-    - ".hpp"
-    - ".go"
-    - ".rs"
-    - ".rb"
-    - ".php"
-    - ".swift"
-    - ".kt"
-    - ".scala"
-    - ".cs"
-    - ".vb"
-    - ".r"
-    - ".m"
-    - ".mm"
-    - ".cc"
-    - ".cxx"
-    - ".hh"
-    - ".hxx"
-    - ".f90"
-    - ".f95"
-    - ".pl"
-    - ".pm"
-    - ".sh"
-    - ".bash"
-    - ".zsh"
-    - ".fish"
-  
-  # Configuration/schema files (analyzed by CodeAgent)
-  config_extensions:
-    - ".json"
-    - ".yaml"
-    - ".yml"
-    - ".toml"
-    - ".ini"
-    - ".cfg"
-    - ".conf"
-    - ".xml"
-    - ".html"
-    - ".css"
-    - ".sql"
+validation:
+  enable_fact_verification: true
+  provide_fix_suggestions: true
 
-  # Documentation extensions (DISABLED - building separate documentation KB later)
-  # Currently focusing on CODE-ONLY knowledge base
-  # Will integrate documentation KB after code KB is validated and tested
-  documentation_extensions: []
-  # Future documentation extensions (when documentation KB is ready):
-  # documentation_extensions:
-  #   - ".md"
-  #   - ".rst"
-  #   - ".txt"
-  #   - ".adoc"
-  #   - ".org"
-
-  # All text extensions (for general file operations)
-  text_extensions:
-    - ".py"
-    - ".js" 
-    - ".ts"
-    - ".jsx"
-    - ".tsx"
-    - ".java"
-    - ".cpp"
-    - ".c"
-    - ".h"
-    - ".hpp"
-    - ".go"
-    - ".rs"
-    - ".rb"
-    - ".php"
-    - ".swift"
-    - ".kt"
-    - ".scala"
-    - ".cs"
-    - ".vb"
-    - ".r"
-    - ".m"
-    - ".mm"
-    - ".cc"
-    - ".cxx"
-    - ".hh"
-    - ".hxx"
-    - ".f90"
-    - ".f95"
-    - ".pl"
-    - ".pm"
-    - ".sh"
-    - ".bash"
-    - ".zsh"
-    - ".fish"
-    - ".json"
-    - ".yaml"
-    - ".yml"
-    - ".toml"
-    - ".ini"
-    - ".cfg"
-    - ".conf"
-    - ".xml"
-    - ".html"
-    - ".css"
-    - ".sql"
-    # DOCUMENTATION EXTENSIONS REMOVED - focusing on code-only KB
-    # - ".md"
-    # - ".rst"
-    # - ".txt"
-    # - ".adoc"
-    # - ".org"
-  excluded_dirs:
-    - ".git"
-    - "__pycache__"
-    - "node_modules"
-    - ".venv"
-    - "venv"
-    - "build"
-    - "dist"
-    - "spec"
-  excluded_extensions:
-    - ".pyc"
-    - ".pyo"
-    - ".so"
-    - ".dll"
-
-# Knowledge Base Settings (Structural Analysis)
-knowledge_base:
-  enabled: true  # Enable persistent knowledge base (recommended for large repos)
-  type: sqlite  # Options: "neo4j" (graph DB, best for large codebases) or "sqlite" (file-based, lightweight)
-
-  # Neo4j Connection Settings (when type = "neo4j")
-  # Recommended for: Large codebases (>10K files), complex graph queries, production use
-  neo4j:
-    uri: "bolt://localhost:7687"
-    user: "neo4j"
-    password: ""  # Set via NEO4J_PASSWORD environment variable
-    database: "codefusion"
-
-  # SQLite Settings (when type = "sqlite")
-  # Recommended for: Small-medium codebases (<10K files), local development, quick setup
-  # No external database server required - stores everything in a single file
-  sqlite:
-    db_path: ".codefusion/knowledge.db"  # Path to SQLite database file
-
-  # KB Build Settings
-  build:
-    # Parallel processing for KB construction
-    parallel_workers: 10  # Number of parallel workers for parsing
-    batch_size: 100       # Files per batch
-    progress_interval: 1000  # Log progress every N files
-    max_build_time_seconds: 7200  # Maximum time for KB build (2 hours)
-
-    # Languages to parse (currently only Python supported)
-    languages:
-      - python
-      # Future: javascript, typescript, go, java
-
-    # Build on first analysis
-    auto_build: true  # Automatically build KB if doesn't exist
-
-  # Incremental Update Settings
-  incremental:
-    enabled: true  # Enable incremental updates (dramatically improves performance)
-    check_interval: 300  # Check for file changes every N seconds
-    auto_update: true  # Automatically update KB when files change
-    use_file_hashing: true  # Use MD5 hashing for accurate change detection
-
-  # Query Optimization
-  query:
-    max_graph_depth: 5  # Maximum depth for call chain traversal
-    cache_query_results: true  # Cache graph query results
-    cache_ttl: 3600  # Query cache TTL in seconds
-    max_results: 100  # Maximum results per query
-
-  # Discovery Enhancement
-  discovery:
-    use_kb_queries: true  # Use graph queries for file discovery (much faster)
-    fallback_to_keywords: true  # Fall back to keyword matching if KB query fails
-    prefer_structural_queries: true  # Prefer structural queries over keyword matching
-
-  # Semantic Layer Settings
-  semantic:
-    enabled: true  # Enable semantic search and code similarity
-    # Use local sentence-transformers (no external API calls)
-    embedding_model: "all-MiniLM-L6-v2"  # or "all-mpnet-base-v2" for higher quality
-    use_local_model: true  # Prefer local embeddings
-    use_llm_client: false  # Do not route embeddings through LLMClient
-    cache_embeddings: true  # Cache embeddings to disk
-    cache_file: ".codefusion/embeddings.pkl"
-    similarity_threshold: 0.3  # Minimum similarity for search results (lowered from 0.5 to capture domain-specific queries)
-    default_relevance: 0.7  # Default relevance score if invalid
-
-    # Semantic Search API Defaults
-    default_top_k: 10  # Default number of results to return
-    default_min_similarity: 0.5  # Default minimum similarity threshold
-    function_search_min_similarity: 0.7  # Minimum similarity for function searches
-    class_search_min_similarity: 0.7  # Minimum similarity for class searches
-    duplicate_code_threshold: 0.8  # Similarity threshold for duplicate code detection
-
-  # Pattern Recognition Settings
-  patterns:
-    enabled: true  # Enable design pattern and code smell detection
-    detect_design_patterns: true  # Detect design patterns (Factory, Singleton, etc)
-    detect_architectural_patterns: true  # Detect architectural patterns (MVC, Repository, etc)
-    detect_code_smells: true  # Detect code smells (God Class, Long Method, etc)
-    max_classes_to_analyze: 500  # Maximum classes to query for pattern detection
-
-    # Pattern detection confidence scoring
-    confidence:
-      min_confidence: 0.5  # Minimum confidence to report pattern
-      max_confidence: 0.95  # Maximum confidence cap
-      # Singleton pattern scoring
-      singleton_private_constructor: 0.3
-      singleton_static_instance: 0.3
-      singleton_lazy_init: 0.2
-      # Factory pattern scoring
-      factory_return_type: 0.5
-      factory_conditional: 0.3
-      factory_polymorphism: 0.2
-      # Observer pattern scoring
-      observer_subject_methods: 0.6
-      observer_update_method: 0.2
-      observer_subscription: 0.2
-      # Strategy pattern scoring
-      strategy_interface: 0.5
-      strategy_context: 0.3
-      strategy_runtime_switching: 0.2
-      # Decorator pattern scoring
-      decorator_wrapping: 0.5
-      decorator_same_interface: 0.3
-      decorator_enhancement: 0.2
-      # MVC pattern scoring
-      mvc_controller: 0.4
-      mvc_model: 0.3
-      mvc_view: 0.3
-      # Repository pattern scoring
-      repository_data_access: 0.5
-      repository_crud: 0.3
-      repository_abstraction: 0.2
-      # Service layer scoring
-      service_business_logic: 0.5
-      service_orchestration: 0.3
-      service_transactions: 0.2
-
-      # Architectural pattern scoring (high-level patterns)
-      # MVC pattern scoring (directory and class-based detection)
-      mvc_model_dir: 0.25
-      mvc_view_dir: 0.25
-      mvc_controller_dir: 0.25
-      mvc_model_classes: 0.15
-      mvc_view_classes: 0.10
-      mvc_controller_classes: 0.15
-      # Repository pattern scoring
-      repository_classes: 0.8
-      repository_naming: 0.15
-      # Service layer pattern scoring
-      service_layer_classes: 0.7
-      service_layer_multiple: 0.2
-      # Layered architecture scoring
-      layered_base: 0.5
-      layered_per_layer: 0.1
-      layered_services_repos: 0.15
-
-    # Code smell thresholds
-    thresholds:
-      god_class_methods: 20  # Max methods before God Class
-      god_class_lines: 500  # Max lines before God Class
-      long_method_lines: 50  # Max lines before Long Method
-      long_method_complexity: 10  # Max complexity before Long Method
-      long_parameter_list: 5  # Max parameters before Long Parameter List
-      lazy_class_max_methods: 2  # Max methods for Lazy Class
-
-  # Life-of-X Analysis Settings
-  lifeofx:
-    enabled: true  # Enable execution path and data flow analysis
-    max_trace_depth: 20  # Maximum depth for execution traces
-    max_paths: 10  # Maximum execution paths to return
-    detect_long_chains: true  # Detect long call chains
-    min_chain_length: 10  # Minimum chain length to report
-
-    # Entry Point Scoring Configuration
-    # Used by _resolve_entry_point() to rank candidate functions
-    scoring:
-      entry_point_bonus: 100  # Bonus for files containing entry points (views, api, routes, handlers)
-      utility_penalty: -50  # Penalty for utility files (managers, tasks, helpers, factories)
-      keyword_match_bonus: 10  # Bonus when any keyword matches function name
-      all_keywords_bonus: 20  # Bonus when all keywords match function name
-      entry_point_name_bonus: 15  # Bonus for common entry point function names (submit, create, handle, etc)
-
-# Network and Tool Settings
-tools:
-  web:
-    timeout: 10  # HTTP request timeout in seconds
-    max_retries: 3  # Max retry attempts for failed requests
-  repo:
-    grep_timeout: 30  # Grep search timeout in seconds
-    max_grep_results: 100  # Maximum grep results to return
+# =================================================================
+# NOTE: All other parameters (synthesis limits, discovery tuning,
+# validation thresholds, etc.) are now hardcoded as constants in:
+# - cf/agents/pipelines/synthesis.py
+# - cf/agents/pipelines/discovery.py
+# - cf/agents/pipelines/validation.py
+# - cf/agents/kb/structural_kb_agent.py
+#
+# This keeps config simple while allowing advanced users to modify
+# code constants if needed.
+# =================================================================
