@@ -98,15 +98,6 @@ def display_result(result, verbose=False, show_metrics=False):
         # Display main narrative
         print(result['narrative'])
 
-        # Display referenced files section
-        analyzed_files = result.get('analyzed_file_list', [])
-        if analyzed_files:
-            print("\n" + "=" * 70)
-            print("📁 REFERENCED FILES")
-            print("=" * 70)
-            for file_path in sorted(analyzed_files):
-                print(f"   • {file_path}")
-
         # Always display execution time prominently at the end
         execution_time = result.get('execution_time', 0)
         print("\n" + "=" * 70)
@@ -163,14 +154,14 @@ def create_parser():
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
     parser.add_argument('--trace', action='store_true', help='Enable tracing')
     parser.add_argument('--show-metrics', action='store_true', help='Show detailed metrics after analysis')
-    parser.add_argument('--legacy', action='store_true',
-                       help='Use legacy multi-pass analysis (deprecated)')
     
     subparsers = parser.add_subparsers(dest='command', help='Commands')
     
     ask_parser = subparsers.add_parser('ask', help='Ask question')
     ask_parser.add_argument('repo_path', help='Repository path')
     ask_parser.add_argument('question', help='Question to ask')
+    ask_parser.add_argument('--use-kb', action='store_true', default=False,
+                           help='Use knowledge base for queries (requires prior build)')
 
     summary_parser = subparsers.add_parser('summary', help='Generate summary')
     summary_parser.add_argument('repo_path', help='Repository path')
@@ -210,18 +201,32 @@ def main():
             print(f"Error: Repository not found: {repo_path}", file=sys.stderr)
             return 1
 
-        # Configure analysis mode
-        use_react = not getattr(args, 'legacy', False)
-        config['use_react_analysis'] = use_react
-
         if args.verbose:
-            mode = "ReAct" if use_react else "Legacy"
-            print(f"🚀 CodeFusion - {args.command.title()} ({mode} mode)")
+            print(f"🚀 CodeFusion - {args.command.title()}")
 
-        # Always use SupervisorAgent (it uses ReAct internally when configured)
+        # Initialize KB if --use-kb flag is set
+        kb_orchestrator = None
+        use_kb = getattr(args, 'use_kb', False)
+        if use_kb:
+            kb_config = config.get('knowledge_base', {})
+            if kb_config.get('enabled', False):
+                if args.verbose:
+                    print("💾 Loading knowledge base...")
+                kb_orchestrator = KBOrchestrator(str(repo_path), config)
+                if kb_orchestrator.is_initialized():
+                    if args.verbose:
+                        print("✅ Knowledge base loaded")
+                else:
+                    print("⚠️  KB not built. Run 'build' first, or continue without KB.")
+                    kb_orchestrator = None
+            else:
+                print("⚠️  KB disabled in config. Continuing without KB.")
+
+        # SupervisorAgent uses ReAct loop internally
         agent = SupervisorAgent(
             repo_path=str(repo_path),
-            config=config
+            config=config,
+            kb_orchestrator=kb_orchestrator
         )
 
         if args.verbose:

@@ -107,9 +107,6 @@ class FileChangeDetector:
         # Load previous state if exists
         self._load_state()
 
-        # Extensions to track (configurable)
-        self.tracked_extensions = {'.py', '.js', '.ts', '.go', '.java', '.cpp', '.c', '.h'}
-
     def _load_state(self):
         """Load previous file state from disk"""
         if os.path.exists(self.state_file):
@@ -162,17 +159,10 @@ class FileChangeDetector:
         current_state = {}
 
         for root, dirs, files in os.walk(self.repo_path):
-            # Skip hidden directories and common ignore patterns
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in {
-                'node_modules', '__pycache__', 'venv', 'env', 'dist', 'build', 'target'
-            }]
+            # Skip hidden directories
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
 
             for file in files:
-                # Only track files with tracked extensions
-                _, ext = os.path.splitext(file)
-                if ext not in self.tracked_extensions:
-                    continue
-
                 file_path = os.path.join(root, file)
                 rel_path = os.path.relpath(file_path, self.repo_path)
 
@@ -284,29 +274,6 @@ class FileChangeDetector:
         """
         return file_path in self.last_scan
 
-    def add_extension(self, extension: str):
-        """
-        Add file extension to track.
-
-        Args:
-            extension: Extension (e.g., '.rs' for Rust)
-        """
-        if not extension.startswith('.'):
-            extension = '.' + extension
-        self.tracked_extensions.add(extension)
-        logger.debug(f"Now tracking {extension} files")
-
-    def remove_extension(self, extension: str):
-        """
-        Remove file extension from tracking.
-
-        Args:
-            extension: Extension to remove
-        """
-        if not extension.startswith('.'):
-            extension = '.' + extension
-        self.tracked_extensions.discard(extension)
-        logger.debug(f"Stopped tracking {extension} files")
 
     def get_file_info(self, file_path: str) -> Dict[str, any]:
         """

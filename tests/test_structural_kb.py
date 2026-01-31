@@ -316,7 +316,6 @@ def function2():
 
         # Override repo_id for testing
         pipeline.repo_id = test_repo_id
-        pipeline.parser.repo_id = test_repo_id
 
         # Build KB
         result = pipeline.build_knowledge_base()
@@ -366,7 +365,6 @@ def original_function():
         # Create pipeline and build
         pipeline = KBOrchestrator(temp_repo, config, kb=kb)
         pipeline.repo_id = test_repo_id
-        pipeline.parser.repo_id = test_repo_id
 
         build_result = pipeline.build_knowledge_base()
         assert build_result.total_files == 1
@@ -387,11 +385,11 @@ def new_function():
         update_result = pipeline.update_knowledge_base()
 
         # Should detect 1 modified file
-        assert update_result.get('files_modified', 0) == 1
+        assert update_result.get('modified', 0) == 1
 
         # Verify new function is in KB
         stats = pipeline.get_repository_stats()
-        assert stats.get('total_functions', 0) == 2
+        assert stats.get('functions', 0) == 2
 
 
 @pytest.mark.integration

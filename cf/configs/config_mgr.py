@@ -256,8 +256,9 @@ class ConfigManager:
             'repo': {
                 'max_files': 1000,
                 'max_file_size': 1048576,  # 1MB
-                'excluded_dirs': ['.git', '__pycache__', 'node_modules', '.venv'],
-                'excluded_extensions': ['.pyc', '.pyo', '.so', '.dll']
+                # No hardcoded exclusions - track all files, let LLM filter by relevance
+                'excluded_dirs': [],
+                'excluded_extensions': []
             }
         }
     

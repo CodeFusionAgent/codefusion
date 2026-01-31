@@ -2,13 +2,10 @@
 
 # Core Agents with ReAct Loop
 from cf.agents.supervisor import SupervisorAgent
-from cf.agents.base import BaseAgent, AgentState, ToolCall, ToolResult
+from cf.agents.base import BaseAgent, AgentState, ToolCall, ToolResult, ThoroughnessLevel
 from cf.agents.code import CodeAgent
 from cf.agents.docs import DocsAgent
 from cf.agents.web import WebAgent
-
-# Session Management
-from cf.agents.session import InteractiveSession, ContextManager
 
 # Validation (anti-hallucination)
 from cf.agents.validation import (
@@ -40,14 +37,12 @@ from cf.agents.narrative import (
 )
 
 # File Analysis
-from cf.agents.file_analyzer import (
+from cf.agents.analyzer import (
     FileAnalyzer,
     FileInfo,
     FileSummary,
-    FileRelevanceScorer,
-    create_file_analyzer,
-    create_relevance_scorer,
 )
+from cf.agents.scorer import create_file_analyzer
 
 # Protocols (interfaces for loose coupling)
 from cf.agents.protocols import (
@@ -66,13 +61,10 @@ __all__ = [
     "AgentState",
     "ToolCall",
     "ToolResult",
+    "ThoroughnessLevel",
     "CodeAgent",
     "DocsAgent",
     "WebAgent",
-
-    # Session Management
-    "InteractiveSession",
-    "ContextManager",
 
     # Validation
     "ValidationIssue",
@@ -101,9 +93,7 @@ __all__ = [
     "FileAnalyzer",
     "FileInfo",
     "FileSummary",
-    "FileRelevanceScorer",
     "create_file_analyzer",
-    "create_relevance_scorer",
 
     # Protocols
     "KnowledgeBaseProtocol",

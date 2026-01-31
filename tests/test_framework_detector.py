@@ -152,20 +152,20 @@ class User(models.Model):
         # Should return empty context on parse error
         assert context.primary_language == "unknown"
 
-    def test_detector_excludes_common_directories(self, temp_repo, mock_llm_callback):
-        """Test that detector excludes node_modules, venv, etc."""
+    def test_detector_no_hardcoded_exclusions(self, temp_repo, mock_llm_callback):
+        """Test that detector has no hardcoded exclusions - LLM decides relevance."""
         repo_path = Path(temp_repo)
 
-        # Create excluded directories
+        # Create various directories
         (repo_path / "node_modules").mkdir()
         (repo_path / "node_modules" / "package.json").write_text("{}")
         (repo_path / ".venv").mkdir()
 
         detector = FrameworkDetector(temp_repo, mock_llm_callback)
 
-        # _is_excluded should return True for these
-        assert detector._is_excluded(repo_path / "node_modules" / "package.json")
-        assert detector._is_excluded(repo_path / ".venv")
+        # _is_excluded returns False for all paths - LLM decides relevance
+        assert not detector._is_excluded(repo_path / "node_modules" / "package.json")
+        assert not detector._is_excluded(repo_path / ".venv")
 
 
 class TestIsExternalImport:

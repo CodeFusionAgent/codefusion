@@ -40,6 +40,8 @@ class NarrativeContext:
     code_snippets: Dict[str, str] = field(default_factory=dict)
     dependencies: Dict[str, List[str]] = field(default_factory=dict)
     execution_time: float = 0.0
+    # Base answer from CodeAgent - if provided, NarrativeGenerator will refine instead of regenerate
+    base_answer: str = ""
 
 
 @dataclass

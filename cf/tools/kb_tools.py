@@ -34,6 +34,7 @@ class KBTools:
         self.repo_path = Path(repo_path)
         self.kb = kb_orchestrator
         self._kb_available = False
+        self._source_extensions_cache = None
 
         # Check if KB is available and initialized
         if self.kb:
@@ -78,9 +79,9 @@ class KBTools:
         """Grep + AST fallback for finding callers (slower but always works)"""
         callers = []
 
-        # Use grep to find files that mention the function
+        # Use grep to find files that mention the function - search all files
         pattern = rf'\b{re.escape(function_name)}\s*\('
-        matching_files = self._grep_files(pattern, ['py'])
+        matching_files = self._grep_files(pattern, None)
 
         for file_info in matching_files[:max_results * 2]:  # Check more files than needed
             file_path = file_info['file']
@@ -219,9 +220,9 @@ class KBTools:
     def _find_usages_fallback(self, symbol_name: str, symbol_type: str,
                               max_results: int) -> Dict[str, Any]:
         """Grep fallback for finding usages"""
-        # Use word boundary matching
+        # Use word boundary matching - search all files
         pattern = rf'\b{re.escape(symbol_name)}\b'
-        matches = self._grep_files(pattern, ['py'])
+        matches = self._grep_files(pattern, None)
 
         usages = []
         for match in matches[:max_results]:
@@ -278,7 +279,7 @@ class KBTools:
 
         for keyword in keywords:
             pattern = rf'\b{re.escape(keyword)}\b'
-            matches = self._grep_files(pattern, ['py'], case_insensitive=True)
+            matches = self._grep_files(pattern, None, case_insensitive=True)
 
             for match in matches:
                 if match['file'] not in seen_files:
@@ -447,9 +448,14 @@ class KBTools:
         seen = set()
 
         for keyword in keywords:
-            # Search in file names
-            for py_file in self.repo_path.rglob('*.py'):
-                rel_path = str(py_file.relative_to(self.repo_path))
+            # Search in file names - all source files, not just Python
+            for src_file in self.repo_path.rglob('*'):
+                if not src_file.is_file():
+                    continue
+                # Skip hidden files and common non-source directories
+                if any(part.startswith('.') for part in src_file.parts):
+                    continue
+                rel_path = str(src_file.relative_to(self.repo_path))
                 if keyword.lower() in rel_path.lower() and rel_path not in seen:
                     seen.add(rel_path)
                     files.append({
@@ -460,9 +466,9 @@ class KBTools:
                     if len(files) >= max_results:
                         break
 
-            # Search in file content
+            # Search in file content - all files
             if len(files) < max_results:
-                matches = self._grep_files(keyword, ['py'], case_insensitive=True)
+                matches = self._grep_files(keyword, None, case_insensitive=True)
                 for match in matches:
                     if match['file'] not in seen:
                         seen.add(match['file'])
@@ -516,152 +522,33 @@ class KBTools:
 
     def _find_related_tests_fallback(self, source_file: str,
                                      max_results: int) -> Dict[str, Any]:
-        """
-        Fallback test discovery using naming conventions and imports.
-
-        Strategies:
-        1. Look for test_<filename>.py or <filename>_test.py
-        2. Look for tests/<filename> or test/<filename>
-        3. Search for imports of the source module in test files
-        """
-        tests = []
-        seen = set()
-
-        # Normalize source file path
-        source_path = Path(source_file)
-        if source_path.suffix != '.py':
-            source_path = Path(source_file + '.py')
-
-        # Extract base name without extension
-        base_name = source_path.stem
-
-        # Strategy 1: Naming conventions (test_*.py, *_test.py)
-        test_patterns = [
-            f'test_{base_name}.py',
-            f'{base_name}_test.py',
-            f'test_{base_name}*.py',
-            f'*{base_name}*test*.py',
-        ]
-
-        for pattern in test_patterns:
-            for test_file in self.repo_path.rglob(pattern):
-                rel_path = str(test_file.relative_to(self.repo_path))
-                if rel_path not in seen and self._is_test_file(rel_path):
-                    seen.add(rel_path)
-                    tests.append({
-                        'test_file': rel_path,
-                        'match_type': 'naming_convention',
-                        'pattern': pattern
-                    })
-                    if len(tests) >= max_results:
-                        break
-            if len(tests) >= max_results:
-                break
-
-        # Strategy 2: Look in tests/ or test/ directories
-        if len(tests) < max_results:
-            for test_dir in ['tests', 'test']:
-                test_dir_path = self.repo_path / test_dir
-                if test_dir_path.exists():
-                    for test_file in test_dir_path.rglob('*.py'):
-                        rel_path = str(test_file.relative_to(self.repo_path))
-                        if rel_path not in seen and self._is_test_file(rel_path):
-                            # Check if file name contains base_name
-                            if base_name.lower() in test_file.stem.lower():
-                                seen.add(rel_path)
-                                tests.append({
-                                    'test_file': rel_path,
-                                    'match_type': 'test_directory',
-                                    'test_dir': test_dir
-                                })
-                                if len(tests) >= max_results:
-                                    break
-                if len(tests) >= max_results:
-                    break
-
-        # Strategy 3: Search for imports of the source module in test files
-        if len(tests) < max_results:
-            # Convert file path to module path for import search
-            module_name = base_name
-            if '/' in source_file or '\\' in source_file:
-                # Convert path to module (e.g., cf/agents/base.py -> cf.agents.base)
-                module_parts = source_path.with_suffix('').parts
-                module_name = '.'.join(module_parts)
-
-            # Search for imports in test files
-            import_patterns = [
-                rf'from\s+.*{re.escape(base_name)}\s+import',
-                rf'import\s+.*{re.escape(base_name)}',
-            ]
-
-            for pattern in import_patterns:
-                matches = self._grep_files(pattern, ['py'])
-                for match in matches:
-                    file_path = match['file']
-                    if file_path not in seen and self._is_test_file(file_path):
-                        seen.add(file_path)
-                        tests.append({
-                            'test_file': file_path,
-                            'match_type': 'import_reference',
-                            'line': match.get('line', 0)
-                        })
-                        if len(tests) >= max_results:
-                            break
-                if len(tests) >= max_results:
-                    break
-
+        """Fallback returns empty - test discovery should use KB or LLM."""
         return {
-            'tests': tests,
-            'count': len(tests),
+            'tests': [],
+            'count': 0,
             'source': 'fallback',
             'source_file': source_file,
-            'strategies_used': ['naming_convention', 'test_directory', 'import_reference']
+            'strategies_used': []
         }
-
-    def _is_test_file(self, file_path: str) -> bool:
-        """Check if a file is a test file based on naming conventions"""
-        path = Path(file_path)
-        name = path.stem.lower()
-        parts = path.parts
-
-        # Exclude virtual environments and common non-project directories
-        excluded_dirs = {'.venv', 'venv', 'env', '.env', 'node_modules',
-                        'site-packages', '__pycache__', '.git', '.tox'}
-        if any(excl in parts for excl in excluded_dirs):
-            return False
-
-        # Check common test file patterns
-        if name.startswith('test_') or name.endswith('_test'):
-            return True
-
-        # Check if in tests/ or test/ directory
-        if 'tests' in parts or 'test' in parts:
-            return True
-
-        # Check for conftest.py (pytest fixtures)
-        if name == 'conftest':
-            return True
-
-        return False
 
     # =========================================================================
     # HELPER METHODS
     # =========================================================================
 
-    def _grep_files(self, pattern: str, extensions: List[str],
+    def _grep_files(self, pattern: str, extensions: Optional[List[str]] = None,
                    case_insensitive: bool = False) -> List[Dict[str, Any]]:
-        """Use grep to find pattern in files"""
+        """Use grep to find pattern in files. If extensions is None, search all files."""
         results = []
-
-        # Build file patterns
-        include_args = []
-        for ext in extensions:
-            include_args.extend(['--include', f'*.{ext}'])
 
         cmd = ['grep', '-r', '-n']
         if case_insensitive:
             cmd.append('-i')
-        cmd.extend(include_args)
+
+        # Build file patterns only if extensions specified
+        if extensions:
+            for ext in extensions:
+                cmd.extend(['--include', f'*.{ext}'])
+
         cmd.extend([pattern, str(self.repo_path)])
 
         try:
@@ -705,9 +592,10 @@ class KBTools:
         return None
 
     def _find_function_definition(self, function_name: str) -> Optional[Dict[str, Any]]:
-        """Find where a function is defined"""
-        pattern = rf'def\s+{re.escape(function_name)}\s*\('
-        matches = self._grep_files(pattern, ['py'])
+        """Find where a function is defined - language-agnostic pattern"""
+        # Generic pattern: function name followed by opening paren (works across languages)
+        pattern = rf'\b{re.escape(function_name)}\s*\('
+        matches = self._grep_files(pattern, None)
 
         if matches:
             return {
@@ -718,52 +606,48 @@ class KBTools:
 
     def _resolve_target_to_file(self, target: str) -> Optional[str]:
         """Resolve a target (module name or file path) to a file path"""
-        # If it's already a file path
-        if target.endswith('.py'):
-            if (self.repo_path / target).exists():
-                return target
+        # If it's already a file path that exists
+        target_path = self.repo_path / target
+        if target_path.exists() and target_path.is_file():
+            return target
 
-        # Try as module path
-        module_path = target.replace('.', '/') + '.py'
-        if (self.repo_path / module_path).exists():
-            return module_path
+        # Try as module path - use glob to find matching files with any extension
+        module_as_dir = target.replace('.', '/')
+        parent = self.repo_path / Path(module_as_dir).parent
+        name = Path(module_as_dir).name
 
-        # Try to find by grep
-        matches = self._grep_files(rf'(class|def)\s+{re.escape(target)}\b', ['py'])
+        if parent.exists():
+            # Find any file matching the module name
+            matches = list(parent.glob(f"{name}.*"))
+            if matches:
+                try:
+                    return str(matches[0].relative_to(self.repo_path))
+                except ValueError:
+                    pass
+
+        # Try to find by grep - search all files
+        matches = self._grep_files(rf'(class|def|function)\s+{re.escape(target)}\b', None)
         if matches:
             return matches[0]['file']
 
         return None
 
     def _extract_keywords(self, text: str) -> List[str]:
-        """Extract meaningful keywords from text"""
-        # Remove common words
-        stop_words = {
-            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-            'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
-            'would', 'could', 'should', 'may', 'might', 'must', 'shall',
-            'can', 'need', 'dare', 'ought', 'used', 'to', 'of', 'in',
-            'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into',
-            'through', 'during', 'before', 'after', 'above', 'below',
-            'between', 'under', 'again', 'further', 'then', 'once',
-            'here', 'there', 'when', 'where', 'why', 'how', 'all',
-            'each', 'few', 'more', 'most', 'other', 'some', 'such',
-            'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than',
-            'too', 'very', 'just', 'and', 'but', 'if', 'or', 'because',
-            'until', 'while', 'this', 'that', 'these', 'those', 'what',
-            'which', 'who', 'whom', 'whose', 'i', 'you', 'he', 'she',
-            'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'
-        }
+        """
+        Extract keywords from text.
 
+        Returns all unique words - LLM determines relevance in context.
+        No hardcoded length thresholds or filtering.
+        """
         # Extract words
         words = re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', text.lower())
 
-        # Filter and dedupe
-        keywords = []
+        # Include all words - LLM determines relevance
         seen = set()
+        keywords = []
         for word in words:
-            if word not in stop_words and word not in seen and len(word) > 2:
+            if word not in seen:
                 seen.add(word)
                 keywords.append(word)
 
-        return keywords[:10]  # Limit keywords
+        return keywords[:10]  # Limit count for practical use

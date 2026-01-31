@@ -16,13 +16,16 @@ llm:
   # Tiered model strategy (fast/standard/advanced)
   tiers:
     fast:
-      model: gpt-4.1-mini
+      model: claude-opus-4-5
+      #model: Qwen/Qwen3-8B
       use_cases: [file_summaries, classification, coordination]
     standard:
-      model: gpt-4.1-mini
+      model: claude-opus-4-5
+      #model: Qwen/Qwen3-8B
       use_cases: [general_analysis, moderate_reasoning]
     advanced:
-      model: gpt-4.1-mini
+      model: claude-opus-4-5
+      #model: Qwen/Qwen3-8B
       use_cases: [final_synthesis, deep_reasoning]
 
   # Model configurations - add API keys via environment variables
@@ -41,11 +44,22 @@ llm:
       deployment: gpt-4o
       subscription_key: ''
       api_version: 2024-02-15-preview
-
     claude-sonnet-4-5:
       provider: anthropic
       api_key: ''  # Use ANTHROPIC_API_KEY env var
-      base_url: https://api.anthropic.com/v1/
+      base_url: https://api.anthropic.com/
+    claude-opus-4-5:
+      provider: anthropic
+      api_key: ''  # Use ANTHROPIC_API_KEY env var
+      base_url: https://api.anthropic.com/
+    claude-haiku-4-5:
+      provider: anthropic
+      api_key: ''  # Use ANTHROPIC_API_KEY env var
+      base_url: https://api.anthropic.com/
+    Qwen/Qwen3-8B:
+      provider: huggingface
+      api_key: ''  # Use HF_TOKEN env var
+      base_url: https://router.huggingface.co/v1
 
 # =================================================================
 # Analysis Configuration
@@ -53,14 +67,23 @@ llm:
 agents:
   # Core limits
   max_files_to_analyze: 100  # Increased for better coverage
-  max_iterations: 30         # Allow more tool calls per question
+  max_iterations: 40         # Increased from 30 for more thorough exploration
   timeout: 600  # 10 minutes
 
   # File enrichment limit (how many files get AST analysis)
-  max_files_to_enrich: 25    # Increased from 10
+  max_files_to_enrich: 30    # Increased from 25
 
   # Import following limit (how many imported files to analyze in second pass)
-  max_import_follow: 15
+  max_import_follow: 20      # Increased from 15
+
+  # Minimum files required before answering (prevents early termination)
+  min_files_required: 8      # Increased from 5
+
+  # Recursive import tracing configuration
+  import_tracing:
+    enabled: true
+    max_depth: 5             # Follow imports up to 5 levels deep (increased for deep architectures)
+    max_files_per_level: 8   # Read up to 8 files at each depth level
 
   # Multi-pass analysis
   max_passes: 3

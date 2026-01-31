@@ -141,97 +141,55 @@ class WebTools:
     
     def search_documentation(self, topic: str, framework: str = "") -> Dict[str, Any]:
         """Search for official documentation and guides"""
-        # Build search query for documentation
+        # Build search query - LLM provides the context
         if framework:
-            query = f"{topic} {framework} documentation official guide"
+            query = f"{topic} {framework} documentation"
         else:
-            query = f"{topic} documentation official guide"
-        
+            query = f"{topic} documentation"
+
         try:
-            # Search with documentation-specific terms
             doc_results = self.search(query, max_results=5)
-            
+
             if doc_results.get('error'):
                 return doc_results
-            
-            # Filter and enhance results for documentation
-            filtered_results = []
-            doc_indicators = ['docs', 'documentation', 'guide', 'api', 'reference', 'manual', 'tutorial']
-            
-            for result in doc_results.get('results', []):
-                url = result.get('url', '').lower()
-                title = result.get('title', '').lower()
-                
-                # Score based on documentation indicators
-                doc_score = 0
-                for indicator in doc_indicators:
-                    if indicator in url or indicator in title:
-                        doc_score += 1
-                
-                # Prefer official domains
-                if any(domain in url for domain in ['github.com', 'readthedocs', '.org', 'docs.']):
-                    doc_score += 2
-                
-                result['doc_score'] = doc_score
-                filtered_results.append(result)
-            
-            # Sort by documentation relevance
-            filtered_results.sort(key=lambda x: x.get('doc_score', 0), reverse=True)
-            
+
+            # Return results directly - LLM decides relevance
             return {
                 'topic': topic,
                 'framework': framework,
                 'query': query,
-                'results': filtered_results[:5],
-                'total': len(filtered_results),
+                'results': doc_results.get('results', []),
+                'total': len(doc_results.get('results', [])),
                 'type': 'documentation_search'
             }
-            
+
         except Exception as e:
             return {'error': f'Documentation search failed: {str(e)}'}
     
     def search_code_examples(self, topic: str, language: str = "") -> Dict[str, Any]:
         """Search for code examples and tutorials"""
+        # Build search query - LLM provides the context
         if language:
-            query = f"{topic} {language} code example tutorial github"
+            query = f"{topic} {language} code example"
         else:
-            query = f"{topic} code example tutorial github"
-        
+            query = f"{topic} code example"
+
         try:
             results = self.search(query, max_results=5)
-            
+
             if results.get('error'):
                 return results
-            
-            # Enhance results for code examples
-            code_results = []
-            for result in results.get('results', []):
-                url = result.get('url', '').lower()
-                
-                # Identify code-friendly sources
-                code_score = 0
-                if 'github.com' in url:
-                    code_score += 3
-                if any(term in url for term in ['stackoverflow', 'codepen', 'jsfiddle', 'repl.it']):
-                    code_score += 2
-                if any(term in result.get('title', '').lower() for term in ['example', 'tutorial', 'code', 'sample']):
-                    code_score += 1
-                
-                result['code_score'] = code_score
-                code_results.append(result)
-            
-            # Sort by code relevance
-            code_results.sort(key=lambda x: x.get('code_score', 0), reverse=True)
-            
+
+            # Return results directly - LLM decides relevance
             return {
                 'topic': topic,
                 'language': language,
                 'query': query,
-                'results': code_results,
-                'total': len(code_results),
+                'results': results.get('results', []),
+                'total': len(results.get('results', [])),
                 'type': 'code_search'
             }
-            
+
         except Exception as e:
             return {'error': f'Code search failed: {str(e)}'}
     
@@ -357,24 +315,19 @@ class WebTools:
         except Exception as e:
             return {'error': f'Content extraction failed: {str(e)}'}
     
-    def search_multiple_sources(self, query: str, sources: List[str] = None, max_results: int = 3) -> Dict[str, Any]:
-        """Search multiple sources and combine results"""
-        if sources is None:
-            sources = ['web', 'stackoverflow', 'github']
-        
+    def search_multiple_sources(self, query: str, sources: List[str], max_results: int = 3) -> Dict[str, Any]:
+        """Search multiple sources and combine results - caller specifies sources"""
         all_results = []
         source_results = {}
-        
+
+        # Dynamic method dispatch - try search_{source} or search methods
         for source in sources:
             try:
-                if source == 'web':
-                    result = self.search(query, max_results)
-                elif source == 'stackoverflow':
-                    result = self.search_stackoverflow(query, max_results)
-                elif source == 'github':
-                    result = self.search_github(query, max_results=max_results)
-                elif source == 'documentation':
-                    result = self.search_documentation(query, max_results=max_results)
+                # Try to find a method for this source
+                method_name = f'search_{source}' if source != 'web' else 'search'
+                method = getattr(self, method_name, None)
+                if method:
+                    result = method(query, max_results=max_results) if source != 'web' else method(query, max_results)
                 else:
                     continue
                 

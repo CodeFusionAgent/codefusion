@@ -6,7 +6,7 @@ LLM decides which tools to call at each step.
 """
 
 from typing import Dict, Any, List, Optional
-from cf.agents.base import BaseAgent
+from cf.agents.base import BaseAgent, ThoroughnessLevel
 from cf.tools.registry import ToolRegistry
 from cf.agents.framework_detector import FrameworkDetector, FrameworkContext
 
@@ -55,9 +55,21 @@ class CodeAgent(BaseAgent):
         'summarize_code',           # Generate code summary
     ]
 
-    def __init__(self, repo_path: str, config: Dict[str, Any],
-                 tool_registry: Optional[ToolRegistry] = None):
-        super().__init__(repo_path, config, tool_registry)
+    def __init__(
+        self,
+        repo_path: str,
+        config: Dict[str, Any],
+        tool_registry: Optional[ToolRegistry] = None,
+        thoroughness: Optional[ThoroughnessLevel] = None,
+        isolated_context: bool = False,
+        model_tier: Optional[str] = None
+    ):
+        super().__init__(
+            repo_path, config, tool_registry,
+            thoroughness=thoroughness,
+            isolated_context=isolated_context,
+            model_tier=model_tier
+        )
         self._framework_context: Optional[FrameworkContext] = None
         self._framework_detector: Optional[FrameworkDetector] = None
 
@@ -93,38 +105,65 @@ class CodeAgent(BaseAgent):
         framework_section = framework_context.to_prompt_section()
 
         # Build the complete prompt with generic base + dynamic framework context
-        base_prompt = """You are a code analysis specialist. Your job is to analyze source code to answer questions about how the codebase works.
+        # NOTE: This prompt follows Claude Code's design principles:
+        # - Discovery-driven (not prescriptive)
+        # - Generic principles that work for ANY codebase
+        # - No hardcoded patterns like "STATUS_CHOICES" or "ForeignKey"
+        # - LLM discovers patterns organically through reading
+        base_prompt = """You are a code analysis specialist. Your job is to explore codebases and answer questions by reading actual source code.
 
-Key capabilities:
-- Scan directories to understand project structure
-- Read and analyze source code files
-- Search for patterns and specific code
-- Find function callers, callees, and usages
-- Analyze dependencies and code flow
-- Detect architectural patterns
+CRITICAL RULES:
+1. You MUST read files before answering - search results alone are not enough
+2. Read at least 5-10 relevant files before synthesizing an answer
+3. NEVER claim details about code you haven't actually read
+4. If you haven't read it, you don't know it
 
-Process:
-1. Start by scanning the directory or searching for relevant files
-2. Read specific files that seem relevant to the question
-3. Use KB tools to trace code flow (find_callers, find_callees, etc.)
-4. Analyze code structure and patterns as needed
-5. When you have enough information, synthesize a comprehensive answer
+EXPLORATION PROCESS:
+1. SEARCH: Use search_files to find files related to the question
+2. READ: Use read_file on every result - this is mandatory
+3. EXTRACT: Document everything you find in each file
+4. FOLLOW: Trace references to other files and read those too
+5. REPEAT: Continue until you understand the complete picture
 
-IMPORTANT - Import Following Strategy:
-When you read a file, PAY ATTENTION TO ITS IMPORTS. Imports reveal:
-- Related modules you should also read (from app.models import X -> read models.py)
-- External dependencies that define behavior
-- Constants and configs imported from other files
-If a file imports STATUS constants, MAPPING dicts, or utility functions, READ THOSE SOURCE FILES
-to understand the actual values and behavior.
+DISCOVERY PRINCIPLES:
 
-IMPORTANT - Look for Constants and Configurations:
-- Look for UPPERCASE variables (STATUS_PENDING, APPLICATION_STATUS_MAPPING, etc.)
-- These often define state machines, workflows, and business rules
-- When you see a constant used but not defined, search for where it's defined
+1. READ EVERYTHING YOU FIND
+   - After every search, read the files in the results
+   - Don't guess from file names - read the actual code
+   - When you find something interesting, read the whole file
 
-Be strategic and efficient - don't read files that aren't relevant to the question.
-Focus on understanding how components work together to answer the user's question."""
+2. EXTRACT ALL DEFINITIONS
+   - When reading a file, document ALL definitions you find
+   - Classes, functions, constants, enums, dictionaries
+   - Field definitions, attributes, configuration values
+   - Anything that looks like it defines behavior or state
+
+3. FOLLOW ALL REFERENCES
+   - When you see an import → read that file
+   - When you see a class reference → read that class
+   - When you see a function call → find and read that function
+   - When you see a constant used → find where it's defined
+   - Trace the chain until you understand the full flow
+
+4. EXPLORE RELATED CODE
+   - Search the entire codebase, not just one directory
+   - Look for test files - they reveal expected behavior
+   - Check for configuration files related to your topic
+   - Related functionality may be in unexpected places
+
+5. BE THOROUGH
+   - Cover the complete lifecycle of what you're analyzing
+   - Document all the values/states/options you discover
+   - Include file:line references for everything you report
+   - Note any interesting patterns or behaviors you find
+
+OUTPUT REQUIREMENTS:
+- Include file:line references for all claims
+- List ALL values when documenting choices/options/states (don't summarize)
+- Document the complete flow from start to finish
+- Note any non-obvious behaviors or edge cases
+
+REMEMBER: Your job is to DISCOVER what's in the code by reading it. Don't assume patterns exist - find them by exploring."""
 
         # Append framework-specific context if detected
         if framework_section:

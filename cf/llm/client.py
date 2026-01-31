@@ -522,7 +522,7 @@ class LLMClient:
                         f"Example: export ANTHROPIC_API_KEY='your-key-here'"
                     )
 
-            base_url = model_config.get('base_url', 'https://api.anthropic.com/v1/')
+            base_url = model_config.get('base_url', 'https://api.anthropic.com/')
             api_url = f"{base_url.rstrip('/')}/messages"
             return self._call_anthropic(messages, model_name, api_key, api_url, **kwargs)
 
@@ -549,18 +549,20 @@ class LLMClient:
             # Use modified Azure call that accepts custom URL
             return self._call_azure_openai_custom(messages, deployment, api_key, api_url, **kwargs)
 
-        elif provider in ['openai', 'openai-compatible', 'gemini']:
+        elif provider in {'openai', 'openai-compatible', 'gemini', 'huggingface'}:
             api_key = model_config.get('api_key', '')
 
             # Proper environment variable fallback for OpenAI/Gemini credentials
             if not api_key:
                 if provider == 'gemini':
                     api_key = os.environ.get('GEMINI_API_KEY', '')
+                elif provider == 'huggingface':
+                    api_key = os.environ.get('HF_TOKEN', '')
                 else:
                     api_key = os.environ.get('OPENAI_API_KEY', '')
 
                 if not api_key:
-                    env_var = 'GEMINI_API_KEY' if provider == 'gemini' else 'OPENAI_API_KEY'
+                    env_var = 'GEMINI_API_KEY' if provider == 'gemini' else 'HF_TOKEN' if provider == 'huggingface' else 'OPENAI_API_KEY'
                     raise AuthenticationError(
                         f"No API key found for {provider} model '{model_name}'. "
                         f"Please set 'api_key' in cf/configs/llm.yaml or export {env_var} environment variable.\n"

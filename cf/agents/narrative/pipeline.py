@@ -118,22 +118,45 @@ class SynthesisPipeline:
         }
 
     def _detect_style(self, question: str) -> NarrativeStyle:
-        """Detect appropriate narrative style from question"""
-        q = question.lower()
+        """Use LLM to detect appropriate narrative style from question."""
+        import json
 
-        style_patterns = {
-            NarrativeStyle.LIFE_OF_X: ['lifecycle', 'life of', 'flow', 'trace', 'journey', 'path through'],
-            NarrativeStyle.ARCHITECTURE: ['architecture', 'structure', 'design', 'pattern', 'organization'],
-            NarrativeStyle.COMPARISON: ['compare', 'difference', 'versus', 'vs', 'between'],
-            NarrativeStyle.TUTORIAL: ['how to', 'tutorial', 'guide', 'step by step', 'learn'],
-            NarrativeStyle.DEBUG_TRACE: ['debug', 'trace execution', 'error', 'bug', 'issue'],
-            NarrativeStyle.API_REFERENCE: ['api', 'interface', 'signature', 'parameters', 'returns'],
-        }
+        # Get available styles dynamically from enum
+        style_options = [s.value for s in NarrativeStyle]
 
-        for style, patterns in style_patterns.items():
-            if any(p in q for p in patterns):
-                return style
+        system_prompt = """You are a narrative style classifier. Given a question about code,
+determine the most appropriate narrative style for the response.
 
+Respond with ONLY a JSON object: {"style": "<style_value>"}"""
+
+        user_prompt = f"""Question: {question}
+
+Available styles:
+{chr(10).join(f'- {s}' for s in style_options)}
+
+Which style best fits this question? Respond with ONLY the JSON object."""
+
+        try:
+            response = self.llm(user_prompt, system_prompt)
+            if response.get('success'):
+                content = response.get('content', '')
+                # Parse JSON from response
+                if '```json' in content:
+                    content = content.split('```json')[1].split('```')[0]
+                elif '```' in content:
+                    content = content.split('```')[1].split('```')[0]
+
+                data = json.loads(content.strip())
+                style_value = data.get('style', 'explanation')
+
+                # Map to enum
+                for s in NarrativeStyle:
+                    if s.value == style_value:
+                        return s
+        except (json.JSONDecodeError, KeyError, IndexError):
+            pass
+
+        # Default fallback
         return NarrativeStyle.EXPLANATION
 
 

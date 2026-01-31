@@ -37,6 +37,7 @@ class ValidationResult:
     grounding_score: float
     line_number_coverage: float
     path_accuracy: float
+    file_line_ref_count: int = 0  # Count of file:line references found
 
 
 # =============================================================================
@@ -62,19 +63,6 @@ class StructuralValidator:
         self.config = config
         self.file_summaries = file_summaries
 
-    def _get_file_path_pattern(self) -> str:
-        """
-        Build file path pattern from config (configurable for different repo structures).
-        Returns regex pattern for matching source file paths.
-        """
-        validation_config = self.config.get('agents', {}).get('validation', {})
-        prefixes = validation_config.get('file_path_prefixes', [
-            'apps', 'src', 'lib', 'test', 'tests', 'cf', 'backend', 'frontend',
-            'server', 'client', 'pkg', 'internal', 'cmd', 'api', 'core', 'services', 'components', 'modules'
-        ])
-        prefix_pattern = '|'.join(re.escape(p) for p in prefixes)
-        return f'(?:{prefix_pattern})'
-
     def _get_max_file_line_gap(self) -> int:
         """Get max characters allowed between file path and line number reference."""
         validation_config = self.config.get('agents', {}).get('validation', {})
@@ -92,21 +80,47 @@ class StructuralValidator:
         """
         issues = []
 
-        path_pattern = self._get_file_path_pattern()
         max_gap = self._get_max_file_line_gap()
-        file_line_pattern = rf'({path_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)).{{0,{max_gap}}}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        # Match any file path with extension followed by line reference
+        # No hardcoded extensions - accept any file type
+        file_line_pattern = rf'([\w/.-]+\.\w+).{{0,{max_gap}}}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
 
         file_line_refs = re.findall(file_line_pattern, answer, re.IGNORECASE | re.DOTALL)
 
-        if not file_line_refs:
+        # Also match inline file:line format like `filename.py:123` or (filename.py:123)
+        # No hardcoded extensions - accept any file type
+        inline_file_line_pattern = r'[`(]?([\w/.-]+\.\w+):(\d+)[`)]?'
+        inline_refs = re.findall(inline_file_line_pattern, answer)
+
+        total_file_line_refs = len(file_line_refs) + len(inline_refs)
+
+        if total_file_line_refs == 0:
             line_pattern = r'line[s]?\s+\d+|L\d+|at\s+line\s+\d+'
             if not re.search(line_pattern, answer, re.IGNORECASE):
                 issues.append(ValidationIssue(
-                    severity='warning',
+                    severity='error',
                     issue_type='missing_line_numbers',
-                    message='Answer contains no line number references for grounding'
+                    message='Answer contains no file:line references - required for grounding'
+                ))
+            else:
+                # Has line numbers but not in file:line format
+                issues.append(ValidationIssue(
+                    severity='warning',
+                    issue_type='unattached_line_numbers',
+                    message='Answer has line numbers but not in proper file:line format'
                 ))
             return issues
+
+        # Check minimum file:line reference requirement
+        validation_config = self.config.get('agents', {}).get('validation', {})
+        min_file_line_refs = validation_config.get('min_file_line_references', 3)
+
+        if total_file_line_refs < min_file_line_refs:
+            issues.append(ValidationIssue(
+                severity='warning',
+                issue_type='insufficient_file_line_refs',
+                message=f'Answer has only {total_file_line_refs} file:line references (recommended minimum: {min_file_line_refs})'
+            ))
 
         invalid_count = 0
         for file_path, line_num_str in file_line_refs:
@@ -139,7 +153,7 @@ class StructuralValidator:
 
     def validate_file_paths(self, answer: str) -> List[ValidationIssue]:
         """
-        Validate file path references in answer.
+        Validate file path references in answer against actually analyzed files.
 
         Args:
             answer: Generated answer text
@@ -149,22 +163,28 @@ class StructuralValidator:
         """
         issues = []
 
-        prefix_pattern = self._get_file_path_pattern()
-        path_pattern = rf'\b{prefix_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
+        # Match any file path with extension (no hardcoded patterns)
+        path_pattern = r'\b([\w/.-]+\.\w+)\b'
         potential_paths = re.findall(path_pattern, answer)
 
+        # Filter to likely source files (has path separator or known analyzed)
         valid_paths = set(self.file_summaries.keys())
 
         for path in potential_paths:
-            if path not in valid_paths:
-                matches = [vp for vp in valid_paths if path in vp or vp in path]
-                if not matches:
-                    issues.append(ValidationIssue(
-                        severity='warning',
-                        issue_type='unverified_path',
-                        message=f'Path "{path}" not found in analyzed files',
-                        file_path=path
-                    ))
+            # Skip if it's clearly not a file path (e.g., version numbers like "1.0")
+            if path.count('.') == 1 and path.split('.')[-1].isdigit():
+                continue
+            # Only validate paths that look like they're referencing analyzed code
+            if '/' in path or any(path in vp or vp.endswith(path) for vp in valid_paths):
+                if path not in valid_paths:
+                    matches = [vp for vp in valid_paths if path in vp or vp.endswith(path)]
+                    if not matches:
+                        issues.append(ValidationIssue(
+                            severity='warning',
+                            issue_type='unverified_path',
+                            message=f'Path "{path}" not found in analyzed files',
+                            file_path=path
+                        ))
 
         return issues
 
@@ -180,16 +200,20 @@ class StructuralValidator:
         """
         issues = []
 
-        all_file_refs = re.findall(r'\b(\w+(?:/\w+)*\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt))\b', answer)
+        # Match any file reference with extension (no hardcoded extensions)
+        all_file_refs = re.findall(r'\b([\w/.-]+\.\w+)\b', answer)
 
-        prefix_pattern = self._get_file_path_pattern()
-        full_path_refs = re.findall(
-            rf'\b({prefix_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt))\b',
-            answer
-        )
-
-        all_mentioned_files = set(all_file_refs + full_path_refs)
+        # Get extensions from actually analyzed files
         analyzed_files = set(self.file_summaries.keys())
+        analyzed_extensions = {f.split('.')[-1] for f in analyzed_files if '.' in f}
+
+        # Filter to file references that look like source files (have analyzed extensions)
+        all_mentioned_files = set()
+        for ref in all_file_refs:
+            ext = ref.split('.')[-1] if '.' in ref else ''
+            # Only check files with extensions matching what we analyzed
+            if ext in analyzed_extensions:
+                all_mentioned_files.add(ref)
 
         for mentioned_file in all_mentioned_files:
             is_analyzed = mentioned_file in analyzed_files
@@ -231,7 +255,11 @@ class ContentValidator:
 
     def validate_grounding(self, answer: str) -> List[ValidationIssue]:
         """
-        Validate that claims are grounded in code (no uncertain language).
+        Validate that claims are grounded in code.
+
+        Note: Hedging/uncertain language detection is handled by LLM prompts during
+        generation (see NarrativeGenerator CRITICAL Rules). This method focuses on
+        structural grounding validation.
 
         Args:
             answer: Generated answer text
@@ -239,30 +267,11 @@ class ContentValidator:
         Returns:
             List of validation issues
         """
-        issues = []
-
-        ungrounded_patterns = [
-            r'probably',
-            r'might be',
-            r'could be',
-            r'I think',
-            r'possibly',
-            r'not sure'
-        ]
-
-        for pattern in ungrounded_patterns:
-            if re.search(pattern, answer, re.IGNORECASE):
-                issues.append(ValidationIssue(
-                    severity='warning',
-                    issue_type='ungrounded_claim',
-                    message=f'Answer contains uncertain language: "{pattern}"'
-                ))
-
-        return issues
+        return []
 
     def validate_word_count(self, answer: str, file_summaries: Dict[str, Any]) -> List[ValidationIssue]:
         """
-        Validate narrative meets minimum word count requirement.
+        Validate narrative meets word count requirements (both min and max).
 
         Args:
             answer: Generated answer text
@@ -282,6 +291,7 @@ class ContentValidator:
         word_count_tolerance = synthesis_thresholds.get('word_count_tolerance', 0.83)
         min_acceptable = int(target_min * word_count_tolerance)
 
+        # Check minimum word count
         if word_count < min_acceptable:
             issues.append(ValidationIssue(
                 severity='error',
@@ -293,6 +303,23 @@ class ContentValidator:
                 severity='warning',
                 issue_type='below_target_word_count',
                 message=f'Narrative shorter than target: {word_count} words (target: {target_min} for {file_count} files)'
+            ))
+
+        # Check maximum word count (over-generation detection)
+        max_tolerance = synthesis_thresholds.get('max_word_count_tolerance', 1.2)  # 20% over is warning
+        max_hard_limit = synthesis_thresholds.get('max_word_hard_limit', 1.5)  # 50% over is error
+
+        if word_count > target_max * max_hard_limit:
+            issues.append(ValidationIssue(
+                severity='error',
+                issue_type='excessive_word_count',
+                message=f'Narrative too long: {word_count} words (hard limit: {int(target_max * max_hard_limit)}, target max: {target_max} for {file_count} files)'
+            ))
+        elif word_count > target_max * max_tolerance:
+            issues.append(ValidationIssue(
+                severity='warning',
+                issue_type='above_target_word_count',
+                message=f'Narrative exceeds target: {word_count} words (target max: {target_max} for {file_count} files)'
             ))
 
         return issues
@@ -360,7 +387,8 @@ class FactVerifier:
         claims_to_verify = claims_with_lines[:max_claims]
 
         for claim in claims_to_verify:
-            path_match = re.search(r'([\w/.-]+\.py)', claim)
+            # Match any file path with extension (no hardcoded extensions)
+            path_match = re.search(r'([\w/.-]+\.\w+)', claim)
 
             if not path_match:
                 claim_start = answer.find(claim)
@@ -369,12 +397,18 @@ class FactVerifier:
                     context_chars = validation_config.get('claim_context_chars', 200)
                     context_start = max(0, claim_start - context_chars)
                     context = answer[context_start:claim_start]
-                    path_match = re.search(r'([\w/.-]+\.py)', context)
+                    path_match = re.search(r'([\w/.-]+\.\w+)', context)
 
             if not path_match:
                 continue
 
             file_path = path_match.group(1)
+
+            # Skip if extension doesn't match analyzed files
+            analyzed_extensions = {f.split('.')[-1] for f in file_summaries.keys() if '.' in f}
+            file_ext = file_path.split('.')[-1] if '.' in file_path else ''
+            if file_ext not in analyzed_extensions:
+                continue
 
             if file_path not in file_summaries:
                 matching_files = [f for f in file_summaries.keys() if file_path in f or f in file_path]
@@ -416,75 +450,15 @@ class FactVerifier:
         return issues
 
     def _verify_architectural_claims(self, answer: str, file_summaries: Dict[str, Any]) -> List[ValidationIssue]:
-        """Verify architectural and pattern claims WITHOUT line references."""
-        issues = []
+        """
+        Verify architectural and pattern claims.
 
-        arch_patterns = [
-            r'(system|architecture|design|codebase)[^.!?]*(?:uses?|implements?|follows?|employs?)[^.!?]*[.!?]',
-            r'(?:uses?|implements?|follows?|employs?)[^.!?]*(?:pattern|principle|architecture)[^.!?]*[.!?]',
-            r'(?:singleton|factory|observer|strategy|decorator|adapter|mvc|microservice)[^.!?]*[.!?]'
-        ]
-
-        arch_claims = []
-        for pattern in arch_patterns:
-            matches = re.findall(pattern, answer, re.IGNORECASE)
-            arch_claims.extend(matches)
-
-        validation_config = self.config.get('agents', {}).get('validation', {})
-        max_claims = validation_config.get('max_architectural_claims', 10)
-        arch_claims = list(set(arch_claims))[:max_claims]
-
-        if not arch_claims:
-            return issues
-
-        all_insights = []
-        all_patterns = set()
-
-        for file_path, summary in file_summaries.items():
-            if isinstance(summary, dict):
-                insights = summary.get('architectural_insights', '')
-                if insights:
-                    all_insights.append(insights.lower())
-
-                features = summary.get('key_features', [])
-                if isinstance(features, list):
-                    all_insights.extend([f.lower() for f in features if isinstance(f, str)])
-
-        pattern_keywords = {
-            'singleton': ['singleton', 'single instance', 'global instance'],
-            'factory': ['factory', 'creates', 'builder', 'constructor'],
-            'observer': ['observer', 'listener', 'subscriber', 'event', 'callback'],
-            'strategy': ['strategy', 'algorithm', 'policy'],
-            'decorator': ['decorator', 'wrapper', 'enhance'],
-            'adapter': ['adapter', 'wrapper', 'interface'],
-            'mvc': ['model', 'view', 'controller', 'mvc'],
-            'microservice': ['microservice', 'service', 'api'],
-            'repository': ['repository', 'data access', 'dao'],
-            'dependency injection': ['injection', 'dependency', 'inject']
-        }
-
-        insights_text = ' '.join(all_insights)
-        for pattern_name, keywords in pattern_keywords.items():
-            if any(keyword in insights_text for keyword in keywords):
-                all_patterns.add(pattern_name)
-
-        for claim in arch_claims:
-            claim_lower = claim.lower()
-            mentioned_patterns = [p for p in pattern_keywords.keys() if p in claim_lower]
-
-            if not mentioned_patterns:
-                continue
-
-            unverified_patterns = [p for p in mentioned_patterns if p not in all_patterns]
-
-            if unverified_patterns:
-                issues.append(ValidationIssue(
-                    severity='warning',
-                    issue_type='unverified_architectural_claim',
-                    message=f'Architectural claim not verified: "{claim[:100]}..." (patterns: {unverified_patterns})'
-                ))
-
-        return issues
+        Note: Architectural claim verification is handled by LLM grounding rules during
+        generation. Hardcoded pattern keywords (singleton, factory, etc.) were removed
+        to avoid bias toward specific architectural styles (OOP vs functional, etc.).
+        The LLM is trusted to make grounded architectural claims based on actual code.
+        """
+        return []
 
     def _read_code_at_line(self, file_path: str, line_num: int, context_lines: Optional[int] = None) -> Optional[str]:
         """Read code at specific line with surrounding context."""
@@ -515,18 +489,20 @@ class FactVerifier:
         words = claim.split()
         code_words = code_context.lower().split()
 
-        common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from',
-                        'this', 'that', 'these', 'those', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-                        'key', 'similar', 'after', 'finally', 'starting', 'three', 'model', 'pattern',
-                        'url', 'ui', 'orm', 'mvc', 'component', 'interactions', 'detailed', 'together'}
+        # Identify code identifiers by structural patterns only (no hardcoded word lists)
         identifiers_in_claim = []
         for w in words:
             cleaned = w.strip('`"\'()*_#[]')
             if cleaned and len(cleaned) >= 2:
-                cleaned_lower = cleaned.lower()
-                if ('_' in cleaned or
-                    (any(c.isupper() for c in cleaned[1:]) and any(c.islower() for c in cleaned)) or
-                    (cleaned[0].isupper() and len(cleaned) > 3 and cleaned_lower not in common_words)):
+                # Detect code identifiers by naming conventions:
+                # - snake_case: contains underscore
+                # - camelCase: lowercase start with uppercase later
+                # - PascalCase: uppercase start with mixed case
+                has_underscore = '_' in cleaned
+                is_camel_case = cleaned[0].islower() and any(c.isupper() for c in cleaned[1:])
+                is_pascal_case = cleaned[0].isupper() and any(c.islower() for c in cleaned) and any(c.isupper() for c in cleaned[1:])
+
+                if has_underscore or is_camel_case or is_pascal_case:
                     identifiers_in_claim.append(cleaned)
 
         if identifiers_in_claim:
@@ -537,21 +513,19 @@ class FactVerifier:
             if match_ratio < min_match_ratio:
                 return False
 
-        if 'calls' in claim.lower() or 'invokes' in claim.lower():
-            functions = file_summary.get('functions', [])
-            function_names = [f.get('name', '') for f in functions if isinstance(f, dict)]
+        # Verify claims by checking if referenced entities exist in the file summary
+        # No hardcoded relationship keywords - verify any function/class reference in claim
+        functions = file_summary.get('functions', [])
+        function_names = [f.get('name', '') for f in functions if isinstance(f, dict) and f.get('name')]
 
-            for func_name in function_names:
-                if func_name and func_name in claim:
-                    return True
+        classes = file_summary.get('classes', [])
+        class_names = [c.get('name', '') for c in classes if isinstance(c, dict) and c.get('name')]
 
-        if 'inherits' in claim.lower() or 'extends' in claim.lower() or 'subclass' in claim.lower():
-            classes = file_summary.get('classes', [])
-            class_names = [c.get('name', '') for c in classes if isinstance(c, dict)]
-
-            for class_name in class_names:
-                if class_name and class_name in claim:
-                    return True
+        # If the claim mentions any entity from this file, it's grounded
+        all_entities = function_names + class_names
+        for entity in all_entities:
+            if entity in claim:
+                return True
 
         return True
 
@@ -629,9 +603,9 @@ class ValidationScorer:
         if not sentences:
             return 0.0
 
-        path_pattern = self.structural_validator._get_file_path_pattern()
         max_gap = self.structural_validator._get_max_file_line_gap()
-        file_line_pattern = rf'{path_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt).{{0,{max_gap}}}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        # Match any file path with extension followed by line reference (no hardcoded extensions)
+        file_line_pattern = rf'([\w/.-]+\.\w+).{{0,{max_gap}}}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
         file_line_matches = list(re.finditer(file_line_pattern, answer, re.IGNORECASE | re.DOTALL))
 
         if not file_line_matches:
@@ -667,14 +641,22 @@ class ValidationScorer:
         Returns:
             Path accuracy ratio (0.0 to 1.0)
         """
-        prefix_pattern = self.structural_validator._get_file_path_pattern()
-        path_pattern = rf'\b{prefix_pattern}/[\w/.-]+\.(?:py|js|ts|jsx|tsx|java|go|rs|cpp|c|h|rb|php|swift|kt)\b'
-        mentioned_paths = re.findall(path_pattern, answer)
+        # Match any file path with extension (no hardcoded patterns)
+        path_pattern = r'\b([\w/.-]+\.\w+)\b'
+        all_paths = re.findall(path_pattern, answer)
+
+        # Filter to paths that look like source files (contain / or match analyzed files)
+        valid_paths = set(file_summaries.keys())
+        analyzed_extensions = {f.split('.')[-1] for f in valid_paths if '.' in f}
+
+        mentioned_paths = []
+        for path in all_paths:
+            ext = path.split('.')[-1] if '.' in path else ''
+            if ext in analyzed_extensions and ('/' in path or any(path in vp or vp.endswith(path) for vp in valid_paths)):
+                mentioned_paths.append(path)
 
         if not mentioned_paths:
             return 1.0
-
-        valid_paths = set(file_summaries.keys())
 
         correct = 0
         for mentioned_path in mentioned_paths:
@@ -693,6 +675,42 @@ class ValidationScorer:
                 continue
 
         return correct / len(mentioned_paths)
+
+    def count_file_line_references(self, answer: str) -> int:
+        """
+        Count the number of file:line references in the answer.
+
+        Matches patterns like:
+        - `filename.py:123`
+        - (filename.py:123)
+        - filename.py line 123
+        - at line 123 in filename.py
+
+        Args:
+            answer: Generated answer text
+
+        Returns:
+            Count of file:line references
+        """
+        # Pattern 1: Inline format like `filename.py:123` or (filename.py:123)
+        # No hardcoded extensions - accept any file type
+        inline_pattern = r'[`(]?([\w/.-]+\.\w+):(\d+)[`)]?'
+        inline_refs = re.findall(inline_pattern, answer)
+
+        # Pattern 2: Verbose format like "filename.py line 123" or "at line 123"
+        # No hardcoded extensions or path prefixes
+        max_gap = self.structural_validator._get_max_file_line_gap()
+        verbose_pattern = rf'([\w/.-]+\.\w+).{{0,{max_gap}}}?(?:line[s]?\s+|L|at\s+line\s+)(\d+)'
+        verbose_refs = re.findall(verbose_pattern, answer, re.IGNORECASE | re.DOTALL)
+
+        # Combine and deduplicate by (file, line) pair
+        all_refs = set()
+        for file_path, line_num in inline_refs:
+            all_refs.add((file_path, line_num))
+        for file_path, line_num in verbose_refs:
+            all_refs.add((file_path, line_num))
+
+        return len(all_refs)
 
 
 # =============================================================================
@@ -742,6 +760,7 @@ def validate_answer(
     grounding_score = scorer.calculate_grounding_score(answer, file_summaries)
     line_coverage = scorer.calculate_line_coverage(answer)
     path_accuracy = scorer.calculate_path_accuracy(answer, file_summaries)
+    file_line_ref_count = scorer.count_file_line_references(answer)
 
     # Determine overall validity (no errors = valid)
     has_errors = any(issue.severity == 'error' for issue in all_issues)
@@ -751,5 +770,6 @@ def validate_answer(
         issues=all_issues,
         grounding_score=grounding_score,
         line_number_coverage=line_coverage,
-        path_accuracy=path_accuracy
+        path_accuracy=path_accuracy,
+        file_line_ref_count=file_line_ref_count
     )

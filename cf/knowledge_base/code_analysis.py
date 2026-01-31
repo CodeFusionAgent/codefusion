@@ -441,331 +441,16 @@ class DesignPatternDetector:
         self.component_name = 'pattern_detection'
         self.patterns_found: List[PatternMatch] = []
 
-        # Load pattern detection configuration
+        # Pattern detection is LLM-driven - no hardcoded scoring configuration
         self.config = config or {}
-        pattern_config = self.config.get('knowledge_base', {}).get('patterns', {}).get('confidence', {})
-
-        # Load all confidence thresholds from config
-        self.min_confidence = pattern_config.get('min_confidence', 0.5)
-        self.max_confidence = pattern_config.get('max_confidence', 0.95)
-
-        # Pattern scoring weights
-        self.singleton_name_score = pattern_config.get('singleton_private_constructor', 0.3)
-        self.singleton_method_score = pattern_config.get('singleton_static_instance', 0.2)
-        self.singleton_doc_score = pattern_config.get('singleton_lazy_init', 0.3)
-        self.factory_name_score = pattern_config.get('factory_return_type', 0.5)
-        self.factory_inheritance_score = pattern_config.get('factory_conditional', 0.3)
-        self.factory_doc_score = pattern_config.get('factory_polymorphism', 0.2)
-        self.builder_name_score = pattern_config.get('strategy_interface', 0.6)
-        self.builder_methods_score = pattern_config.get('decorator_enhancement', 0.2)
-        self.builder_doc_score = pattern_config.get('observer_subscription', 0.2)
-        self.adapter_name_score = pattern_config.get('observer_subject_methods', 0.7)
-        self.adapter_wrapper_score = pattern_config.get('factory_return_type', 0.5)
-        self.adapter_doc_score = pattern_config.get('observer_subscription', 0.2)
-        self.decorator_name_score = pattern_config.get('decorator_wrapping', 0.7)
-        self.decorator_interface_score = pattern_config.get('decorator_same_interface', 0.2)
-        self.decorator_doc_score = pattern_config.get('decorator_enhancement', 0.2)
-        self.proxy_name_score = pattern_config.get('service_business_logic', 0.8)
-        self.proxy_doc_score = pattern_config.get('observer_subscription', 0.2)
-        self.observer_name_score = pattern_config.get('observer_subject_methods', 0.7)
-        self.observer_listener_score = pattern_config.get('observer_subject_methods', 0.6)
-        self.observer_doc_score = pattern_config.get('observer_update_method', 0.2)
-        self.strategy_name_score = pattern_config.get('strategy_interface', 0.7)
-        self.strategy_interface_score = pattern_config.get('strategy_context', 0.2)
-        self.strategy_doc_score = pattern_config.get('strategy_runtime_switching', 0.2)
-        self.command_name_score = pattern_config.get('service_business_logic', 0.8)
-        self.command_doc_score = pattern_config.get('observer_update_method', 0.2)
 
     def detect_patterns(self, structural_data: StructuralData) -> List[PatternMatch]:
         """Detect all design patterns in structural data."""
         return self.detect_all_patterns(structural_data.classes)
 
     def detect_all_patterns(self, all_classes: List[ClassNode]) -> List[PatternMatch]:
-        """Detect all design patterns in a list of classes."""
-        with self.metrics_collector.track_operation(self.component_name, tokens=0, cost=0.0):
-            patterns = []
-
-            for class_node in all_classes:
-                # Creational patterns
-                patterns.extend(self._detect_singleton(class_node))
-                patterns.extend(self._detect_factory(class_node))
-                patterns.extend(self._detect_builder(class_node))
-                # Structural patterns
-                patterns.extend(self._detect_adapter(class_node))
-                patterns.extend(self._detect_decorator(class_node))
-                patterns.extend(self._detect_proxy(class_node))
-                # Behavioral patterns
-                patterns.extend(self._detect_observer(class_node))
-                patterns.extend(self._detect_strategy(class_node))
-                patterns.extend(self._detect_command(class_node))
-
-            self.patterns_found.extend(patterns)
-            return patterns
-
-    def _detect_singleton(self, class_node: ClassNode) -> List[PatternMatch]:
-        """Detect Singleton pattern."""
-        evidence = []
-        confidence = 0.0
-
-        if 'singleton' in class_node.name.lower():
-            evidence.append("Class name contains 'singleton'")
-            confidence += self.singleton_name_score
-
-        if class_node.num_methods > 0 and class_node.num_methods <= 3:
-            evidence.append("Class has few methods (typical for Singleton)")
-            confidence += self.singleton_method_score
-
-        if class_node.docstring and 'singleton' in class_node.docstring.lower():
-            evidence.append("Docstring mentions singleton")
-            confidence += self.singleton_doc_score
-
-        if confidence >= self.min_confidence:
-            return [PatternMatch(
-                pattern=DesignPattern.SINGLETON,
-                confidence=min(confidence, self.max_confidence),
-                class_name=class_node.name,
-                qualified_name=class_node.qualified_name,
-                file_path=class_node.file_path,
-                evidence=evidence,
-                metadata={'num_methods': class_node.num_methods}
-            )]
-        return []
-
-    def _detect_factory(self, class_node: ClassNode) -> List[PatternMatch]:
-        """Detect Factory pattern."""
-        evidence = []
-        confidence = 0.0
-
-        if 'factory' in class_node.name.lower():
-            evidence.append("Class name contains 'factory'")
-            confidence += self.factory_name_score
-
-        if any('factory' in base.lower() for base in class_node.base_classes):
-            evidence.append("Inherits from factory class")
-            confidence += self.factory_inheritance_score
-
-        if class_node.docstring:
-            doc_lower = class_node.docstring.lower()
-            if any(word in doc_lower for word in ['factory', 'creates', 'builds']):
-                evidence.append("Docstring suggests factory behavior")
-                confidence += self.factory_doc_score
-
-        if confidence >= self.min_confidence:
-            return [PatternMatch(
-                pattern=DesignPattern.FACTORY,
-                confidence=min(confidence, self.max_confidence),
-                class_name=class_node.name,
-                qualified_name=class_node.qualified_name,
-                file_path=class_node.file_path,
-                evidence=evidence,
-                metadata={}
-            )]
-        return []
-
-    def _detect_builder(self, class_node: ClassNode) -> List[PatternMatch]:
-        """Detect Builder pattern."""
-        evidence = []
-        confidence = 0.0
-
-        if 'builder' in class_node.name.lower():
-            evidence.append("Class name contains 'builder'")
-            confidence += self.builder_name_score
-
-        if class_node.num_methods >= 5:
-            evidence.append(f"Has many methods ({class_node.num_methods}), typical for builder")
-            confidence += self.builder_methods_score
-
-        if class_node.docstring and 'builder' in class_node.docstring.lower():
-            evidence.append("Docstring mentions builder")
-            confidence += self.builder_doc_score
-
-        if confidence >= self.min_confidence:
-            return [PatternMatch(
-                pattern=DesignPattern.BUILDER,
-                confidence=min(confidence, self.max_confidence),
-                class_name=class_node.name,
-                qualified_name=class_node.qualified_name,
-                file_path=class_node.file_path,
-                evidence=evidence,
-                metadata={'num_methods': class_node.num_methods}
-            )]
-        return []
-
-    def _detect_adapter(self, class_node: ClassNode) -> List[PatternMatch]:
-        """Detect Adapter pattern."""
-        evidence = []
-        confidence = 0.0
-        name_lower = class_node.name.lower()
-
-        if 'adapter' in name_lower:
-            evidence.append("Class name contains 'adapter'")
-            confidence += self.adapter_name_score
-        elif 'wrapper' in name_lower:
-            evidence.append("Class name contains 'wrapper'")
-            confidence += self.adapter_wrapper_score
-
-        if class_node.docstring:
-            doc_lower = class_node.docstring.lower()
-            if 'adapt' in doc_lower or 'wrapper' in doc_lower:
-                evidence.append("Docstring suggests adapter behavior")
-                confidence += self.adapter_doc_score
-
-        if confidence >= self.min_confidence:
-            return [PatternMatch(
-                pattern=DesignPattern.ADAPTER,
-                confidence=min(confidence, self.max_confidence),
-                class_name=class_node.name,
-                qualified_name=class_node.qualified_name,
-                file_path=class_node.file_path,
-                evidence=evidence,
-                metadata={}
-            )]
-        return []
-
-    def _detect_decorator(self, class_node: ClassNode) -> List[PatternMatch]:
-        """Detect Decorator pattern."""
-        evidence = []
-        confidence = 0.0
-
-        if 'decorator' in class_node.name.lower():
-            evidence.append("Class name contains 'decorator'")
-            confidence += self.decorator_name_score
-
-        if len(class_node.base_classes) > 0:
-            evidence.append("Implements interface (typical for decorator)")
-            confidence += self.decorator_interface_score
-
-        if class_node.docstring and 'decorator' in class_node.docstring.lower():
-            evidence.append("Docstring mentions decorator")
-            confidence += self.decorator_doc_score
-
-        if confidence >= self.min_confidence:
-            return [PatternMatch(
-                pattern=DesignPattern.DECORATOR,
-                confidence=min(confidence, self.max_confidence),
-                class_name=class_node.name,
-                qualified_name=class_node.qualified_name,
-                file_path=class_node.file_path,
-                evidence=evidence,
-                metadata={}
-            )]
-        return []
-
-    def _detect_proxy(self, class_node: ClassNode) -> List[PatternMatch]:
-        """Detect Proxy pattern."""
-        evidence = []
-        confidence = 0.0
-
-        if 'proxy' in class_node.name.lower():
-            evidence.append("Class name contains 'proxy'")
-            confidence += self.proxy_name_score
-
-        if class_node.docstring:
-            doc_lower = class_node.docstring.lower()
-            if 'proxy' in doc_lower or 'controls access' in doc_lower:
-                evidence.append("Docstring suggests proxy behavior")
-                confidence += self.proxy_doc_score
-
-        if confidence >= self.min_confidence:
-            return [PatternMatch(
-                pattern=DesignPattern.PROXY,
-                confidence=min(confidence, self.max_confidence),
-                class_name=class_node.name,
-                qualified_name=class_node.qualified_name,
-                file_path=class_node.file_path,
-                evidence=evidence,
-                metadata={}
-            )]
-        return []
-
-    def _detect_observer(self, class_node: ClassNode) -> List[PatternMatch]:
-        """Detect Observer pattern."""
-        evidence = []
-        confidence = 0.0
-        name_lower = class_node.name.lower()
-
-        if 'observer' in name_lower:
-            evidence.append("Class name contains 'observer'")
-            confidence += self.observer_name_score
-        elif 'listener' in name_lower:
-            evidence.append("Class name contains 'listener'")
-            confidence += self.observer_listener_score
-        elif 'subscriber' in name_lower:
-            evidence.append("Class name contains 'subscriber'")
-            confidence += self.observer_listener_score
-
-        if class_node.docstring:
-            doc_lower = class_node.docstring.lower()
-            if any(word in doc_lower for word in ['observer', 'notify', 'publish', 'subscribe']):
-                evidence.append("Docstring suggests observer behavior")
-                confidence += self.observer_doc_score
-
-        if confidence >= self.min_confidence:
-            return [PatternMatch(
-                pattern=DesignPattern.OBSERVER,
-                confidence=min(confidence, self.max_confidence),
-                class_name=class_node.name,
-                qualified_name=class_node.qualified_name,
-                file_path=class_node.file_path,
-                evidence=evidence,
-                metadata={}
-            )]
-        return []
-
-    def _detect_strategy(self, class_node: ClassNode) -> List[PatternMatch]:
-        """Detect Strategy pattern."""
-        evidence = []
-        confidence = 0.0
-
-        if 'strategy' in class_node.name.lower():
-            evidence.append("Class name contains 'strategy'")
-            confidence += self.strategy_name_score
-
-        if class_node.is_abstract or len(class_node.base_classes) > 0:
-            evidence.append("Is abstract or implements interface")
-            confidence += self.strategy_interface_score
-
-        if class_node.docstring and 'strategy' in class_node.docstring.lower():
-            evidence.append("Docstring mentions strategy")
-            confidence += self.strategy_doc_score
-
-        if confidence >= self.min_confidence:
-            return [PatternMatch(
-                pattern=DesignPattern.STRATEGY,
-                confidence=min(confidence, self.max_confidence),
-                class_name=class_node.name,
-                qualified_name=class_node.qualified_name,
-                file_path=class_node.file_path,
-                evidence=evidence,
-                metadata={}
-            )]
-        return []
-
-    def _detect_command(self, class_node: ClassNode) -> List[PatternMatch]:
-        """Detect Command pattern."""
-        evidence = []
-        confidence = 0.0
-
-        if 'command' in class_node.name.lower():
-            evidence.append("Class name contains 'command'")
-            confidence += self.command_name_score
-
-        if class_node.docstring:
-            doc_lower = class_node.docstring.lower()
-            if 'command' in doc_lower or 'execute' in doc_lower:
-                evidence.append("Docstring suggests command behavior")
-                confidence += self.command_doc_score
-
-        if confidence >= self.min_confidence:
-            return [PatternMatch(
-                pattern=DesignPattern.COMMAND,
-                confidence=min(confidence, self.max_confidence),
-                class_name=class_node.name,
-                qualified_name=class_node.qualified_name,
-                file_path=class_node.file_path,
-                evidence=evidence,
-                metadata={}
-            )]
+        """Design pattern detection - LLM-driven analysis of actual code structure."""
+        # No hardcoded keyword matching - LLM analyzes actual code
         return []
 
     def get_patterns_by_type(self, pattern: DesignPattern) -> List[PatternMatch]:
@@ -827,30 +512,7 @@ class ArchitecturalPatternDetector:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.patterns_found: List[ArchitecturalMatch] = []
         self.config = config or {}
-        pattern_config = self.config.get('knowledge_base', {}).get('patterns', {}).get('confidence', {})
-
-        # Load confidence thresholds
-        self.min_confidence = pattern_config.get('min_confidence', 0.5)
-        self.max_confidence = pattern_config.get('max_confidence', 0.95)
-
-        # MVC pattern scoring
-        self.mvc_model_dir_score = pattern_config.get('mvc_model_dir', 0.25)
-        self.mvc_view_dir_score = pattern_config.get('mvc_view_dir', 0.25)
-        self.mvc_controller_dir_score = pattern_config.get('mvc_controller_dir', 0.25)
-        self.mvc_model_classes_score = pattern_config.get('mvc_model_classes', 0.15)
-        self.mvc_view_classes_score = pattern_config.get('mvc_view_classes', 0.10)
-        self.mvc_controller_classes_score = pattern_config.get('mvc_controller_classes', 0.15)
-
-        # Repository and service pattern scoring
-        self.repository_classes_score = pattern_config.get('repository_classes', 0.8)
-        self.repository_naming_score = pattern_config.get('repository_naming', 0.15)
-        self.service_layer_classes_score = pattern_config.get('service_layer_classes', 0.7)
-        self.service_layer_multiple_score = pattern_config.get('service_layer_multiple', 0.2)
-
-        # Layered architecture scoring
-        self.layered_base_score = pattern_config.get('layered_base', 0.5)
-        self.layered_per_layer_score = pattern_config.get('layered_per_layer', 0.1)
-        self.layered_services_repos_score = pattern_config.get('layered_services_repos', 0.15)
+        # Pattern detection is LLM-driven - no hardcoded scoring configuration needed
 
     def detect_patterns(self, all_structural_data: List[StructuralData]) -> List[ArchitecturalMatch]:
         """Detect architectural patterns across the entire codebase."""
@@ -874,166 +536,23 @@ class ArchitecturalPatternDetector:
         return patterns
 
     def _detect_mvc(self, all_classes: List[Any], all_files: List[Any]) -> List[ArchitecturalMatch]:
-        """Detect MVC (Model-View-Controller) pattern."""
-        evidence = []
-        components = []
-        confidence = 0.0
-
-        models = []
-        views = []
-        controllers = []
-        has_model_dir = has_view_dir = has_controller_dir = False
-
-        for file_node in all_files:
-            path_lower = file_node.path.lower()
-            if '/models/' in path_lower or path_lower.startswith('models/'):
-                has_model_dir = True
-            if '/views/' in path_lower or path_lower.startswith('views/'):
-                has_view_dir = True
-            if '/controllers/' in path_lower or path_lower.startswith('controllers/'):
-                has_controller_dir = True
-
-        for class_node in all_classes:
-            name_lower = class_node.name.lower()
-            if 'model' in name_lower or 'entity' in name_lower:
-                models.append(class_node.qualified_name)
-            if 'view' in name_lower or 'template' in name_lower:
-                views.append(class_node.qualified_name)
-            if 'controller' in name_lower or 'handler' in name_lower:
-                controllers.append(class_node.qualified_name)
-
-        if has_model_dir:
-            evidence.append("Has models/ directory")
-            confidence += self.mvc_model_dir_score
-        if has_view_dir:
-            evidence.append("Has views/ directory")
-            confidence += self.mvc_view_dir_score
-        if has_controller_dir:
-            evidence.append("Has controllers/ directory")
-            confidence += self.mvc_controller_dir_score
-
-        if len(models) >= 2:
-            evidence.append(f"Found {len(models)} model classes")
-            confidence += self.mvc_model_classes_score
-            components.extend(models[:5])
-        if len(views) >= 1:
-            evidence.append(f"Found {len(views)} view classes")
-            confidence += self.mvc_view_classes_score
-            components.extend(views[:5])
-        if len(controllers) >= 2:
-            evidence.append(f"Found {len(controllers)} controller classes")
-            confidence += self.mvc_controller_classes_score
-            components.extend(controllers[:5])
-
-        if confidence >= self.min_confidence:
-            return [ArchitecturalMatch(
-                pattern=ArchitecturalPattern.MVC,
-                confidence=min(confidence, self.max_confidence),
-                components=components,
-                evidence=evidence,
-                metadata={'models': len(models), 'views': len(views), 'controllers': len(controllers)}
-            )]
+        """MVC detection - LLM-driven analysis of actual code structure."""
+        # No hardcoded pattern matching - LLM analyzes actual code
         return []
 
     def _detect_repository(self, all_classes: List[Any]) -> List[ArchitecturalMatch]:
-        """Detect Repository pattern."""
-        evidence = []
-        components = []
-        confidence = 0.0
-        repositories = []
-
-        for class_node in all_classes:
-            if 'repository' in class_node.name.lower():
-                repositories.append(class_node.qualified_name)
-
-        if len(repositories) >= 2:
-            evidence.append(f"Found {len(repositories)} repository classes")
-            confidence += self.repository_classes_score
-            components = repositories[:10]
-            evidence.append("Classes follow Repository naming convention")
-            confidence += self.repository_naming_score
-
-        if confidence >= self.min_confidence:
-            return [ArchitecturalMatch(
-                pattern=ArchitecturalPattern.REPOSITORY,
-                confidence=min(confidence, self.max_confidence),
-                components=components,
-                evidence=evidence,
-                metadata={'num_repositories': len(repositories)}
-            )]
+        """Repository detection - LLM-driven analysis of actual code structure."""
+        # No hardcoded pattern matching - LLM analyzes actual code
         return []
 
     def _detect_service_layer(self, all_classes: List[Any]) -> List[ArchitecturalMatch]:
-        """Detect Service Layer pattern."""
-        evidence = []
-        components = []
-        confidence = 0.0
-        services = []
-
-        for class_node in all_classes:
-            name_lower = class_node.name.lower()
-            if 'service' in name_lower and name_lower.endswith('service'):
-                services.append(class_node.qualified_name)
-
-        if len(services) >= 2:
-            evidence.append(f"Found {len(services)} service classes")
-            confidence += self.service_layer_classes_score
-            components = services[:10]
-
-            if len(services) >= 5:
-                evidence.append("Multiple services suggest service layer architecture")
-                confidence += self.service_layer_multiple_score
-
-        if confidence >= self.min_confidence:
-            return [ArchitecturalMatch(
-                pattern=ArchitecturalPattern.SERVICE_LAYER,
-                confidence=min(confidence, self.max_confidence),
-                components=components,
-                evidence=evidence,
-                metadata={'num_services': len(services)}
-            )]
+        """Service layer detection - LLM-driven analysis of actual code structure."""
+        # No hardcoded pattern matching - LLM analyzes actual code
         return []
 
     def _detect_layered(self, all_files: List[Any]) -> List[ArchitecturalMatch]:
-        """Detect Layered Architecture."""
-        evidence = []
-        components = []
-        confidence = 0.0
-        layers = set()
-
-        common_layers = {
-            'api', 'presentation', 'ui',
-            'services', 'business', 'domain',
-            'repositories', 'data', 'dal',
-            'models', 'entities',
-            'utils', 'common'
-        }
-
-        for file_node in all_files:
-            path_parts = file_node.path.split('/')
-            for part in path_parts:
-                if part.lower() in common_layers:
-                    layers.add(part.lower())
-                    components.append(file_node.path)
-
-        num_layers = len(layers)
-
-        if num_layers >= 3:
-            evidence.append(f"Found {num_layers} distinct layers: {', '.join(sorted(layers))}")
-            confidence = self.layered_base_score + (num_layers - 3) * self.layered_per_layer_score
-
-            if 'services' in layers and 'repositories' in layers:
-                evidence.append("Has both services and repositories (typical layering)")
-                confidence += self.layered_services_repos_score
-
-        if confidence >= self.min_confidence:
-            return [ArchitecturalMatch(
-                pattern=ArchitecturalPattern.LAYERED,
-                confidence=min(confidence, self.max_confidence),
-                components=components[:20],
-                evidence=evidence,
-                metadata={'layers': sorted(layers), 'num_layers': num_layers}
-            )]
+        """Layered architecture detection - LLM-driven analysis of actual code structure."""
+        # No hardcoded pattern matching - LLM analyzes actual code
         return []
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -1219,14 +738,8 @@ class ExecutionPathTracer:
         return self.dep_graph.find_call_chain(start, end, max_depth)
 
     def trace_request_lifecycle(self, endpoint_function: str, max_depth: int = 20) -> ExecutionPath:
-        """Trace request lifecycle for web applications."""
+        """Trace request lifecycle - follows call graph from entry point."""
         callees = self.dep_graph.find_all_callees(endpoint_function, max_depth)
-
-        db_functions = [
-            f for f in callees
-            if any(keyword in f.lower() for keyword in ['query', 'execute', 'save', 'insert', 'update', 'db'])
-        ]
-
         all_functions = [endpoint_function] + list(callees)
         steps = []
 
@@ -1234,7 +747,7 @@ class ExecutionPathTracer:
             function_name=endpoint_function.split('.')[-1],
             qualified_name=endpoint_function,
             step_type="entry",
-            metadata={'type': 'http_endpoint'}
+            metadata={}
         ))
 
         for func in list(callees)[:20]:
@@ -1245,25 +758,18 @@ class ExecutionPathTracer:
                 metadata={}
             ))
 
-        if db_functions:
-            exit_func = db_functions[0]
-            steps.append(ExecutionStep(
-                function_name=exit_func.split('.')[-1],
-                qualified_name=exit_func,
-                step_type="exit",
-                metadata={'type': 'database'}
-            ))
-        else:
-            steps.append(ExecutionStep(
-                function_name=endpoint_function.split('.')[-1],
-                qualified_name=endpoint_function,
-                step_type="exit",
-                metadata={}
-            ))
+        # Exit point is the last callee in the chain (leaf node)
+        exit_func = list(callees)[-1] if callees else endpoint_function
+        steps.append(ExecutionStep(
+            function_name=exit_func.split('.')[-1],
+            qualified_name=exit_func,
+            step_type="exit",
+            metadata={}
+        ))
 
         return ExecutionPath(
             entry_point=endpoint_function,
-            exit_point=db_functions[0] if db_functions else endpoint_function,
+            exit_point=exit_func,
             steps=steps,
             total_functions=len(all_functions),
             max_depth=max_depth,
@@ -1271,21 +777,19 @@ class ExecutionPathTracer:
         )
 
     def find_entry_points(self, all_functions: List[str]) -> List[str]:
-        """Find likely entry points in the codebase."""
-        entry_points = []
+        """
+        Find entry points based on call graph structure.
+
+        Entry points are functions that are never called by other functions
+        in the codebase (top of call hierarchy).
+        """
         called_functions = set()
         for callees in self.dep_graph.call_graph.values():
             called_functions.update(callees)
 
-        never_called = [f for f in all_functions if f not in called_functions]
-        entry_keywords = ['main', 'handler', 'route', 'endpoint', 'serve', 'run', 'start', 'init']
-
-        for func in never_called:
-            func_lower = func.lower()
-            if any(keyword in func_lower for keyword in entry_keywords):
-                entry_points.append(func)
-
-        return entry_points
+        # Entry points are functions that are never called
+        # (no hardcoded keyword filtering - structure-based detection only)
+        return [f for f in all_functions if f not in called_functions]
 
     def detect_long_call_chains(self, min_length: int = 10) -> List[List[str]]:
         """Detect long call chains (potential code smell)."""

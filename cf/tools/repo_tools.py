@@ -4,6 +4,7 @@ Repository Tools for CodeFusion
 Clean, efficient file operations with grep-based searching and comprehensive metrics tracking.
 """
 
+import ast
 import os
 import re
 import time
@@ -19,12 +20,37 @@ logger = get_logger(__name__)
 
 class RepoTools:
     """Repository file operations and analysis tools"""
-    
+
     def __init__(self, repo_path: str):
         self.repo_path = Path(repo_path).resolve()
         self.max_file_size = 1024 * 1024  # 1MB
-        self.excluded_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', '.pytest_cache', 'cf_cache', 'cache', '.cache', 'cf_trace'}
-        self.excluded_extensions = {'.pyc', '.pyo', '.so', '.dll', '.exe', '.bin'}
+        self._source_extensions_cache = None
+
+    def _get_source_extensions(self) -> List[str]:
+        """
+        Dynamically discover source file extensions from the repository.
+
+        Scans the repo to find what extensions are actually used,
+        rather than hardcoding a language-specific list.
+        """
+        if self._source_extensions_cache is not None:
+            return self._source_extensions_cache
+
+        extensions = set()
+        try:
+            # Sample files from repo to discover extensions
+            for path in self.repo_path.rglob('*'):
+                if path.is_file():
+                    ext = path.suffix.lower()
+                    if ext and len(ext) <= 5:
+                        extensions.add(ext)
+                if len(extensions) >= 50:
+                    break
+        except Exception:
+            pass
+
+        self._source_extensions_cache = list(extensions)
+        return self._source_extensions_cache
     
     def scan_directory(self, directory: str = "", max_depth: int = 3, exclude_dirs: Optional[List[str]] = None) -> Dict[str, Any]:
         """Recursively scan directory to discover files and structure"""
@@ -36,11 +62,8 @@ class RepoTools:
             logger.error(f"Directory not found: {scan_path}")
             return {'error': f'Directory not found: {scan_path}'}
 
-        # Combine default excludes with user-provided ones
-        excludes = self.excluded_dirs.copy()
-        if exclude_dirs:
-            excludes.update(exclude_dirs)
-        
+        excludes = set(exclude_dirs) if exclude_dirs else set()
+
         result = {
             'directory': str(scan_path),
             'files': [],
@@ -66,8 +89,6 @@ class RepoTools:
                         result['subdirectories'].append(str(item.relative_to(self.repo_path)))
                         _scan_recursive(item, current_depth + 1)
                     elif item.is_file():
-                        if item.suffix in self.excluded_extensions:
-                            continue
                         if item.stat().st_size > self.max_file_size:
                             continue
 
@@ -126,44 +147,256 @@ class RepoTools:
         except Exception as e:
             return {'error': f'Failed to list files: {str(e)}'}
     
-    def read_file(self, file_path: str, max_lines: Optional[int] = None, include_structure: bool = False) -> Dict[str, Any]:
-        """Read contents of a specific file, optionally including structural analysis"""
+    def read_file(self, file_path: str, max_lines: Optional[int] = None, offset: int = 0,
+                  include_structure: bool = False, extract_imports: bool = False) -> Dict[str, Any]:
+        """
+        Read contents of a specific file.
+
+        Args:
+            file_path: Path to file relative to repo root
+            max_lines: Optional limit on number of lines to read
+            offset: Line number to start reading from (0-indexed, default 0)
+            include_structure: Include AST structure analysis
+            extract_imports: Extract and resolve import statements to file paths
+
+        Returns:
+            Dict with file content and optional imports/structure
+        """
         full_path = self.repo_path / file_path
-        
+
         if not full_path.exists():
             return {'error': f'File not found: {file_path}'}
-        
+
         if full_path.stat().st_size > self.max_file_size:
             return {'error': f'File too large: {file_path}'}
-        
+
         try:
             if not self._is_text_file(full_path):
                 return {'error': f'File is not text readable: {file_path}'}
-            
+
+            # Always read full file first to get total line count
             with open(full_path, 'r', encoding='utf-8') as f:
-                if max_lines:
-                    lines = [f.readline() for _ in range(max_lines)]
-                    content = ''.join(lines)
-                else:
-                    content = f.read()
-            
+                full_content = f.read()
+
+            all_lines = full_content.splitlines(keepends=True)
+            total_lines = len(all_lines)
+
+            # Apply offset and max_lines
+            start_line = min(offset, total_lines)
+            if max_lines:
+                end_line = min(start_line + max_lines, total_lines)
+            else:
+                end_line = total_lines
+
+            content = ''.join(all_lines[start_line:end_line])
+            lines_read = end_line - start_line
+            truncated = end_line < total_lines
+
             result = {
                 'file_path': file_path,
                 'content': content,
                 'size': full_path.stat().st_size,
-                'lines': len(content.splitlines()),
+                'lines': lines_read,
+                'total_lines': total_lines,
+                'offset': start_line,
+                'truncated': truncated,
                 'encoding': 'utf-8'
             }
-            
+
+            # Add truncation warning so LLM knows there's more content
+            if truncated:
+                remaining = total_lines - end_line
+                result['truncation_warning'] = f"⚠️ FILE TRUNCATED: Showing lines {start_line+1}-{end_line}/{total_lines}. {remaining} more lines available. Use offset={end_line} to continue reading."
+
             # Add structural analysis if requested
             if include_structure:
                 structure = self.analyze_file_structure(file_path)
                 if 'error' not in structure:
                     result['structure_analysis'] = structure
-            
+
+            # Extract imports from FULL file (not truncated) to discover all dependencies
+            if extract_imports:
+                imports = self._extract_imports(full_path, full_content)
+                if imports:
+                    result['imports'] = imports
+
             return result
         except Exception as e:
             return {'error': f'Failed to read file: {str(e)}'}
+
+    def _extract_imports(self, file_path: Path, content: str) -> List[Dict[str, Any]]:
+        """
+        Extract imports from a source file and resolve to file paths.
+
+        Content-driven: tries extraction methods and uses whichever finds imports.
+        """
+        # Content-driven: try all extraction methods and combine results
+        all_imports = []
+        all_imports.extend(self._extract_python_imports(content))
+        all_imports.extend(self._extract_js_imports(content))
+        imports = all_imports
+
+        # Resolve imports to actual file paths
+        resolved = []
+        for imp in imports:
+            resolved_path = self._resolve_import_path(imp, file_path)
+            resolved.append({
+                'module': imp.get('module', ''),
+                'names': imp.get('names', []),
+                'resolved_path': resolved_path,
+                'exists': resolved_path is not None and (self.repo_path / resolved_path).exists() if resolved_path else False
+            })
+
+        return resolved
+
+    def _extract_python_imports(self, content: str) -> List[Dict[str, Any]]:
+        """Extract imports from Python source code using AST."""
+        imports = []
+
+        try:
+            tree = ast.parse(content)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        imports.append({
+                            'type': 'import',
+                            'module': alias.name,
+                            'names': [alias.asname or alias.name],
+                            'line': node.lineno
+                        })
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ''
+                    names = [alias.name for alias in node.names]
+                    imports.append({
+                        'type': 'from',
+                        'module': module,
+                        'names': names,
+                        'level': node.level,  # Relative import level
+                        'line': node.lineno
+                    })
+        except SyntaxError:
+            # Fall back to regex if AST parsing fails
+            # Handle single-line imports
+            simple_import = re.compile(r'^import\s+([\w.]+)', re.MULTILINE)
+            for match in simple_import.finditer(content):
+                imports.append({
+                    'type': 'import',
+                    'module': match.group(1),
+                    'names': []
+                })
+
+            # Handle from X import Y (single line)
+            from_import = re.compile(r'^from\s+([\w.]+)\s+import\s+([^\n(]+)$', re.MULTILINE)
+            for match in from_import.finditer(content):
+                imports.append({
+                    'type': 'from',
+                    'module': match.group(1),
+                    'names': [n.strip() for n in match.group(2).split(',')]
+                })
+
+            # Handle multiline imports: from X import (\n    a,\n    b\n)
+            multiline_import = re.compile(
+                r'^from\s+([\w.]+)\s+import\s+\(\s*([^)]+)\)',
+                re.MULTILINE | re.DOTALL
+            )
+            for match in multiline_import.finditer(content):
+                names = [n.strip() for n in match.group(2).replace('\n', ',').split(',') if n.strip()]
+                imports.append({
+                    'type': 'from',
+                    'module': match.group(1),
+                    'names': names
+                })
+
+        return imports
+
+    def _extract_js_imports(self, content: str) -> List[Dict[str, Any]]:
+        """Extract imports from JavaScript/TypeScript source code."""
+        imports = []
+
+        # Match: import X from 'path' or import { X } from 'path'
+        import_pattern = re.compile(
+            r'''import\s+(?:(?:\{[^}]+\}|[\w*]+(?:\s*,\s*\{[^}]+\})?)\s+from\s+)?['"]([^'"]+)['"]''',
+            re.MULTILINE
+        )
+
+        for match in import_pattern.finditer(content):
+            imports.append({
+                'type': 'import',
+                'module': match.group(1),
+                'names': []
+            })
+
+        # Match: require('path')
+        require_pattern = re.compile(r'''require\s*\(\s*['"]([^'"]+)['"]\s*\)''')
+        for match in require_pattern.finditer(content):
+            imports.append({
+                'type': 'require',
+                'module': match.group(1),
+                'names': []
+            })
+
+        return imports
+
+    def _resolve_import_path(self, imp: Dict[str, Any], source_file: Path) -> Optional[str]:
+        """
+        Try to resolve an import to a file path in the repository.
+
+        Uses file system discovery - no hardcoded extensions.
+        Returns relative path from repo root if found, None otherwise.
+        """
+        module = imp.get('module', '')
+        if not module:
+            return None
+
+        # Determine base path based on import type
+        level = imp.get('level', 0)
+        if level > 0:
+            # Relative import - go up 'level' directories
+            base_dir = source_file.parent
+            for _ in range(level - 1):
+                base_dir = base_dir.parent
+        elif module.startswith('.') or module.startswith('/'):
+            # JS-style relative import
+            base_dir = source_file.parent
+            module = module.lstrip('./')
+        else:
+            # Absolute import - from repo root
+            base_dir = self.repo_path
+
+        # Convert module to path (handle both . and / separators)
+        module_as_path = module.replace('.', '/').replace('//', '/')
+        target_path = base_dir / module_as_path
+
+        # Check if it's a directory - look for any index/init file
+        if target_path.is_dir():
+            # Find any file that could be an entry point (first file found)
+            for f in target_path.iterdir():
+                if f.is_file():
+                    try:
+                        return str(f.relative_to(self.repo_path))
+                    except ValueError:
+                        pass
+            return str(target_path.relative_to(self.repo_path))
+
+        # Check if exact file exists
+        if target_path.exists() and target_path.is_file():
+            try:
+                return str(target_path.relative_to(self.repo_path))
+            except ValueError:
+                return None
+
+        # Use glob to find matching files with any extension
+        parent = target_path.parent
+        name = target_path.name
+        if parent.exists():
+            matches = list(parent.glob(f"{name}.*"))
+            if matches:
+                try:
+                    return str(matches[0].relative_to(self.repo_path))
+                except ValueError:
+                    pass
+
+        return None
     
     def search_files(self, pattern: str, file_types: Optional[List[str]] = None, max_results: int = 50) -> Dict[str, Any]:
         """Search for pattern across files using grep for better performance"""
@@ -178,15 +411,10 @@ class RepoTools:
                         ext = f'.{ext}'
                     cmd.extend(['--include', f'*{ext}'])
             else:
-                # Default to common source file types
-                for ext in ['.py', '.js', '.ts', '.java', '.cpp', '.c', '.h', '.md', '.txt', '.yml', '.yaml', '.json']:
+                # Dynamically discover source extensions from repo
+                for ext in self._get_source_extensions():
                     cmd.extend(['--include', f'*{ext}'])
-            
-            # Exclude common directories
-            for exclude_dir in self.excluded_dirs:
-                cmd.extend(['--exclude-dir', exclude_dir])
-            
-            # Set search directory
+
             cmd.append(str(self.repo_path))
             
             # Execute grep
@@ -242,7 +470,8 @@ class RepoTools:
         if file_types:
             extensions = {f'.{ext}' if not ext.startswith('.') else ext for ext in file_types}
         else:
-            extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.h', '.md', '.txt', '.yml', '.yaml', '.json'}
+            # Dynamically discover extensions from repo
+            extensions = set(self._get_source_extensions())
         
         def _search_directory(directory: Path):
             if len(matches) >= max_results:
@@ -253,7 +482,7 @@ class RepoTools:
                     if len(matches) >= max_results:
                         break
                         
-                    if item.is_dir() and item.name not in self.excluded_dirs:
+                    if item.is_dir():
                         _search_directory(item)
                     elif item.is_file() and item.suffix in extensions:
                         if self._should_exclude_file(item):
@@ -323,9 +552,10 @@ class RepoTools:
     
     def _is_text_file(self, file_path: Path) -> bool:
         """Check if file is likely a text file"""
-        if file_path.suffix in {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.h', '.md', '.txt', '.yml', '.yaml', '.json', '.xml', '.html', '.css', '.sql', '.sh', '.bat'}:
+        # Use dynamically discovered extensions from repo
+        if file_path.suffix in set(self._get_source_extensions()):
             return True
-            
+
         mime_type = mimetypes.guess_type(file_path)[0]
         if mime_type and mime_type.startswith('text/'):
             return True
@@ -360,13 +590,8 @@ class RepoTools:
             'language': language
         }
 
-        # Language-specific complexity analysis
-        if extension == '.py':
-            metrics['complexity_indicators'] = self._analyze_python_complexity(content)
-        elif extension in ['.js', '.ts']:
-            metrics['complexity_indicators'] = self._analyze_js_complexity(content)
-        else:
-            metrics['complexity_indicators'] = {'estimated_complexity': 'unknown'}
+        # Generic complexity analysis - let LLM interpret language-specific patterns
+        metrics['complexity_indicators'] = self._analyze_generic_complexity(content)
 
         return metrics
     
@@ -380,20 +605,34 @@ class RepoTools:
         content = file_data['content']
         lines = content.splitlines()
         extension = Path(file_path).suffix.lower()
-        
+
         structure = {
             'extension': extension,
             'components': [],
             'imports': []
         }
-        
-        if extension == '.py':
-            structure.update(self.parse_python_structure(content, lines))
-        elif extension in ['.js', '.ts']:
-            structure.update(self.parse_js_structure(content, lines))
-        elif extension == '.md':
-            structure.update(self.parse_markdown_structure(lines))
-        
+
+        # Content-driven parsing - try all parsers and use best result
+        parsers = [
+            lambda: self.parse_python_structure(content, lines),
+            lambda: self.parse_js_structure(content, lines),
+            lambda: self.parse_markdown_structure(lines),
+        ]
+
+        best_result = {'components': [], 'imports': []}
+        best_score = 0
+
+        for parser in parsers:
+            try:
+                result = parser()
+                score = len(result.get('components', [])) + len(result.get('imports', []))
+                if score > best_score:
+                    best_score = score
+                    best_result = result
+            except Exception:
+                continue
+
+        structure.update(best_result)
         return structure
     
     def parse_python_structure(self, content: str, lines: List[str]) -> Dict[str, Any]:
@@ -482,59 +721,39 @@ class RepoTools:
         }
     
     def _detect_language(self, extension: str) -> str:
-        """Detect programming language from file extension"""
-        lang_map = {
-            '.py': 'Python',
-            '.js': 'JavaScript', 
-            '.ts': 'TypeScript',
-            '.java': 'Java',
-            '.cpp': 'C++',
-            '.c': 'C',
-            '.h': 'C/C++ Header',
-            '.go': 'Go',
-            '.rs': 'Rust',
-            '.rb': 'Ruby',
-            '.php': 'PHP',
-            '.md': 'Markdown',
-            '.yml': 'YAML',
-            '.yaml': 'YAML',
-            '.json': 'JSON'
-        }
-        return lang_map.get(extension.lower(), 'Unknown')
+        """Return extension as language identifier - let LLM interpret context."""
+        if not extension:
+            return 'unknown'
+        # Return extension without dot, capitalized (e.g., '.py' -> 'py')
+        return extension.lstrip('.').lower() or 'unknown'
     
-    def _analyze_python_complexity(self, content: str) -> Dict[str, Any]:
-        """Analyze Python code complexity"""
-        functions = len(re.findall(r'^\s*def\s+\w+\s*\(', content, re.MULTILINE))
-        classes = len(re.findall(r'^\s*class\s+\w+\s*[:\(]', content, re.MULTILINE))
-        imports = len(re.findall(r'^\s*(?:from\s+.+\s+)?import\s+', content, re.MULTILINE))
-        
+    def _analyze_generic_complexity(self, content: str) -> Dict[str, Any]:
+        """Analyze code complexity using generic patterns - works across languages."""
+        # Count common structural patterns that appear in most languages
+        lines = content.splitlines()
+
+        # Count indentation levels as proxy for nesting complexity
+        indent_levels = [len(line) - len(line.lstrip()) for line in lines if line.strip()]
+        max_indent = max(indent_levels) if indent_levels else 0
+        avg_indent = sum(indent_levels) / len(indent_levels) if indent_levels else 0
+
+        # Count code blocks (lines with certain endings)
+        block_starters = len([l for l in lines if l.rstrip().endswith(('{', ':', 'do', 'then'))])
+
+        # Estimate complexity from structure
+        total = len(lines)
+        complexity = 'low' if total < 100 else 'medium' if total < 500 else 'high'
+
         return {
-            'functions': functions,
-            'classes': classes,
-            'imports': imports,
-            'estimated_complexity': 'low' if functions + classes < 5 else 'medium' if functions + classes < 15 else 'high'
-        }
-    
-    def _analyze_js_complexity(self, content: str) -> Dict[str, Any]:
-        """Analyze JavaScript/TypeScript code complexity"""
-        functions = len(re.findall(r'function\s+\w+\s*\(|const\s+\w+\s*=\s*\([^)]*\)\s*=>', content, re.MULTILINE))
-        classes = len(re.findall(r'class\s+\w+\s*{', content, re.MULTILINE))
-        imports = len(re.findall(r'^\s*(?:import|export)', content, re.MULTILINE))
-        
-        return {
-            'functions': functions,
-            'classes': classes,
-            'imports': imports,
-            'estimated_complexity': 'low' if functions + classes < 5 else 'medium' if functions + classes < 15 else 'high'
+            'total_lines': total,
+            'max_nesting': max_indent // 4,  # Approximate nesting level
+            'block_count': block_starters,
+            'estimated_complexity': complexity
         }
 
     def _should_exclude_file(self, file_path: Path) -> bool:
         """Check if file should be excluded from processing"""
-        if file_path.suffix in self.excluded_extensions:
-            return True
         if file_path.stat().st_size > self.max_file_size:
-            return True
-        if any(excluded in file_path.parts for excluded in self.excluded_dirs):
             return True
         return False
 
@@ -871,83 +1090,22 @@ class RepoTools:
 
     # ===== BASH EXECUTION TOOL =====
 
-    # Whitelist of allowed command prefixes for security
-    ALLOWED_COMMANDS = [
-        # Version/info commands
-        'python --version', 'python3 --version', 'pip --version', 'pip3 --version',
-        'node --version', 'npm --version', 'npx --version',
-        'git --version', 'git status', 'git log', 'git branch', 'git diff', 'git show',
-        'git blame', 'git rev-parse', 'git remote',
-        # Test runners (read-only inspection)
-        'pytest --collect-only', 'pytest --co', 'npm test --', 'npm run test --',
-        # Linters (read-only)
-        'flake8', 'pylint', 'mypy', 'black --check', 'isort --check',
-        'eslint', 'prettier --check',
-        # Package info
-        'pip list', 'pip show', 'pip freeze', 'npm list', 'npm ls',
-        # Build inspection (dry-run/check only)
-        'make -n', 'npm run build --dry-run',
-        # Directory/file info
-        'du -sh', 'tree', 'ls -la', 'file',
-        # Process inspection
-        'ps aux',
-    ]
-
-    # Dangerous patterns to block
-    BLOCKED_PATTERNS = [
-        'rm -rf', 'rm -r', 'rmdir', 'del ',
-        '>', '>>', '|', '&&', ';', '`', '$(',
-        'sudo', 'su ', 'chmod', 'chown',
-        'curl', 'wget', 'nc ', 'netcat',
-        'eval', 'exec', 'source ',
-        '../', '~/',  # Path traversal
-    ]
-
     def bash_exec(self, command: str, timeout_seconds: int = 30) -> Dict[str, Any]:
         """
         Execute a shell command within the repository directory.
 
-        SECURITY: Only whitelisted commands are allowed.
-        Commands run with timeout protection and output truncation.
+        LLM-driven: The LLM decides what commands to run.
+        Protection: Timeout and working directory restriction only.
 
         Args:
-            command: Shell command to execute (must match whitelist)
+            command: Shell command to execute
             timeout_seconds: Max execution time (default 30s, max 60s)
 
         Returns:
             Dict with stdout, stderr, return_code, and execution metadata
         """
-        # Security: Cap timeout
+        # Cap timeout for runaway processes
         timeout_seconds = min(timeout_seconds, 60)
-
-        # Security: Check for blocked patterns
-        command_lower = command.lower()
-        for pattern in self.BLOCKED_PATTERNS:
-            if pattern in command_lower:
-                return {
-                    'error': f'Blocked pattern detected: "{pattern}"',
-                    'command': command,
-                    'allowed': False,
-                    'hint': 'This command contains potentially dangerous patterns'
-                }
-
-        # Security: Check whitelist
-        is_allowed = False
-        matched_prefix = None
-        for allowed in self.ALLOWED_COMMANDS:
-            if command.startswith(allowed) or command_lower.startswith(allowed.lower()):
-                is_allowed = True
-                matched_prefix = allowed
-                break
-
-        if not is_allowed:
-            return {
-                'error': 'Command not in whitelist',
-                'command': command,
-                'allowed': False,
-                'hint': f'Allowed commands: {", ".join(self.ALLOWED_COMMANDS[:10])}...',
-                'suggestion': 'Use one of the allowed command prefixes'
-            }
 
         try:
             # Execute with timeout and working directory restriction
@@ -971,7 +1129,6 @@ class RepoTools:
 
             return {
                 'command': command,
-                'matched_prefix': matched_prefix,
                 'return_code': result.returncode,
                 'stdout': stdout,
                 'stderr': stderr,

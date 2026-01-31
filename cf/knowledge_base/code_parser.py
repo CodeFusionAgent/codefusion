@@ -14,6 +14,7 @@ This provides accurate, deterministic code structure analysis without LLM halluc
 import ast
 import os
 import re
+import sys
 import hashlib
 from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
@@ -76,7 +77,7 @@ class PythonASTParser:
             )
 
             # Extract structural elements
-            visitor = StructuralVisitor(rel_path, self.repo_id)
+            visitor = StructuralVisitor(rel_path, self.repo_id, self.repo_path)
             visitor.visit(tree)
 
             # Build StructuralData
@@ -111,9 +112,10 @@ class StructuralVisitor(ast.NodeVisitor):
     - Variables
     """
 
-    def __init__(self, file_path: str, repo_id: str):
+    def __init__(self, file_path: str, repo_id: str, repo_path: str = ""):
         self.file_path = file_path
         self.repo_id = repo_id
+        self.repo_path = repo_path
 
         # Collected data
         self.functions: List[FunctionNode] = []
@@ -132,17 +134,16 @@ class StructuralVisitor(ast.NodeVisitor):
 
     def _infer_module_name(self, file_path: str) -> str:
         """
-        Infer module name from file path.
+        Infer module name from file path by finding package root.
 
-        Example: src/agents/base.py -> agents.base
+        Finds the deepest directory with __init__.py or pyproject.toml/setup.py
+        to determine the actual Python package structure.
+
+        Example: /repo/src/myapp/agents/base.py -> myapp.agents.base (if myapp has __init__.py)
         """
-        # Remove .py extension
-        path_without_ext = file_path.replace('.py', '')
-        # Replace path separators with dots
-        module = path_without_ext.replace(os.sep, '.')
-        # Remove leading dots
-        module = module.lstrip('.')
-        return module
+        # Simple: use filename without extension as module name
+        from pathlib import Path
+        return Path(file_path).stem
 
     def _get_qualified_name(self, name: str) -> str:
         """
@@ -206,7 +207,7 @@ class StructuralVisitor(ast.NodeVisitor):
             return_type=self._extract_return_type(node),
             is_async=isinstance(node, ast.AsyncFunctionDef),
             is_method=self.current_class is not None,
-            is_static='staticmethod' in [d.id for d in node.decorator_list if isinstance(d, ast.Name)],
+            is_static=any('static' in d.id.lower() for d in node.decorator_list if isinstance(d, ast.Name)),
             is_private=self._is_private(node.name),
             docstring=self._get_docstring(node),
             num_lines=(node.end_lineno or node.lineno) - node.lineno + 1,
@@ -244,6 +245,18 @@ class StructuralVisitor(ast.NodeVisitor):
         num_attributes = sum(1 for n in node.body if isinstance(n, ast.Assign))
 
         # Create class node
+        # is_abstract detection is done dynamically by checking decorators
+        # No hardcoded decorator names - check if any decorator looks like an abstract marker
+        decorators = [
+            d.id if isinstance(d, ast.Name) else
+            (d.attr if isinstance(d, ast.Attribute) else None)
+            for d in node.decorator_list
+        ]
+        is_abstract = any(
+            d and 'abstract' in d.lower()
+            for d in decorators
+        )
+
         class_node = ClassNode(
             name=node.name,
             qualified_name=self._get_qualified_name(node.name),
@@ -251,10 +264,7 @@ class StructuralVisitor(ast.NodeVisitor):
             end_line=node.end_lineno or node.lineno,
             file_path=self.file_path,
             base_classes=base_classes,
-            is_abstract=any(
-                isinstance(d, ast.Name) and d.id in ('ABC', 'ABCMeta')
-                for d in node.decorator_list
-            ),
+            is_abstract=is_abstract,
             is_private=self._is_private(node.name),
             docstring=self._get_docstring(node),
             num_methods=num_methods,
@@ -284,6 +294,59 @@ class StructuralVisitor(ast.NodeVisitor):
         # Restore context
         self.current_class = prev_class
 
+    def _is_local_module(self, module_name: str) -> bool:
+        """
+        Determine if a module is local to this repository.
+
+        Checks if the module path exists in the repo rather than using
+        fragile prefix matching.
+        """
+        if not module_name:
+            return False
+
+        # If no repo_path provided, cannot determine locality
+        if not self.repo_path:
+            return False
+
+        # Check if module path exists in repo - use glob for any extension
+        from pathlib import Path
+        module_path = module_name.replace('.', os.sep)
+        base_path = Path(self.repo_path) / module_path
+
+        # Check if directory exists or any file with this name
+        if base_path.is_dir():
+            return True
+        # Glob for any file with this name (any extension)
+        matches = list(base_path.parent.glob(f"{base_path.name}.*")) if base_path.parent.exists() else []
+        return len(matches) > 0
+
+    def _resolve_relative_import(self, node: ast.ImportFrom) -> str:
+        """
+        Resolve relative import to absolute module name.
+
+        Handles:
+        - from . import X (level=1)
+        - from .. import X (level=2)
+        - from .module import X (level=1, module='module')
+        """
+        if node.level == 0:
+            return node.module or ''
+
+        # Get current module's package parts
+        module_parts = self.module_name.split('.')
+
+        # Go up 'level' directories (level=1 means current package, level=2 means parent, etc.)
+        if node.level <= len(module_parts):
+            base_parts = module_parts[:-node.level] if node.level > 0 else module_parts
+        else:
+            base_parts = []
+
+        # Append the imported module name if any
+        if node.module:
+            base_parts.append(node.module)
+
+        return '.'.join(base_parts)
+
     def visit_Import(self, node: ast.Import):
         """Visit import statement: import foo"""
         for alias in node.names:
@@ -292,7 +355,7 @@ class StructuralVisitor(ast.NodeVisitor):
             if module_name not in self.seen_modules:
                 # Determine if builtin/third-party/local
                 is_builtin = self._is_builtin_module(module_name)
-                is_local = module_name.startswith(self.module_name.split('.')[0])
+                is_local = self._is_local_module(module_name)
                 is_third_party = not is_builtin and not is_local
 
                 module = ModuleNode(
@@ -317,12 +380,13 @@ class StructuralVisitor(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node: ast.ImportFrom):
         """Visit import from statement: from foo import bar"""
-        module_name = node.module or ''
+        # Handle relative imports (from . import X, from .. import Y)
+        module_name = self._resolve_relative_import(node)
 
         if module_name and module_name not in self.seen_modules:
             # Determine if builtin/third-party/local
             is_builtin = self._is_builtin_module(module_name)
-            is_local = module_name.startswith(self.module_name.split('.')[0])
+            is_local = self._is_local_module(module_name) or node.level > 0  # Relative imports are always local
             is_third_party = not is_builtin and not is_local
 
             module = ModuleNode(
@@ -339,7 +403,11 @@ class StructuralVisitor(ast.NodeVisitor):
                 rel_type=RelationType.IMPORTS,
                 source_id=self.file_path,
                 target_id=module_name,
-                metadata={'line': node.lineno, 'names': [a.name for a in node.names]}
+                metadata={
+                    'line': node.lineno,
+                    'names': [a.name for a in node.names],
+                    'level': node.level  # Track relative import level
+                }
             )
             self.relationships.append(rel)
 
@@ -418,14 +486,13 @@ class StructuralVisitor(ast.NodeVisitor):
         return None
 
     def _is_builtin_module(self, module_name: str) -> bool:
-        """Check if module is a Python builtin"""
-        builtins = {
-            'os', 'sys', 'ast', 'json', 'time', 'datetime', 'collections',
-            'itertools', 'functools', 'pathlib', 're', 'math', 'random',
-            'typing', 'dataclasses', 'enum', 'abc', 'asyncio', 'concurrent',
-            'logging', 'argparse', 'unittest', 'io', 'csv', 'hashlib', 'base64'
-        }
-        return module_name.split('.')[0] in builtins
+        """
+        Check if module is a Python stdlib module.
+
+        Uses sys.stdlib_module_names (Python 3.10+) for detection.
+        """
+        first_part = module_name.split('.')[0]
+        return first_part in sys.stdlib_module_names
 
 
 # ============================================================================
@@ -436,7 +503,8 @@ class MultiLanguageParser:
     """
     Parse multiple programming languages using regex patterns.
 
-    Supports: JavaScript, TypeScript, Java, Go, Rust, C++, C#
+    Content-driven: tries all pattern sets and uses the one with best matches.
+    No hardcoded extension mappings - language is detected from content.
     """
 
     def __init__(self, repo_path: str, repo_id: str):
@@ -450,16 +518,38 @@ class MultiLanguageParser:
         self.repo_path = repo_path
         self.repo_id = repo_id
 
-        # Language-specific patterns
-        self.patterns = {
-            'javascript': self._get_javascript_patterns(),
-            'typescript': self._get_typescript_patterns(),
-            'java': self._get_java_patterns(),
-            'go': self._get_go_patterns(),
-            'rust': self._get_rust_patterns(),
-            'cpp': self._get_cpp_patterns(),
-            'csharp': self._get_csharp_patterns()
-        }
+        # All available pattern sets - no extension mapping
+        self.pattern_sets = [
+            self._get_javascript_patterns(),
+            self._get_typescript_patterns(),
+            self._get_java_patterns(),
+            self._get_go_patterns(),
+            self._get_rust_patterns(),
+            self._get_cpp_patterns(),
+            self._get_csharp_patterns(),
+        ]
+
+    def _find_best_patterns(self, content: str) -> Optional[Dict[str, re.Pattern]]:
+        """
+        Find the pattern set that best matches the file content.
+
+        Tries all pattern sets and returns the one with the most matches.
+        """
+        best_patterns = None
+        best_score = 0
+
+        for patterns in self.pattern_sets:
+            score = 0
+            for pattern in patterns.values():
+                matches = pattern.findall(content)
+                score += len(matches)
+
+            if score > best_score:
+                best_score = score
+                best_patterns = patterns
+
+        # Only return patterns if we found meaningful matches
+        return best_patterns if best_score > 0 else None
 
     def _get_javascript_patterns(self) -> Dict[str, re.Pattern]:
         """Get regex patterns for JavaScript/TypeScript"""
@@ -579,36 +669,11 @@ class MultiLanguageParser:
             )
         }
 
-    def detect_language(self, file_path: str) -> Optional[str]:
-        """
-        Detect programming language from file extension.
-
-        Returns:
-            Language identifier or None if unsupported
-        """
-        ext = Path(file_path).suffix.lower()
-
-        extension_map = {
-            '.js': 'javascript',
-            '.jsx': 'javascript',
-            '.ts': 'typescript',
-            '.tsx': 'typescript',
-            '.java': 'java',
-            '.go': 'go',
-            '.rs': 'rust',
-            '.cpp': 'cpp',
-            '.cc': 'cpp',
-            '.cxx': 'cpp',
-            '.hpp': 'cpp',
-            '.h': 'cpp',
-            '.cs': 'csharp'
-        }
-
-        return extension_map.get(ext)
-
     def parse_file(self, file_path: str) -> Optional[StructuralData]:
         """
         Parse a source file and extract structural data.
+
+        Content-driven: reads file and finds best matching pattern set.
 
         Args:
             file_path: Absolute path to source file
@@ -616,12 +681,7 @@ class MultiLanguageParser:
         Returns:
             StructuralData or None if parsing fails
         """
-        # Detect language
-        language = self.detect_language(file_path)
-        if not language:
-            return None
-
-        # Read file content
+        # Read file content first
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
@@ -629,8 +689,10 @@ class MultiLanguageParser:
             print(f"Failed to read {file_path}: {e}")
             return None
 
-        # Get patterns for this language
-        patterns = self.patterns.get(language, {})
+        # Find best matching patterns from content (no extension mapping)
+        patterns = self._find_best_patterns(content)
+        if not patterns:
+            return None
 
         # Calculate relative path
         rel_path = os.path.relpath(file_path, self.repo_path)

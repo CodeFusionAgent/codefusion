@@ -10,7 +10,6 @@ Architecture:
 - execution_path_tracers: Execution paths (direct from config)
 - query_engine: Query processing and file discovery
 - entry_point_resolver: Entry point resolution
-- file_classifier: File type classification
 """
 
 import os
@@ -754,15 +753,15 @@ class KnowledgeBaseManager:
     def parse_file(self, file_path: str) -> Optional[StructuralData]:
         """Parse a file and extract structural data (auto-detect language)"""
         try:
-            ext = os.path.splitext(file_path)[1].lower()
+            # Try Python AST parser first (most accurate for Python)
+            parser = PythonASTParser(self.repo_path, self.repo_id)
+            result = parser.parse_file(file_path)
+            if result:
+                return result
 
-            if ext == '.py':
-                parser = PythonASTParser(self.repo_path, self.repo_id)
-                return parser.parse_file(file_path)
-            else:
-                # Use multi-language parser for other languages
-                parser = MultiLanguageParser(self.repo_path, self.repo_id)
-                return parser.parse_file(file_path)
+            # Fall back to multi-language parser (content-driven detection)
+            ml_parser = MultiLanguageParser(self.repo_path, self.repo_id)
+            return ml_parser.parse_file(file_path)
 
         except Exception as e:
             logger.error(f"Failed to parse {file_path}: {e}")
@@ -854,6 +853,15 @@ class KnowledgeBaseManager:
 
         logger.info(f"KB built in {build_time:.1f}s")
 
+        # Initialize file watcher to track current state for incremental updates
+        incremental_config = self.config.get('knowledge_base', {}).get('incremental', {})
+        if incremental_config.get('enabled', False):
+            self.file_watcher = FileChangeDetector(
+                self.repo_path,
+                use_hashing=incremental_config.get('use_file_hashing', True)
+            )
+            self.file_watcher.force_scan()  # Establish baseline
+
         total_files = stats.get('files', 0)
         files_per_sec = total_files / build_time if build_time > 0 else 0
 
@@ -893,10 +901,11 @@ class KnowledgeBaseManager:
         if not changes.has_changes():
             return {'success': True, 'changes': 0}
 
-        # Parse changed files
+        # Parse changed files (convert relative paths to absolute)
         structural_data_list = []
-        for file_path in list(changes.modified) + list(changes.added):
-            data = self.parse_file(file_path)
+        for rel_path in list(changes.modified) + list(changes.added):
+            abs_path = os.path.join(self.repo_path, rel_path)
+            data = self.parse_file(abs_path)
             if data:
                 structural_data_list.append(data)
 
@@ -912,20 +921,31 @@ class KnowledgeBaseManager:
         }
 
     def _get_source_files(self) -> List[str]:
-        """Get all source files in repository"""
+        """Get all source files in repository - discovers files dynamically"""
         repo_config = self.config.get('repo', {})
-        source_exts = set(e.lstrip('.') for e in repo_config.get('source_code_extensions', ['.py']))
         excluded_dirs = set(repo_config.get('excluded_dirs', []))
 
         source_files = []
         for root, dirs, files in os.walk(self.repo_path):
-            # Filter excluded directories
-            dirs[:] = [d for d in dirs if d not in excluded_dirs]
+            # Filter excluded directories and hidden directories
+            dirs[:] = [d for d in dirs if d not in excluded_dirs and not d.startswith('.')]
 
             for file in files:
-                ext = file.rsplit('.', 1)[-1] if '.' in file else ''
-                if ext in source_exts:
-                    source_files.append(os.path.join(root, file))
+                # Skip hidden files
+                if file.startswith('.'):
+                    continue
+
+                file_path = os.path.join(root, file)
+
+                # Try to detect if file is text/source by attempting to read it
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        # Read first chunk to verify it's text
+                        f.read(1024)
+                    source_files.append(file_path)
+                except (UnicodeDecodeError, IOError):
+                    # Binary file or unreadable - skip
+                    continue
 
         return source_files
 
@@ -972,106 +992,6 @@ class KnowledgeBaseManager:
                 self.kb.close()
             except Exception:
                 pass
-
-
-# ============================================================================
-# File Classifier
-# ============================================================================
-
-class FileClassifier:
-    """
-    Utility class for classifying files by type.
-
-    Provides methods to identify:
-    - Test files (test_*.py, *_test.py, tests/ directory)
-    - Utility files (helpers, managers, tasks, factories, migrations)
-    - Entry point files (views, APIs, handlers, routes)
-    """
-
-    # Path patterns for different file types
-    TEST_PATTERNS = [
-        '/test/', '/tests/', 'test_', '_test.py', '/spec/', '/specs/',
-        '__tests__/', '.test.', '.spec.'
-    ]
-
-    UTILITY_PATTERNS = [
-        '/managers/', '/tasks/', '/helpers/', '/utils/', '/utilities/',
-        '/factories/', '/commands/', '/management/commands/', '/migrations/',
-        '/admin.py', '/serializers/', '/forms/', '/constants/', '/config/',
-        '/settings/', 'helpers.py', 'utils.py', 'constants.py'
-    ]
-
-    ENTRY_POINT_PATTERNS = [
-        '/views.py', '/views/', '/api/', '/endpoints/', '/handlers/',
-        '/routes/', '/urls.py', '/controllers/', '/resources/',
-        '/graphql/', '/rest/', 'main.py', 'cli.py', 'app.py', '__main__.py'
-    ]
-
-    def __init__(self, repo_path: Optional[str] = None):
-        """Initialize file classifier."""
-        self.repo_path = repo_path
-
-    def is_test_file(self, file_path: str) -> bool:
-        """Check if file is a test file."""
-        if not file_path:
-            return False
-        file_path_lower = file_path.lower()
-        return any(pattern in file_path_lower for pattern in self.TEST_PATTERNS)
-
-    def is_utility_file(self, file_path: str) -> bool:
-        """Check if file is a utility/helper file."""
-        if not file_path:
-            return False
-        file_path_lower = file_path.lower()
-        return any(pattern in file_path_lower for pattern in self.UTILITY_PATTERNS)
-
-    def is_entry_point_file(self, file_path: str) -> bool:
-        """Check if file contains entry points (views, APIs, handlers)."""
-        if not file_path:
-            return False
-        file_path_lower = file_path.lower()
-        return any(pattern in file_path_lower for pattern in self.ENTRY_POINT_PATTERNS)
-
-    def validate_file_path(self, file_path: str) -> bool:
-        """Validate that a file path exists and is readable."""
-        if not file_path:
-            return False
-
-        if self.repo_path:
-            abs_path = os.path.join(self.repo_path, file_path)
-        else:
-            abs_path = file_path
-
-        if not os.path.exists(abs_path):
-            return False
-        if not os.path.isfile(abs_path):
-            return False
-        if not os.access(abs_path, os.R_OK):
-            return False
-
-        return True
-
-    def classify_file(self, file_path: str) -> str:
-        """Classify file into: 'test', 'utility', 'entry_point', or 'production'."""
-        if self.is_test_file(file_path):
-            return 'test'
-        elif self.is_utility_file(file_path):
-            return 'utility'
-        elif self.is_entry_point_file(file_path):
-            return 'entry_point'
-        else:
-            return 'production'
-
-    def get_file_priority(self, file_path: str) -> int:
-        """Get priority score for file (higher = more important)."""
-        classification = self.classify_file(file_path)
-        priority_map = {
-            'entry_point': 100,
-            'production': 75,
-            'utility': 50,
-            'test': 25
-        }
-        return priority_map.get(classification, 50)
 
 
 # ============================================================================
@@ -1150,9 +1070,6 @@ class KBOrchestrator:
             repo_path=repo_path,
             config=config
         )
-
-        # Initialize file classifier
-        self.file_classifier = FileClassifier(repo_path)
 
         # File watcher for incremental updates
         self.file_watcher = None
@@ -1314,9 +1231,7 @@ class KBOrchestrator:
 __all__ = [
     'Neo4jKnowledgeBase',
     'KnowledgeBaseManager',
-    'FileClassifier',
     'KBOrchestrator',
-    # Re-export from incremental for backward compatibility
     'ChangeSet',
     'FileChangeDetector',
     'IncrementalKBUpdater',

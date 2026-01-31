@@ -1,5 +1,8 @@
 """
-Tool Selector Classification - Question Classification Logic
+Tool Selector Classification - LLM-Driven Question Classification
+
+Pure LLM-driven classification without hardcoded patterns.
+The LLM determines question category, complexity, and key concepts.
 """
 
 import re
@@ -12,92 +15,30 @@ from .types import QuestionCategory, Complexity, QuestionClassification
 
 class QuestionClassifier:
     """
-    Classifies questions to determine analysis approach.
+    LLM-driven question classification.
 
-    Uses both LLM and heuristic classification.
+    Uses LLM to classify questions without hardcoded patterns.
+    Falls back to minimal defaults if LLM fails.
     """
 
-    # Question patterns for heuristic classification
-    QUESTION_PATTERNS = {
-        QuestionCategory.LOOKUP: [
-            r'where is', r'find', r'which file', r'locate', r'what file',
-            r'show me', r'get me', r'list all', r'what is the.*path'
-        ],
-        QuestionCategory.FLOW: [
-            r'how does', r'what calls', r'trace', r'flow', r'lifecycle',
-            r'execution path', r'when is.*called', r'what triggers',
-            r'what happens when', r'order of', r'sequence of'
-        ],
-        QuestionCategory.ARCHITECTURE: [
-            r'architecture', r'structure', r'design', r'pattern',
-            r'organization', r'how.*organized', r'module.*layout',
-            r'dependency.*graph', r'system.*overview'
-        ],
-        QuestionCategory.EXPLANATION: [
-            r'why', r'explain', r'purpose', r'what does.*do',
-            r'how.*work', r'reason for', r'meaning of'
-        ],
-        QuestionCategory.COMPARISON: [
-            r'difference', r'compare', r'versus', r'vs\b', r'between',
-            r'which is better', r'pros.*cons', r'trade.?off'
-        ],
-        QuestionCategory.DEBUGGING: [
-            r'bug', r'error', r'issue', r'not working', r'broken',
-            r'fix', r'wrong', r'fail', r'crash', r'exception'
-        ],
-        QuestionCategory.DOCUMENTATION: [
-            r'document', r'readme', r'guide', r'tutorial', r'api doc',
-            r'usage', r'example', r'how to use'
-        ],
-        QuestionCategory.PERFORMANCE: [
-            r'performance', r'slow', r'optimize', r'speed', r'memory',
-            r'efficient', r'bottleneck', r'profil'
-        ],
-        QuestionCategory.SECURITY: [
-            r'security', r'vulnerab', r'auth', r'permission', r'access',
-            r'injection', r'xss', r'csrf', r'encrypt'
-        ],
-        QuestionCategory.REFACTORING: [
-            r'refactor', r'improve', r'clean.?up', r'simplif',
-            r'better way', r'restructure', r'technical debt'
-        ]
-    }
-
     def __init__(self, llm_callback: Callable, config: Dict[str, Any]):
-        """
-        Initialize classifier.
-
-        Args:
-            llm_callback: Callable(prompt, system_prompt) -> response dict
-            config: Configuration dictionary
-        """
         self.llm = llm_callback
         self.config = config
         self._classification_cache: Dict[str, QuestionClassification] = {}
 
     def classify(self, question: str) -> QuestionClassification:
-        """
-        Classify a question to determine analysis approach.
-
-        Args:
-            question: User question
-
-        Returns:
-            QuestionClassification with category, complexity, etc.
-        """
-        # Check cache
+        """Classify question using LLM."""
         cache_key = question.strip().lower()[:100]
         if cache_key in self._classification_cache:
             return self._classification_cache[cache_key]
 
-        # Try LLM classification first
         classification = self._classify_with_llm(question)
-        if classification and classification.confidence > 0.7:
+        if classification:
             self._classification_cache[cache_key] = classification
             return classification
 
-        # Fallback to heuristic
-        classification = self._classify_heuristic(question)
+        # Minimal fallback - no hardcoded patterns
+        classification = self._minimal_fallback(question)
         self._classification_cache[cache_key] = classification
         return classification
 
@@ -174,87 +115,26 @@ Complexity:
 
         return None
 
-    def _classify_heuristic(self, question: str) -> QuestionClassification:
-        """Fallback heuristic classification"""
-        q = question.lower()
+    def _minimal_fallback(self, question: str) -> QuestionClassification:
+        """Minimal fallback when LLM classification fails - no hardcoded patterns."""
+        # Use MODERATE as safe default - no arbitrary word count thresholds
+        complexity = Complexity.MODERATE
 
-        # Find matching category
-        category = QuestionCategory.EXPLANATION  # default
-        max_matches = 0
-
-        for cat, patterns in self.QUESTION_PATTERNS.items():
-            matches = sum(1 for p in patterns if re.search(p, q))
-            if matches > max_matches:
-                max_matches = matches
-                category = cat
-
-        # Determine complexity
-        word_count = len(question.split())
-        has_multiple_concepts = len(re.findall(r'\b(?:and|or|also|with|between)\b', q)) > 0
-
-        if word_count < 10 and not has_multiple_concepts:
-            complexity = Complexity.SIMPLE
-        elif word_count < 25 or has_multiple_concepts:
-            complexity = Complexity.MODERATE
-        elif word_count < 50:
-            complexity = Complexity.COMPLEX
-        else:
-            complexity = Complexity.EXPERT
-
-        # Extract key concepts
-        key_concepts = self._extract_concepts(question)
-
-        # Determine needs
-        needs_kb = category in [
-            QuestionCategory.FLOW,
-            QuestionCategory.ARCHITECTURE,
-            QuestionCategory.REFACTORING
-        ]
-        needs_web = category in [
-            QuestionCategory.DOCUMENTATION,
-            QuestionCategory.SECURITY
-        ]
-
-        # Suggest agents
-        suggested_agents = ['code']
-        if needs_kb:
-            suggested_agents.append('kb')
-        if needs_web:
-            suggested_agents.append('web')
-        if category == QuestionCategory.DOCUMENTATION:
-            suggested_agents.append('docs')
+        # Extract concepts structurally (quoted strings, backticks, CamelCase)
+        concepts = []
+        concepts.extend(re.findall(r'`([^`]+)`', question))
+        concepts.extend(re.findall(r'"([^"]+)"', question))
+        concepts.extend(re.findall(r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b', question))
+        concepts = list(set(concepts))[:10]
 
         return QuestionClassification(
-            category=category,
+            category=QuestionCategory.EXPLANATION,
             complexity=complexity,
-            needs_kb=needs_kb,
+            needs_kb=True,
             needs_llm=True,
-            needs_web=needs_web,
-            suggested_agents=suggested_agents,
-            key_concepts=key_concepts,
-            reasoning=f'Heuristic classification: {category.value} question, {complexity.value} complexity',
-            confidence=0.6
+            needs_web=False,
+            suggested_agents=['code'],
+            key_concepts=concepts,
+            reasoning='LLM classification failed, using minimal defaults',
+            confidence=0.5
         )
-
-    def _extract_concepts(self, question: str) -> List[str]:
-        """Extract technical concepts from question"""
-        # Common technical terms
-        tech_patterns = [
-            r'\b(?:class|function|method|module|package|file)\s+(\w+)',
-            r'\b(\w+)(?:Agent|Manager|Handler|Service|Controller|Factory|Builder)',
-            r'\b(\w+)\.py\b',
-            r'`([^`]+)`',
-            r'"([^"]+)"',
-        ]
-
-        concepts = []
-        for pattern in tech_patterns:
-            matches = re.findall(pattern, question, re.IGNORECASE)
-            concepts.extend(matches)
-
-        # Also get CamelCase words
-        camel_case = re.findall(r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b', question)
-        concepts.extend(camel_case)
-
-        # Deduplicate and limit
-        return list(set(concepts))[:10]

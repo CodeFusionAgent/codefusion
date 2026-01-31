@@ -132,17 +132,13 @@ def print_code(code: str, language: str = "python", title: str = None,
 
 def print_file(file_path: str, code: str, language: str = None):
     """Print a file with syntax highlighting"""
-    # Auto-detect language from extension
+    # Auto-detect language from extension - use extension directly
     if language is None:
-        ext_map = {
-            '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
-            '.jsx': 'jsx', '.tsx': 'tsx', '.java': 'java',
-            '.go': 'go', '.rs': 'rust', '.rb': 'ruby',
-            '.yaml': 'yaml', '.yml': 'yaml', '.json': 'json',
-            '.md': 'markdown', '.sql': 'sql', '.sh': 'bash',
-        }
-        ext = '.' + file_path.split('.')[-1] if '.' in file_path else ''
-        language = ext_map.get(ext, 'text')
+        if '.' in file_path:
+            # Use extension without dot as language hint
+            language = file_path.split('.')[-1]
+        else:
+            language = 'text'
 
     print_code(code, language, title=file_path)
 

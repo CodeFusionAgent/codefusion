@@ -5,6 +5,7 @@ Extracted from StructuralPipeline to improve maintainability.
 Handles all query logic and multi-strategy file discovery.
 """
 
+import os
 import traceback
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -66,17 +67,8 @@ class QueryEngine:
         self.utility_penalty = scoring_config.get('utility_penalty', -50)
         self.keyword_match_bonus = scoring_config.get('keyword_match_bonus', 10)
         self.all_keywords_bonus = scoring_config.get('all_keywords_bonus', 20)
-        self.entry_point_name_bonus = scoring_config.get('entry_point_name_bonus', 15)
         self.domain_match_bonus = scoring_config.get('domain_match_bonus', 50)
-
-        self._file_classifier = None
-        self._file_classifier_repo_path = repo_path
-
-    @property
-    def file_classifier(self):
-        if self._file_classifier is None:
-            self._file_classifier = kb_orchestrator.FileClassifier(self._file_classifier_repo_path)
-        return self._file_classifier
+        self.repo_path = repo_path
 
     def find_files(
         self,
@@ -259,7 +251,7 @@ class QueryEngine:
                     if qualified_name:
                         file_path = self._lookup_file_path(qualified_name)
 
-                        if file_path and self.file_classifier.validate_file_path(file_path):
+                        if file_path and os.path.isfile(os.path.join(self.repo_path, file_path) if self.repo_path else file_path):
                             file_scores[file_path] = max(file_scores.get(file_path, 0), 0.9)
                             file_paths.append(file_path)
                             files_extracted += 1
@@ -349,8 +341,11 @@ class QueryEngine:
             return
 
         try:
-            question_type = question_context.get('type', 'search')
-            is_pattern_question = question_type in ['pattern', 'architecture', 'class_hierarchy']
+            question_type = question_context.get('type', 'search').lower()
+            # Pattern-based check instead of hardcoded list
+            is_pattern_question = any(
+                kw in question_type for kw in ['pattern', 'architect', 'class', 'hierarchy', 'structure']
+            )
 
             if not is_pattern_question:
                 return
@@ -473,72 +468,19 @@ class QueryEngine:
                     'term': entry_point_info.get('keywords', [question.lower()])[0]
                 }
 
-        # Fallback to simple heuristics
-        question_lower = question.lower()
-
-        # Life-of-X patterns
-        if any(phrase in question_lower for phrase in ['how does', 'life of', 'flow of', 'process of']):
-            entry_point_info = self._extract_entry_point(question)
-            return {
-                'type': 'life_of_x',
-                'entry_point': entry_point_info.get('entry_point', ''),
-                'term': entry_point_info.get('keywords', [question_lower])[0]
-            }
-
-        # Dependency patterns
-        if 'depend' in question_lower or 'import' in question_lower:
-            return {'type': 'dependency', 'modules': [], 'term': question_lower}
-
-        # Function usage patterns
-        if 'who calls' in question_lower or 'where is' in question_lower and 'used' in question_lower:
-            return {'type': 'function_usage', 'function': '', 'term': question_lower}
-
-        # Class hierarchy patterns
-        if 'inherit' in question_lower or 'subclass' in question_lower or 'hierarchy' in question_lower:
-            return {'type': 'class_hierarchy', 'class': '', 'term': question_lower}
-
-        # Default: standard search
-        return {'type': 'search', 'term': question_lower}
+        # Fallback: return generic search type - LLM determines actual strategy
+        return {'type': 'search', 'term': question.lower()}
 
     def _extract_entry_point(self, question: str) -> Dict[str, Any]:
         """
-        Extract entry point from life-of-x question.
-
-        Args:
-            question: User question
-
-        Returns:
-            Dict with entry_point and keywords
+        Extract entry point from question - uses words from question as keywords.
+        No hardcoded pattern matching.
         """
-        question_lower = question.lower()
-
-        # Common entry point patterns
-        patterns = [
-            'student application', 'user registration', 'login', 'authentication',
-            'checkout', 'payment', 'order', 'search', 'upload', 'download'
-        ]
-
-        for pattern in patterns:
-            if pattern in question_lower:
-                return {
-                    'entry_point': pattern,
-                    'keywords': pattern.split()
-                }
-
-        # Extract from "how does X work" pattern
-        if 'how does' in question_lower and 'work' in question_lower:
-            start = question_lower.index('how does') + len('how does')
-            end = question_lower.index('work')
-            entry_point = question[start:end].strip()
-            return {
-                'entry_point': entry_point,
-                'keywords': entry_point.split()
-            }
-
-        # Default: use question as entry point
+        # Use question words as keywords - LLM determines actual entry point
+        words = question.lower().split()
         return {
-            'entry_point': question_lower,
-            'keywords': question_lower.split()
+            'entry_point': question.lower(),
+            'keywords': words
         }
 
     def _lookup_file_path(self, qualified_name: str) -> Optional[str]:
@@ -601,7 +543,7 @@ class QueryEngine:
         over utility functions (managers, tasks, helpers).
 
         Args:
-            entry_point: User-provided entry point (e.g., "student application", "user login")
+            entry_point: User-provided entry point (extracted from question)
             domain_info: Optional domain information from discovery
 
         Returns:
@@ -630,9 +572,7 @@ class QueryEngine:
                 print(f"   📊 [ENTRY_POINT] Scored {len(unique_candidates)} candidates:")
                 for qname, fpath in unique_candidates[:5]:
                     score = self._calculate_relevance_score((qname, fpath), keywords, domain_info)
-                    is_entry = "🎯 ENTRY" if self.file_classifier.is_entry_point_file(fpath) else ""
-                    is_util = "⚠️ UTILITY" if self.file_classifier.is_utility_file(fpath) else ""
-                    print(f"      {score:4d} {is_entry}{is_util} {fpath}")
+                    print(f"      {score:4d} {fpath}")
 
             # Extract qualified names
             resolved = [qname for qname, _ in unique_candidates]
@@ -669,9 +609,6 @@ class QueryEngine:
                 qualified_name = node.get('qualified_name')
                 file_path = node.get('file_path', '')
 
-                # Skip test files
-                if self.file_classifier.is_test_file(file_path):
-                    continue
 
                 if qualified_name:
                     candidates.append((qualified_name, file_path))
@@ -683,9 +620,6 @@ class QueryEngine:
                 qualified_name = node.get('qualified_name')
                 file_path = node.get('file_path', '')
 
-                # Skip test files
-                if self.file_classifier.is_test_file(file_path):
-                    continue
 
                 if qualified_name:
                     candidates.append((qualified_name, file_path))
@@ -711,33 +645,14 @@ class QueryEngine:
         domain_info: Dict[str, Any] = None
     ) -> int:
         """
-        Calculate relevance score for a candidate.
-
-        Scoring factors:
-        - Entry point files: +100
-        - Utility files: -50
-        - Keyword match: +10 per keyword
-        - All keywords: +20
-        - Entry point names (submit, handle, etc.): +15
-        - Domain match: +50
+        Calculate relevance score based on keyword matching.
+        LLM determines actual relevance - this is for initial ordering.
         """
         qname, fpath = candidate
         name_lower = qname.lower()
         score = 0
 
-        # Check file type
-        is_utility = self.file_classifier.is_utility_file(fpath)
-        is_entry_point = self.file_classifier.is_entry_point_file(fpath)
-
-        # Entry point bonus (but not for utilities)
-        if is_entry_point and not is_utility:
-            score += self.entry_point_bonus
-
-        # Utility penalty
-        if is_utility:
-            score += self.utility_penalty  # Already negative
-
-        # Keyword matching
+        # Keyword matching from question
         if any(kw in name_lower for kw in keywords):
             score += self.keyword_match_bonus
 
@@ -745,19 +660,10 @@ class QueryEngine:
         if all(kw in name_lower for kw in keywords):
             score += self.all_keywords_bonus
 
-        # Common entry point function names
-        entry_point_names = [
-            'submit', 'create', 'register', 'process',
-            'handle', 'view', 'endpoint', 'post', 'get'
-        ]
-        if any(ep_name in name_lower for ep_name in entry_point_names):
-            score += self.entry_point_name_bonus
-
-        # Domain matching
+        # Domain matching (if provided by LLM)
         if domain_info and fpath:
             target_dirs = domain_info.get('target_directories', [])
             fpath_lower = fpath.lower()
-
             for target_dir in target_dirs:
                 dir_keyword = target_dir.rstrip('/').lower()
                 if dir_keyword and dir_keyword in fpath_lower:
@@ -809,8 +715,6 @@ class QueryEngine:
                 if not file_path:
                     continue
 
-                if not self.file_classifier.is_entry_point_file(file_path):
-                    continue
 
                 # Get all functions in this file
                 func_result = self.kb.execute_query(
@@ -847,13 +751,10 @@ class QueryEngine:
             print(f"   📊 [ENTRY_POINT_FALLBACK] Scored {len(candidates)} candidates:")
             for qname, fpath in candidates[:5]:
                 score = self._calculate_relevance_score((qname, fpath), keywords, domain_info)
-                is_entry = "🎯 ENTRY" if self.file_classifier.is_entry_point_file(fpath) else ""
-                is_util = "⚠️ UTILITY" if self.file_classifier.is_utility_file(fpath) else ""
-                print(f"      {score:4d} {is_entry}{is_util} {fpath}")
+                print(f"      {score:4d} {fpath}")
 
-        # Prioritize non-test, non-utility files
-        non_test = [(qn, fp) for qn, fp in candidates if not self.file_classifier.is_test_file(fp)]
-        test_only = [(qn, fp) for qn, fp in candidates if self.file_classifier.is_test_file(fp)]
+        non_test = candidates
+        test_only = []
 
         # Filter out negative scores (utilities)
         non_test_non_utility = [
@@ -905,17 +806,8 @@ class EntryPointResolver:
         self.utility_penalty = scoring_config.get('utility_penalty', -50)
         self.keyword_match_bonus = scoring_config.get('keyword_match_bonus', 10)
         self.all_keywords_bonus = scoring_config.get('all_keywords_bonus', 20)
-        self.entry_point_name_bonus = scoring_config.get('entry_point_name_bonus', 15)
         self.domain_match_bonus = scoring_config.get('domain_match_bonus', 50)
-
-        self._file_classifier = None
-        self._file_classifier_repo_path = repo_path
-
-    @property
-    def file_classifier(self):
-        if self._file_classifier is None:
-            self._file_classifier = kb_orchestrator.FileClassifier(self._file_classifier_repo_path)
-        return self._file_classifier
+        self.repo_path = repo_path
 
     def resolve(
         self,
@@ -929,7 +821,7 @@ class EntryPointResolver:
         over utility functions (managers, tasks, helpers).
 
         Args:
-            entry_point: User-provided entry point (e.g., "student application", "user login")
+            entry_point: User-provided entry point (extracted from question)
             domain_info: Optional domain information from discovery
 
         Returns:
@@ -958,9 +850,7 @@ class EntryPointResolver:
                 print(f"   📊 [ENTRY_POINT] Scored {len(unique_candidates)} candidates:")
                 for qname, fpath in unique_candidates[:5]:
                     score = self._calculate_relevance_score((qname, fpath), keywords, domain_info)
-                    is_entry = "🎯 ENTRY" if self.file_classifier.is_entry_point_file(fpath) else ""
-                    is_util = "⚠️ UTILITY" if self.file_classifier.is_utility_file(fpath) else ""
-                    print(f"      {score:4d} {is_entry}{is_util} {fpath}")
+                    print(f"      {score:4d} {fpath}")
 
             # Extract qualified names
             resolved = [qname for qname, _ in unique_candidates]
@@ -997,9 +887,6 @@ class EntryPointResolver:
                 qualified_name = node.get('qualified_name')
                 file_path = node.get('file_path', '')
 
-                # Skip test files
-                if self.file_classifier.is_test_file(file_path):
-                    continue
 
                 if qualified_name:
                     candidates.append((qualified_name, file_path))
@@ -1011,9 +898,6 @@ class EntryPointResolver:
                 qualified_name = node.get('qualified_name')
                 file_path = node.get('file_path', '')
 
-                # Skip test files
-                if self.file_classifier.is_test_file(file_path):
-                    continue
 
                 if qualified_name:
                     candidates.append((qualified_name, file_path))
@@ -1039,33 +923,14 @@ class EntryPointResolver:
         domain_info: Dict[str, Any] = None
     ) -> int:
         """
-        Calculate relevance score for a candidate.
-
-        Scoring factors:
-        - Entry point files: +100
-        - Utility files: -50
-        - Keyword match: +10 per keyword
-        - All keywords: +20
-        - Entry point names (submit, handle, etc.): +15
-        - Domain match: +50
+        Calculate relevance score based on keyword matching.
+        LLM determines actual relevance - this is for initial ordering.
         """
         qname, fpath = candidate
         name_lower = qname.lower()
         score = 0
 
-        # Check file type
-        is_utility = self.file_classifier.is_utility_file(fpath)
-        is_entry_point = self.file_classifier.is_entry_point_file(fpath)
-
-        # Entry point bonus (but not for utilities)
-        if is_entry_point and not is_utility:
-            score += self.entry_point_bonus
-
-        # Utility penalty
-        if is_utility:
-            score += self.utility_penalty  # Already negative
-
-        # Keyword matching
+        # Keyword matching from question
         if any(kw in name_lower for kw in keywords):
             score += self.keyword_match_bonus
 
@@ -1073,19 +938,10 @@ class EntryPointResolver:
         if all(kw in name_lower for kw in keywords):
             score += self.all_keywords_bonus
 
-        # Common entry point function names
-        entry_point_names = [
-            'submit', 'create', 'register', 'process',
-            'handle', 'view', 'endpoint', 'post', 'get'
-        ]
-        if any(ep_name in name_lower for ep_name in entry_point_names):
-            score += self.entry_point_name_bonus
-
-        # Domain matching
+        # Domain matching (if provided by LLM)
         if domain_info and fpath:
             target_dirs = domain_info.get('target_directories', [])
             fpath_lower = fpath.lower()
-
             for target_dir in target_dirs:
                 dir_keyword = target_dir.rstrip('/').lower()
                 if dir_keyword and dir_keyword in fpath_lower:
@@ -1137,8 +993,6 @@ class EntryPointResolver:
                 if not file_path:
                     continue
 
-                if not self.file_classifier.is_entry_point_file(file_path):
-                    continue
 
                 # Get all functions in this file
                 func_result = self.kb.execute_query(
@@ -1175,13 +1029,10 @@ class EntryPointResolver:
             print(f"   📊 [ENTRY_POINT_FALLBACK] Scored {len(candidates)} candidates:")
             for qname, fpath in candidates[:5]:
                 score = self._calculate_relevance_score((qname, fpath), keywords, domain_info)
-                is_entry = "🎯 ENTRY" if self.file_classifier.is_entry_point_file(fpath) else ""
-                is_util = "⚠️ UTILITY" if self.file_classifier.is_utility_file(fpath) else ""
-                print(f"      {score:4d} {is_entry}{is_util} {fpath}")
+                print(f"      {score:4d} {fpath}")
 
-        # Prioritize non-test, non-utility files
-        non_test = [(qn, fp) for qn, fp in candidates if not self.file_classifier.is_test_file(fp)]
-        test_only = [(qn, fp) for qn, fp in candidates if self.file_classifier.is_test_file(fp)]
+        non_test = candidates
+        test_only = []
 
         # Filter out negative scores (utilities)
         non_test_non_utility = [

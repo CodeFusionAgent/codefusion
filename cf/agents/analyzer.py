@@ -6,7 +6,6 @@ This module provides utilities for analyzing source code files:
 - Code structure extraction (functions, classes, imports)
 - Language detection with multi-language support
 - Complexity metrics (cyclomatic, cognitive)
-- File relevance scoring for questions
 - Dependency extraction and analysis
 - Code pattern detection
 - File categorization (config, test, model, etc.)
@@ -16,10 +15,11 @@ Used by agents to analyze and understand source code files.
 
 import ast
 import re
+import sys
 import hashlib
 import mimetypes
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple, Callable, Set
+from typing import Dict, List, Any, Optional, Tuple, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -121,7 +121,7 @@ class FileInfo:
     category: FileCategory = FileCategory.UNKNOWN
     global_vars: List[str] = field(default_factory=list)
     constants: List[str] = field(default_factory=list)
-    constant_details: List['ConstantInfo'] = field(default_factory=list)  # Enhanced: includes values
+    constant_details: List['ConstantInfo'] = field(default_factory=list)
     todos: List[Tuple[int, str]] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
 
@@ -163,87 +163,11 @@ class FileAnalyzer:
     - Other languages (basic analysis)
     """
 
-    LANGUAGE_EXTENSIONS = {
-        '.py': 'python',
-        '.pyx': 'python',
-        '.pyi': 'python',
-        '.js': 'javascript',
-        '.mjs': 'javascript',
-        '.cjs': 'javascript',
-        '.ts': 'typescript',
-        '.tsx': 'typescript',
-        '.jsx': 'javascript',
-        '.java': 'java',
-        '.go': 'go',
-        '.rs': 'rust',
-        '.cpp': 'cpp',
-        '.cc': 'cpp',
-        '.cxx': 'cpp',
-        '.c': 'c',
-        '.h': 'c',
-        '.hpp': 'cpp',
-        '.rb': 'ruby',
-        '.php': 'php',
-        '.swift': 'swift',
-        '.kt': 'kotlin',
-        '.kts': 'kotlin',
-        '.scala': 'scala',
-        '.cs': 'csharp',
-        '.vue': 'vue',
-        '.svelte': 'svelte',
-    }
 
-    # Patterns for file categorization
-    CATEGORY_PATTERNS = {
-        FileCategory.CONFIG: [
-            r'config', r'settings', r'\.env', r'\.yaml$', r'\.yml$', r'\.json$',
-            r'\.toml$', r'\.ini$', r'setup\.py$', r'pyproject\.toml$'
-        ],
-        FileCategory.TEST: [
-            r'test_', r'_test\.py$', r'tests/', r'spec\.', r'\.spec\.',
-            r'__tests__/', r'\.test\.'
-        ],
-        FileCategory.MODEL: [
-            r'model', r'schema', r'entity', r'domain', r'dataclass'
-        ],
-        FileCategory.VIEW: [
-            r'view', r'template', r'component', r'\.html$', r'\.vue$', r'\.svelte$'
-        ],
-        FileCategory.CONTROLLER: [
-            r'controller', r'handler', r'route', r'endpoint', r'api/', r'views\.py$'
-        ],
-        FileCategory.UTIL: [
-            r'util', r'helper', r'common', r'shared', r'tools'
-        ],
-        FileCategory.SERVICE: [
-            r'service', r'manager', r'provider', r'client'
-        ],
-        FileCategory.API: [
-            r'api', r'rest', r'graphql', r'grpc'
-        ],
-        FileCategory.MIGRATION: [
-            r'migration', r'migrate', r'alembic', r'versions/'
-        ],
-        FileCategory.DOCUMENTATION: [
-            r'\.md$', r'\.rst$', r'\.txt$', r'readme', r'changelog', r'docs/'
-        ],
-        FileCategory.SCRIPT: [
-            r'script', r'bin/', r'__main__\.py$', r'cli'
-        ],
-    }
-
-    # Standard library modules (common ones)
-    STDLIB_MODULES = {
-        'os', 'sys', 're', 'json', 'time', 'datetime', 'collections',
-        'itertools', 'functools', 'pathlib', 'typing', 'dataclasses',
-        'abc', 'enum', 'copy', 'math', 'random', 'hashlib', 'logging',
-        'unittest', 'asyncio', 'threading', 'multiprocessing', 'subprocess',
-        'io', 'pickle', 'csv', 'xml', 'html', 'http', 'urllib', 'socket',
-        'email', 'argparse', 'configparser', 'contextlib', 'inspect',
-        'traceback', 'warnings', 'types', 'operator', 'string', 'textwrap',
-        'shutil', 'glob', 'tempfile', 'stat', 'filecmp', 'platform',
-        'struct', 'codecs', 'base64', 'binascii', 'uuid', 'secrets',
-    }
+    @property
+    def stdlib_modules(self) -> set:
+        """Get standard library modules (Python 3.10+)."""
+        return sys.stdlib_module_names
 
     def __init__(self, repo_path: str, llm_callback: Optional[Callable] = None):
         """
@@ -305,16 +229,13 @@ class FileAnalyzer:
             category=self._categorize_file(rel_path, content)
         )
 
-        # Language-specific analysis
-        if language == 'python':
-            self._analyze_python(content, info)
-        elif language in ['javascript', 'typescript']:
-            self._analyze_js_ts(content, info)
-        elif language == 'java':
-            self._analyze_java(content, info)
-        elif language == 'go':
-            self._analyze_go(content, info)
-        else:
+        # Content-driven analysis: try AST first, fall back to pattern extraction
+        try:
+            # AST parsing works on valid Python syntax
+            tree = ast.parse(content)
+            self._analyze_python_ast(tree, content, info)
+        except SyntaxError:
+            # Not valid Python - use generic pattern extraction
             self._analyze_generic(content, info)
 
         # Extract TODOs and FIXMEs
@@ -329,53 +250,32 @@ class FileAnalyzer:
         return info
 
     def _detect_language(self, path: Path) -> str:
-        """Detect language from file extension"""
-        suffix = path.suffix.lower()
-        if suffix in self.LANGUAGE_EXTENSIONS:
-            return self.LANGUAGE_EXTENSIONS[suffix]
-
-        # Try MIME type
+        """Detect language from file extension using MIME types."""
+        # Use MIME type detection (no hardcoded mapping)
         mime_type, _ = mimetypes.guess_type(str(path))
         if mime_type:
-            if 'python' in mime_type:
-                return 'python'
-            if 'javascript' in mime_type:
-                return 'javascript'
-            if 'java' in mime_type:
-                return 'java'
+            # Extract language from mime type (e.g., 'text/x-python' -> 'python')
+            if '/' in mime_type:
+                lang_part = mime_type.split('/')[-1]
+                # Clean up common prefixes
+                lang_part = lang_part.replace('x-', '').replace('application/', '')
+                if lang_part and lang_part != 'plain':
+                    return lang_part
 
-        return 'unknown'
+        # Fall back to extension as language identifier
+        suffix = path.suffix.lower().lstrip('.')
+        return suffix if suffix else 'unknown'
 
     def _categorize_file(self, file_path: str, content: str) -> FileCategory:
-        """Categorize file based on path and content"""
-        file_lower = file_path.lower()
+        """
+        Return UNKNOWN - LLM determines file relevance based on content.
 
-        for category, patterns in self.CATEGORY_PATTERNS.items():
-            if any(re.search(p, file_lower) for p in patterns):
-                return category
-
-        # Content-based categorization
-        if re.search(r'def test_|class Test|@pytest|unittest', content):
-            return FileCategory.TEST
-        if re.search(r'@dataclass|class.*Model|BaseModel', content):
-            return FileCategory.MODEL
-        if re.search(r'@app\.route|@router\.|def get_|def post_', content):
-            return FileCategory.CONTROLLER
-
+        File categorization is not needed for LLM-driven analysis.
+        """
         return FileCategory.UNKNOWN
 
-    def _analyze_python(self, content: str, info: FileInfo) -> None:
-        """Analyze Python file using AST"""
-        try:
-            tree = ast.parse(content)
-        except SyntaxError as e:
-            info.errors.append(f"Syntax error: {e}")
-            self._analyze_generic(content, info)
-            return
-
-        # Extract module-level docstring
-        docstring = ast.get_docstring(tree)
-
+    def _analyze_python_ast(self, tree: ast.AST, content: str, info: FileInfo) -> None:
+        """Analyze using AST (already parsed)"""
         # Walk the AST
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -443,10 +343,11 @@ class FileAnalyzer:
         # Get docstring
         docstring = ast.get_docstring(node) or ""
 
-        # Check decorator types
-        is_property = 'property' in decorators
-        is_static = 'staticmethod' in decorators
-        is_class_method = 'classmethod' in decorators
+        # Check decorator types - pattern-based, not exact match
+        decorators_lower = [d.lower() for d in decorators]
+        is_property = any('property' in d for d in decorators_lower)
+        is_static = any('static' in d for d in decorators_lower)
+        is_class_method = any('classmethod' in d for d in decorators_lower)
 
         # Extract function calls
         calls = []
@@ -496,11 +397,12 @@ class FileAnalyzer:
         # Get docstring
         docstring = ast.get_docstring(node) or ""
 
-        # Check class type
-        is_dataclass = 'dataclass' in decorators
-        is_abstract = 'ABC' in bases or 'ABCMeta' in bases or any(
-            isinstance(d, ast.Call) and self._get_decorator_name(d) == 'abstractmethod'
-            for d in node.decorator_list
+        # Check class type - pattern-based
+        decorators_lower = [d.lower() for d in decorators]
+        bases_lower = [b.lower() for b in bases]
+        is_dataclass = any('dataclass' in d or 'data' in d for d in decorators_lower)
+        is_abstract = any('abstract' in b or 'abc' in b for b in bases_lower) or any(
+            'abstract' in d for d in decorators_lower
         )
 
         # Extract methods
@@ -635,135 +537,6 @@ class FileAnalyzer:
                 is_dict=False,
                 is_list=False
             )
-
-    def _analyze_js_ts(self, content: str, info: FileInfo) -> None:
-        """Analyze JavaScript/TypeScript file using patterns"""
-        # Find functions
-        func_patterns = [
-            r'function\s+(\w+)\s*\(([^)]*)\)',
-            r'const\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>',
-            r'(\w+)\s*:\s*(?:async\s+)?function\s*\(([^)]*)\)',
-            r'(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>',
-            r'(?:async\s+)?(\w+)\s*\(([^)]*)\)\s*\{',
-        ]
-
-        for pattern in func_patterns:
-            matches = re.finditer(pattern, content)
-            for match in matches:
-                name = match.group(1)
-                params_str = match.group(2) if len(match.groups()) > 1 else ""
-                params = [p.strip() for p in params_str.split(',') if p.strip()]
-
-                info.functions.append(FunctionInfo(
-                    name=name,
-                    start_line=content[:match.start()].count('\n') + 1,
-                    end_line=0,
-                    params=params,
-                    is_async='async' in match.group(0),
-                ))
-
-        # Find classes
-        class_pattern = r'class\s+(\w+)(?:\s+extends\s+(\w+))?'
-        for match in re.finditer(class_pattern, content):
-            bases = [match.group(2)] if match.group(2) else []
-            info.classes.append(ClassInfo(
-                name=match.group(1),
-                start_line=content[:match.start()].count('\n') + 1,
-                end_line=0,
-                bases=bases,
-            ))
-
-        # Find imports
-        import_patterns = [
-            r'import\s+.*?\s+from\s+[\'"]([^\'"]+)[\'"]',
-            r'require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
-            r'import\s+[\'"]([^\'"]+)[\'"]',
-        ]
-        for pattern in import_patterns:
-            matches = re.findall(pattern, content)
-            for module in matches:
-                info.imports.append(ImportInfo(
-                    module=module,
-                    is_from_import=True
-                ))
-
-    def _analyze_java(self, content: str, info: FileInfo) -> None:
-        """Analyze Java file using patterns"""
-        # Find classes
-        class_pattern = r'(?:public\s+|private\s+|protected\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?'
-        for match in re.finditer(class_pattern, content):
-            bases = []
-            if match.group(2):
-                bases.append(match.group(2))
-            if match.group(3):
-                bases.extend([b.strip() for b in match.group(3).split(',')])
-
-            info.classes.append(ClassInfo(
-                name=match.group(1),
-                start_line=content[:match.start()].count('\n') + 1,
-                end_line=0,
-                bases=bases,
-                is_abstract='abstract' in match.group(0)
-            ))
-
-        # Find methods
-        method_pattern = r'(?:public|private|protected)\s+(?:static\s+)?(?:[\w<>,\s]+)\s+(\w+)\s*\(([^)]*)\)'
-        for match in re.finditer(method_pattern, content):
-            params = [p.strip().split()[-1] for p in match.group(2).split(',') if p.strip()]
-            info.functions.append(FunctionInfo(
-                name=match.group(1),
-                start_line=content[:match.start()].count('\n') + 1,
-                end_line=0,
-                params=params,
-                is_static='static' in match.group(0)
-            ))
-
-        # Find imports
-        import_pattern = r'import\s+([\w.]+);'
-        for match in re.finditer(import_pattern, content):
-            info.imports.append(ImportInfo(
-                module=match.group(1),
-                line_number=content[:match.start()].count('\n') + 1
-            ))
-
-    def _analyze_go(self, content: str, info: FileInfo) -> None:
-        """Analyze Go file using patterns"""
-        # Find functions
-        func_pattern = r'func\s+(?:\((\w+)\s+\*?(\w+)\)\s+)?(\w+)\s*\(([^)]*)\)'
-        for match in re.finditer(func_pattern, content):
-            name = match.group(3)
-            params_str = match.group(4)
-            params = [p.strip().split()[0] for p in params_str.split(',') if p.strip()]
-
-            is_method = bool(match.group(1))
-            info.functions.append(FunctionInfo(
-                name=name,
-                start_line=content[:match.start()].count('\n') + 1,
-                end_line=0,
-                params=params,
-                is_method=is_method
-            ))
-
-        # Find structs (like classes)
-        struct_pattern = r'type\s+(\w+)\s+struct\s*\{'
-        for match in re.finditer(struct_pattern, content):
-            info.classes.append(ClassInfo(
-                name=match.group(1),
-                start_line=content[:match.start()].count('\n') + 1,
-                end_line=0,
-                bases=[]
-            ))
-
-        # Find imports
-        import_pattern = r'import\s+["\']([^"\']+)["\']'
-        for match in re.finditer(import_pattern, content):
-            info.imports.append(ImportInfo(module=match.group(1)))
-
-        # Multi-import block
-        multi_import = re.search(r'import\s*\(([\s\S]*?)\)', content)
-        if multi_import:
-            for module in re.findall(r'["\']([^"\']+)["\']', multi_import.group(1)):
-                info.imports.append(ImportInfo(module=module))
 
     def _analyze_generic(self, content: str, info: FileInfo) -> None:
         """Generic analysis using patterns"""
@@ -949,7 +722,7 @@ class FileAnalyzer:
         for imp in info.imports:
             module = imp.module.split('.')[0]
 
-            if module in self.STDLIB_MODULES:
+            if module in self.stdlib_modules:
                 stdlib.append(imp.module)
             elif imp.module.startswith('.'):
                 internal.append(imp.module)
@@ -988,282 +761,20 @@ class FileAnalyzer:
 
         Args:
             directory: Directory to analyze (relative to repo_path)
-            extensions: File extensions to include
+            extensions: File extensions to include (if None, analyzes all files)
 
         Returns:
             Dictionary mapping file paths to FileInfo
         """
         path = self.repo_path / directory if directory else self.repo_path
-        extensions = extensions or list(self.LANGUAGE_EXTENSIONS.keys())
 
         results = {}
-        for ext in extensions:
-            for file_path in path.rglob(f'*{ext}'):
-                # Skip common exclusions
-                if any(part.startswith('.') or part in ['node_modules', '__pycache__', 'venv', '.git', 'dist', 'build']
-                       for part in file_path.parts):
-                    continue
+        pattern = f'*{extensions[0]}' if extensions else '*'
 
+        for file_path in path.rglob(pattern):
+            if file_path.is_file() and not any(part.startswith('.') for part in file_path.parts):
                 info = self.analyze_file(str(file_path))
                 if info:
                     results[info.path] = info
 
         return results
-
-
-class FileRelevanceScorer:
-    """
-    Scores files for relevance to a question.
-
-    Uses multiple signals:
-    - Keyword matching in file path and content
-    - Function/class name matching
-    - Import analysis
-    - Semantic similarity (if LLM available)
-    """
-
-    def __init__(self, file_analyzer: FileAnalyzer, llm_callback: Optional[Callable] = None):
-        """
-        Initialize relevance scorer.
-
-        Args:
-            file_analyzer: FileAnalyzer instance
-            llm_callback: Optional LLM for semantic scoring
-        """
-        self.analyzer = file_analyzer
-        self.llm = llm_callback
-
-    def score_file(
-        self,
-        file_path: str,
-        question: str,
-        keywords: Optional[List[str]] = None
-    ) -> float:
-        """
-        Score a file's relevance to a question.
-
-        Args:
-            file_path: Path to file
-            question: User question
-            keywords: Additional keywords to match
-
-        Returns:
-            Relevance score (0.0 to 1.0)
-        """
-        info = self.analyzer.analyze_file(file_path)
-        if not info:
-            return 0.0
-
-        # Extract keywords from question
-        q_keywords = self._extract_keywords(question)
-        if keywords:
-            q_keywords.extend(keywords)
-
-        score = 0.0
-
-        # Score path matches (0.25 max)
-        path_score = self._score_path_match(info.path, q_keywords)
-        score += min(0.25, path_score)
-
-        # Score function name matches (0.25 max)
-        func_score = self._score_function_match(info.functions, q_keywords)
-        score += min(0.25, func_score)
-
-        # Score class name matches (0.2 max)
-        class_score = self._score_class_match(info.classes, q_keywords)
-        score += min(0.2, class_score)
-
-        # Score import matches (0.15 max)
-        import_score = self._score_import_match(info.imports, q_keywords)
-        score += min(0.15, import_score)
-
-        # Score category relevance (0.15 max)
-        category_score = self._score_category_relevance(info.category, question)
-        score += min(0.15, category_score)
-
-        return min(1.0, score)
-
-    def _score_path_match(self, path: str, keywords: List[str]) -> float:
-        """Score based on file path matching"""
-        path_lower = path.lower()
-        matches = sum(1 for kw in keywords if kw in path_lower)
-        return matches * 0.1
-
-    def _score_function_match(self, functions: List[FunctionInfo], keywords: List[str]) -> float:
-        """Score based on function name matching"""
-        func_names = [f.name.lower() for f in functions]
-        all_func_text = ' '.join(func_names)
-
-        matches = sum(1 for kw in keywords if kw in all_func_text)
-        return matches * 0.08
-
-    def _score_class_match(self, classes: List[ClassInfo], keywords: List[str]) -> float:
-        """Score based on class name matching"""
-        class_names = [c.name.lower() for c in classes]
-        all_class_text = ' '.join(class_names)
-
-        matches = sum(1 for kw in keywords if kw in all_class_text)
-        return matches * 0.1
-
-    def _score_import_match(self, imports: List[ImportInfo], keywords: List[str]) -> float:
-        """Score based on import matching"""
-        import_modules = [i.module.lower() for i in imports]
-        all_import_text = ' '.join(import_modules)
-
-        matches = sum(1 for kw in keywords if kw in all_import_text)
-        return matches * 0.05
-
-    def _score_category_relevance(self, category: FileCategory, question: str) -> float:
-        """Score based on category relevance to question"""
-        q_lower = question.lower()
-
-        category_keywords = {
-            FileCategory.CONFIG: ['config', 'setting', 'environment', 'variable'],
-            FileCategory.TEST: ['test', 'testing', 'spec', 'assert'],
-            FileCategory.MODEL: ['model', 'schema', 'data', 'entity', 'class'],
-            FileCategory.VIEW: ['view', 'template', 'ui', 'display', 'render'],
-            FileCategory.CONTROLLER: ['route', 'endpoint', 'api', 'request', 'handler'],
-            FileCategory.UTIL: ['util', 'helper', 'function', 'tool'],
-            FileCategory.SERVICE: ['service', 'logic', 'business', 'process'],
-            FileCategory.API: ['api', 'rest', 'endpoint', 'call'],
-        }
-
-        if category in category_keywords:
-            matches = sum(1 for kw in category_keywords[category] if kw in q_lower)
-            return matches * 0.05
-
-        return 0.0
-
-    def _extract_keywords(self, text: str) -> List[str]:
-        """Extract keywords from text"""
-        stop_words = {
-            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-            'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
-            'would', 'could', 'should', 'may', 'might', 'must', 'shall',
-            'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
-            'how', 'what', 'where', 'when', 'why', 'which', 'who', 'this',
-            'that', 'these', 'those', 'and', 'or', 'but', 'not', 'it'
-        }
-
-        words = re.findall(r'\b\w+\b', text.lower())
-        keywords = [w for w in words if len(w) > 2 and w not in stop_words]
-
-        # Also extract CamelCase parts
-        camel_parts = re.findall(r'[A-Z][a-z]+', text)
-        keywords.extend([p.lower() for p in camel_parts])
-
-        return list(set(keywords))
-
-    def rank_files(
-        self,
-        files: List[str],
-        question: str,
-        top_k: int = 10
-    ) -> List[Tuple[str, float]]:
-        """
-        Rank files by relevance to a question.
-
-        Args:
-            files: List of file paths
-            question: User question
-            top_k: Number of top files to return
-
-        Returns:
-            List of (file_path, score) tuples, sorted by score
-        """
-        scores = []
-        for file_path in files:
-            score = self.score_file(file_path, question)
-            if score > 0:
-                scores.append((file_path, score))
-
-        # Sort by score descending
-        scores.sort(key=lambda x: x[1], reverse=True)
-
-        return scores[:top_k]
-
-    def find_related_files(
-        self,
-        file_path: str,
-        all_files: Optional[List[str]] = None
-    ) -> List[Tuple[str, float]]:
-        """
-        Find files related to a given file.
-
-        Args:
-            file_path: Reference file
-            all_files: Files to search (or use all in repo)
-
-        Returns:
-            List of (file_path, relatedness_score) tuples
-        """
-        info = self.analyzer.analyze_file(file_path)
-        if not info:
-            return []
-
-        # Build relevance criteria from file
-        criteria = []
-
-        # Add import modules as criteria
-        for imp in info.imports:
-            if not imp.module.startswith('.'):
-                criteria.append(imp.module.split('.')[0])
-
-        # Add class names
-        criteria.extend([c.name.lower() for c in info.classes])
-
-        # Add key function names
-        criteria.extend([f.name.lower() for f in info.functions[:5]])
-
-        # Get all files if not provided
-        if all_files is None:
-            all_infos = self.analyzer.analyze_directory()
-            all_files = list(all_infos.keys())
-
-        # Score each file
-        related = []
-        for f in all_files:
-            if f == file_path:
-                continue
-
-            other_info = self.analyzer.analyze_file(f)
-            if not other_info:
-                continue
-
-            score = 0.0
-
-            # Check import overlap
-            other_imports = {i.module.split('.')[0] for i in other_info.imports}
-            import_overlap = len(set(criteria) & other_imports)
-            score += import_overlap * 0.1
-
-            # Check class/function name overlap
-            other_names = {c.name.lower() for c in other_info.classes}
-            other_names.update(f.name.lower() for f in other_info.functions)
-            name_overlap = len(set(criteria) & other_names)
-            score += name_overlap * 0.15
-
-            # Same category bonus
-            if other_info.category == info.category and info.category != FileCategory.UNKNOWN:
-                score += 0.1
-
-            if score > 0.1:
-                related.append((f, score))
-
-        related.sort(key=lambda x: x[1], reverse=True)
-        return related[:10]
-
-
-# Factory functions
-
-def create_file_analyzer(repo_path: str, llm_callback: Optional[Callable] = None) -> FileAnalyzer:
-    """Factory function for file analyzer"""
-    return FileAnalyzer(repo_path, llm_callback)
-
-
-def create_relevance_scorer(
-    file_analyzer: FileAnalyzer,
-    llm_callback: Optional[Callable] = None
-) -> FileRelevanceScorer:
-    """Factory function for relevance scorer"""
-    return FileRelevanceScorer(file_analyzer, llm_callback)

@@ -6,16 +6,20 @@ Orchestrates CodeAgent analysis with integrated post-processing:
 - NarrativeGenerator for enhanced narrative synthesis
 - FileAnalyzer for structural file analysis
 - Validation for answer grounding and accuracy
+- Subagent spawning with isolated context and parallel execution
 """
 
 import sys
 import time
 import json
+import traceback
+from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Any, Optional, TYPE_CHECKING
+from typing import Dict, List, Any, Optional, Callable, TYPE_CHECKING
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # CodeFusion imports
-from cf.agents.base import BaseAgent
+from cf.agents.base import BaseAgent, ThoroughnessLevel
 from cf.agents.code import CodeAgent
 from cf.agents.protocols import AgentRegistry
 from cf.tools.registry import ToolRegistry
@@ -25,8 +29,7 @@ from cf.agents.tool_selector import LLMToolSelector, QuestionCategory
 from cf.agents.narrative import (
     NarrativeGenerator, NarrativeStyle, NarrativeContext, QualityLevel
 )
-from cf.agents.file_analyzer import FileAnalyzer
-from cf.agents.validation import validate_answer
+from cf.agents.analyzer import FileAnalyzer
 
 
 class SupervisorAgent(BaseAgent):
@@ -37,16 +40,19 @@ class SupervisorAgent(BaseAgent):
     1. LLMToolSelector for intelligent question classification
     2. CodeAgent for the main analysis via ReAct loop
     3. FileAnalyzer for enriching file structural data
-    4. NarrativeGenerator for enhanced narrative synthesis
-    5. Validation for answer grounding and accuracy checks
+    4. NarrativeGenerator for enhanced narrative synthesis (includes validation)
     """
 
     agent_name: str = "supervisor"
 
-    def __init__(self, repo_path: str, config: Dict[str, Any]):
+    def __init__(self, repo_path: str, config: Dict[str, Any], kb_orchestrator: Optional[Any] = None):
         # Initialize shared tool/agent registry BEFORE calling super().__init__
         self._agent_registry = AgentRegistry()
-        self._shared_tool_registry = ToolRegistry(repo_path, agent_registry=self._agent_registry)
+        self._shared_tool_registry = ToolRegistry(
+            repo_path,
+            agent_registry=self._agent_registry,
+            kb_orchestrator=kb_orchestrator
+        )
 
         # Initialize BaseAgent with shared tool registry
         super().__init__(repo_path, config, tool_registry=self._shared_tool_registry)
@@ -103,6 +109,90 @@ class SupervisorAgent(BaseAgent):
         self.specialist_results = {}
         self._current_classification = None
         self._react_agent = None
+        self._import_resolution_cache = {}  # Cache for import path resolution
+
+    def spawn_subagent(
+        self,
+        prompt: str,
+        thoroughness: ThoroughnessLevel = ThoroughnessLevel.MEDIUM,
+        model_tier: str = 'fast'
+    ) -> Dict[str, Any]:
+        """
+        Spawn an isolated CodeAgent subagent for exploration.
+
+        Args:
+            prompt: What to explore
+            thoroughness: Depth of exploration (quick/medium/thorough)
+            model_tier: LLM tier to use ('fast' for exploration)
+
+        Returns:
+            Analysis result from the subagent
+        """
+        subagent = CodeAgent(
+            repo_path=self.repo_path,
+            config=self.config,
+            tool_registry=self._shared_tool_registry,
+            thoroughness=thoroughness,
+            isolated_context=True,
+            model_tier=model_tier
+        )
+        return subagent.analyze(prompt)
+
+    def spawn_parallel(
+        self,
+        tasks: List[Dict[str, Any]],
+        max_parallel: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Spawn multiple subagents in parallel.
+
+        Args:
+            tasks: List of dicts with 'prompt' and optional 'thoroughness', 'model_tier'
+            max_parallel: Max concurrent subagents (defaults to config)
+
+        Returns:
+            List of results in task order
+        """
+        if not tasks:
+            return []
+
+        max_workers = max_parallel or self.config.get('agents', {}).get('parallel_workers', 4)
+        results = [None] * len(tasks)
+
+        self.logger.verbose(f"Spawning {len(tasks)} parallel subagents", "🚀")
+
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(tasks))) as executor:
+            future_to_idx = {}
+
+            for idx, task in enumerate(tasks):
+                prompt = task.get('prompt', '')
+                thoroughness = task.get('thoroughness', ThoroughnessLevel.MEDIUM)
+                if isinstance(thoroughness, str):
+                    thoroughness = ThoroughnessLevel(thoroughness)
+                model_tier = task.get('model_tier', 'fast')
+
+                future = executor.submit(
+                    self.spawn_subagent,
+                    prompt,
+                    thoroughness,
+                    model_tier
+                )
+                future_to_idx[future] = idx
+
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    results[idx] = future.result()
+                except Exception as e:
+                    self.logger.error(f"Subagent {idx} failed: {e}")
+                    results[idx] = {
+                        'success': False,
+                        'error': str(e),
+                        'files_analyzed': [],
+                        'answer': f"Exploration failed: {e}"
+                    }
+
+        return results
 
     def analyze(self, question: str, mode: str = "auto") -> Dict[str, Any]:
         """
@@ -164,8 +254,7 @@ class SupervisorAgent(BaseAgent):
         1. Classify question using LLMToolSelector
         2. Run CodeAgent ReAct analysis
         3. Enrich files with FileAnalyzer
-        4. Enhance answer with NarrativeGenerator
-        5. Validate final answer
+        4. Enhance answer with NarrativeGenerator (includes validation)
         """
         # Step 1: Classify question using LLMToolSelector
         question_classification = None
@@ -218,12 +307,9 @@ class SupervisorAgent(BaseAgent):
             result = self._follow_imports(result)
 
         # Step 4: Post-process with NarrativeGenerator if analysis succeeded
+        # NarrativeGenerator handles validation internally (single validation pass)
         if result.get('success') and result.get('answer'):
             result = self._enhance_with_narrative(question, result, question_classification)
-
-        # Step 5: Validate the final answer
-        if result.get('success') and result.get('answer'):
-            result = self._validate_answer(result)
 
         return result
 
@@ -231,43 +317,98 @@ class SupervisorAgent(BaseAgent):
         """
         Enrich file data with FileAnalyzer (AST parsing, complexity metrics).
 
-        This runs FileAnalyzer on analyzed files to gather structural information
-        (functions, classes, imports, complexity) for richer narratives.
+        This runs FileAnalyzer on analyzed files IN PARALLEL to gather structural
+        information (functions, classes, imports, complexity) for richer narratives.
         """
         try:
             files_analyzed = result.get('files_analyzed', [])
             if not files_analyzed:
                 return result
 
-            self.logger.verbose(f"Enriching {len(files_analyzed)} files with FileAnalyzer", "🔬")
-
-            file_summaries = result.get('file_summaries', {})
-            enriched_count = 0
-
             # Use configurable limit for file enrichment
             max_enrich = self.config.get('agents', {}).get('max_files_to_enrich', 25)
-            for file_path in files_analyzed[:max_enrich]:
+            files_to_enrich = files_analyzed[:max_enrich]
+
+            self.logger.verbose(f"Enriching {len(files_to_enrich)} files with FileAnalyzer (parallel)", "🔬")
+
+            file_summaries = result.get('file_summaries', {})
+
+            def analyze_single_file(file_path: str):
+                """Analyze a single file - designed for parallel execution."""
                 try:
-                    # Analyze file with FileAnalyzer
                     analysis = self.file_analyzer.analyze_file(file_path)
-
                     if analysis:
-                        # Enrich file_summaries with structural data
-                        if file_path not in file_summaries:
-                            file_summaries[file_path] = {}
+                        # Extract detailed function info with line numbers
+                        functions_detail = []
+                        if hasattr(analysis, 'functions'):
+                            for f in analysis.functions[:20]:  # Limit to 20 functions
+                                functions_detail.append({
+                                    'name': f.name,
+                                    'line': f.start_line,
+                                    'params': f.params[:5] if f.params else [],
+                                    'is_method': getattr(f, 'is_method', False),
+                                })
 
-                        file_summaries[file_path]['structure'] = {
-                            'functions': len(analysis.functions) if hasattr(analysis, 'functions') else 0,
-                            'classes': len(analysis.classes) if hasattr(analysis, 'classes') else 0,
-                            'imports': len(analysis.imports) if hasattr(analysis, 'imports') else 0,
+                        # Extract detailed class info with line numbers and fields
+                        classes_detail = []
+                        if hasattr(analysis, 'classes'):
+                            for c in analysis.classes[:10]:  # Limit to 10 classes
+                                classes_detail.append({
+                                    'name': c.name,
+                                    'line': c.start_line,
+                                    'bases': c.bases[:3] if c.bases else [],
+                                    'fields': (c.class_vars[:10] if c.class_vars else []),
+                                    'methods': [m.name for m in c.methods[:10]] if c.methods else [],
+                                })
+
+                        # Extract constants (module-level definitions)
+                        constants_detail = []
+                        if hasattr(analysis, 'constants'):
+                            for const in analysis.constants[:15]:  # Limit to 15 constants
+                                constants_detail.append({
+                                    'name': const.name,
+                                    'line': const.line_number,
+                                    'value': const.value_repr[:100] if const.value_repr else '',
+                                    'is_dict': getattr(const, 'is_dict', False),
+                                })
+
+                        # Extract import module names for import following
+                        imports_list = []
+                        if hasattr(analysis, 'imports'):
+                            for imp in analysis.imports:
+                                if hasattr(imp, 'module'):
+                                    imports_list.append(imp.module)
+                                elif isinstance(imp, str):
+                                    imports_list.append(imp)
+
+                        return (file_path, {
+                            'functions': functions_detail,
+                            'classes': classes_detail,
+                            'constants': constants_detail,
+                            'imports': imports_list,
                             'complexity': getattr(analysis, 'complexity', None),
                             'category': getattr(analysis, 'category', None),
-                        }
-                        enriched_count += 1
+                            'line_count': getattr(analysis, 'line_count', 0),
+                        })
+                except Exception:
+                    pass
+                return None
 
-                except Exception as e:
-                    self.logger.debug(f"FileAnalyzer failed for {file_path}: {e}")
-                    continue
+            # Parallel file analysis with configurable workers
+            parallel_workers = self.config.get('agents', {}).get('parallel_workers', 10)
+            enriched_count = 0
+
+            with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+                futures = {executor.submit(analyze_single_file, fp): fp for fp in files_to_enrich}
+
+                for future in as_completed(futures):
+                    result_data = future.result()
+                    if result_data:
+                        file_path, structure = result_data
+                        if file_path not in file_summaries:
+                            file_summaries[file_path] = {}
+                        file_summaries[file_path]['structure'] = structure
+                        enriched_count += 1
 
             result['file_summaries'] = file_summaries
             self.logger.verbose(f"Enriched {enriched_count} files with structural data", "✅")
@@ -281,105 +422,154 @@ class SupervisorAgent(BaseAgent):
         """
         Follow imports from analyzed files to discover additional relevant files.
 
-        This implements a second pass that:
-        1. Extracts imports from already-analyzed files
-        2. Resolves internal imports to actual file paths
-        3. Analyzes newly discovered files with FileAnalyzer
-        4. Adds them to the result for richer context
+        This implements MULTI-LEVEL import following (3 levels by default):
+        - Level 1: Follow imports from originally analyzed files
+        - Level 2: Follow imports from level 1 files
+        - Level 3: Follow imports from level 2 files
 
         This helps capture constants, mappings, and configurations that are
-        imported from other files in the codebase.
+        imported transitively (e.g., handlers → models → constants).
+
+        OPTIMIZATION: Uses cached import data from enrichment step (no re-analysis)
+        and parallelizes analysis of new import-followed files.
         """
         try:
-            files_analyzed = result.get('files_analyzed', [])
+            files_analyzed = list(result.get('files_analyzed', []))
             file_summaries = result.get('file_summaries', {})
+            all_files_seen = set(files_analyzed)  # Track all files to avoid re-analyzing
 
             if not files_analyzed:
                 return result
 
-            # Collect all imports from analyzed files
-            all_imports = set()
-            for file_path in files_analyzed:
-                summary = file_summaries.get(file_path, {})
-                structure = summary.get('structure', {})
-
-                # Get imports count - if we have detailed import info, use it
-                if 'imports' in structure and isinstance(structure['imports'], list):
-                    all_imports.update(structure['imports'])
-
-            # Also check FileAnalyzer results for detailed imports
-            for file_path in files_analyzed:
-                try:
-                    # Re-analyze to get import details if not cached
-                    analysis = self.file_analyzer.analyze_file(file_path)
-                    if analysis and hasattr(analysis, 'imports'):
-                        all_imports.update(analysis.imports)
-                except Exception:
-                    continue
-
-            if not all_imports:
-                return result
-
-            # Resolve imports to file paths
+            # Configuration - read from import_tracing section for depth settings
+            import_tracing = self.config.get('agents', {}).get('import_tracing', {})
+            max_levels = import_tracing.get('max_depth', 3)
+            max_files_per_level = self.config.get('agents', {}).get('max_import_follow', 20)
+            parallel_workers = self.config.get('agents', {}).get('parallel_workers', 10)
+            # NOTE: No hardcoded priority keywords - LLM decides what's relevant during exploration
             repo_path = Path(self.repo_path)
-            new_files = []
 
-            for import_name in all_imports:
-                # Skip external packages (stdlib and third-party)
-                if self._is_external_import(import_name):
-                    continue
+            total_added = 0
+            current_level_files = files_analyzed  # Start with original files
 
-                # Try to resolve to a file path
-                resolved_path = self._resolve_import_to_path(import_name, repo_path)
-                if resolved_path and resolved_path not in files_analyzed:
-                    new_files.append(resolved_path)
-
-            if not new_files:
-                return result
-
-            # Limit number of new files to analyze
-            max_import_follow = self.config.get('agents', {}).get('max_import_follow', 15)
-            new_files = new_files[:max_import_follow]
-
-            self.logger.verbose(f"Following imports: discovered {len(new_files)} additional files", "🔗")
-
-            # Analyze new files with FileAnalyzer
-            for file_path in new_files:
+            def analyze_import_file(file_path: str):
+                """Analyze a single import-followed file - designed for parallel execution."""
                 try:
                     analysis = self.file_analyzer.analyze_file(file_path)
                     if analysis:
-                        # Add to files_analyzed
-                        files_analyzed.append(file_path)
+                        # Extract detailed function info with line numbers
+                        functions_detail = []
+                        if hasattr(analysis, 'functions'):
+                            for f in analysis.functions[:15]:
+                                functions_detail.append({
+                                    'name': f.name,
+                                    'line': f.start_line,
+                                    'params': f.params[:5] if f.params else [],
+                                })
 
-                        # Add to file_summaries with structural data
-                        file_summaries[file_path] = {
+                        # Extract detailed class info with line numbers and fields
+                        classes_detail = []
+                        if hasattr(analysis, 'classes'):
+                            for c in analysis.classes[:8]:
+                                classes_detail.append({
+                                    'name': c.name,
+                                    'line': c.start_line,
+                                    'bases': c.bases[:3] if c.bases else [],
+                                    'fields': (c.class_vars[:10] if c.class_vars else []),
+                                })
+
+                        # Extract constants (module-level definitions)
+                        constants_detail = []
+                        if hasattr(analysis, 'constants'):
+                            for const in analysis.constants[:20]:
+                                constants_detail.append({
+                                    'name': const.name,
+                                    'line': const.line_number,
+                                    'value': const.value_repr[:150] if const.value_repr else '',
+                                    'is_dict': getattr(const, 'is_dict', False),
+                                })
+
+                        # Extract imports for next level (critical for multi-level following)
+                        imports_list = []
+                        if hasattr(analysis, 'imports'):
+                            imports_list = analysis.imports[:30]
+
+                        return (file_path, {
                             'source': 'import_follow',
                             'structure': {
-                                'functions': len(analysis.functions) if hasattr(analysis, 'functions') else 0,
-                                'classes': len(analysis.classes) if hasattr(analysis, 'classes') else 0,
-                                'imports': len(analysis.imports) if hasattr(analysis, 'imports') else 0,
-                                'constants': getattr(analysis, 'constants', []),
-                                'constant_details': [
-                                    {
-                                        'name': c.name,
-                                        'value_repr': c.value_repr,
-                                        'is_dict': c.is_dict,
-                                        'is_list': c.is_list
-                                    }
-                                    for c in getattr(analysis, 'constant_details', [])
-                                ],
+                                'functions': functions_detail,
+                                'classes': classes_detail,
+                                'constants': constants_detail,
+                                'imports': imports_list,  # Include for next level
                                 'complexity': getattr(analysis, 'complexity', None),
+                                'line_count': getattr(analysis, 'line_count', 0),
                             }
-                        }
-                except Exception as e:
-                    self.logger.debug(f"Failed to analyze imported file {file_path}: {e}")
-                    continue
+                        })
+                except Exception:
+                    pass
+                return None
+
+            # Multi-level import following loop
+            for level in range(1, max_levels + 1):
+                # Collect imports from current level files
+                level_imports = set()
+                for file_path in current_level_files:
+                    summary = file_summaries.get(file_path, {})
+                    structure = summary.get('structure', {})
+                    imports_data = structure.get('imports', [])
+                    if isinstance(imports_data, list):
+                        level_imports.update(imports_data)
+
+                if not level_imports:
+                    break
+
+                # Resolve imports to file paths (excluding already seen)
+                new_files = []
+                for import_name in level_imports:
+                    if self._is_external_import(import_name):
+                        continue
+                    resolved_path = self._resolve_import_to_path(import_name, repo_path)
+                    if resolved_path and resolved_path not in all_files_seen:
+                        new_files.append(resolved_path)
+                        all_files_seen.add(resolved_path)
+
+                if not new_files:
+                    break
+
+                # Limit files per level - no hardcoded keyword prioritization
+                # LLM will decide relevance during exploration phase
+                new_files = new_files[:max_files_per_level]
+
+                self.logger.verbose(
+                    f"Import level {level}: discovered {len(new_files)} files", "🔗"
+                )
+
+                # Parallel analysis of import-followed files
+                level_analyzed = []
+                with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+                    futures = {executor.submit(analyze_import_file, fp): fp for fp in new_files}
+                    for future in as_completed(futures):
+                        result_data = future.result()
+                        if result_data:
+                            file_path, summary_data = result_data
+                            files_analyzed.append(file_path)
+                            file_summaries[file_path] = summary_data
+                            level_analyzed.append(file_path)
+                            total_added += 1
+
+                # Prepare for next level (use files just analyzed)
+                current_level_files = level_analyzed
+
+                if not level_analyzed:
+                    break
 
             result['files_analyzed'] = files_analyzed
             result['file_summaries'] = file_summaries
-            result['import_followed_count'] = len(new_files)
+            result['import_followed_count'] = total_added
 
-            self.logger.verbose(f"Import following complete: added {len(new_files)} files", "✅")
+            self.logger.verbose(
+                f"Import following complete: added {total_added} files across {max_levels} levels", "✅"
+            )
 
         except Exception as e:
             self.logger.debug(f"Import following failed: {e}, proceeding with original files")
@@ -389,8 +579,9 @@ class SupervisorAgent(BaseAgent):
     def _is_external_import(self, import_name: str) -> bool:
         """Check if an import is external (stdlib or third-party).
 
-        Uses sys.stdlib_module_names (Python 3.10+) for accurate stdlib detection,
-        with a configurable third-party packages list from config.
+        Uses sys.stdlib_module_names (Python 3.10+) for stdlib detection.
+        For third-party, uses resolution: if import can't be resolved in repo, it's external.
+        This is language-agnostic and doesn't require hardcoded package lists.
         """
         first_part = import_name.split('.')[0]
 
@@ -399,67 +590,34 @@ class SupervisorAgent(BaseAgent):
             if first_part in sys.stdlib_module_names:
                 return True
 
-        # Get third-party packages from config (or use defaults)
-        third_party_defaults = {
-            # Web frameworks
-            'django', 'flask', 'fastapi', 'starlette', 'tornado', 'aiohttp',
-            # Task queues & caching
-            'celery', 'redis', 'kombu', 'rq',
-            # HTTP clients
-            'requests', 'httpx', 'aiohttp', 'urllib3',
-            # Data science
-            'numpy', 'pandas', 'scipy', 'sklearn', 'tensorflow', 'torch', 'keras',
-            # Testing
-            'pytest', 'mock', 'unittest2', 'nose', 'coverage',
-            # Cloud SDKs
-            'boto3', 'botocore', 'aws', 'google', 'azure',
-            # AI/LLM
-            'openai', 'anthropic', 'litellm', 'langchain', 'transformers',
-            # ORM & databases
-            'pydantic', 'sqlalchemy', 'mongoengine', 'peewee', 'psycopg2', 'pymongo',
-            # Django extras
-            'rest_framework', 'corsheaders', 'whitenoise', 'gunicorn', 'dj_database_url',
-            # Utilities
-            'sentry_sdk', 'stripe', 'twilio', 'sendgrid', 'PIL', 'cv2', 'click', 'rich',
-            # Serialization
-            'yaml', 'toml', 'msgpack', 'orjson',
-        }
-
-        # Allow config override
-        third_party = self.config.get('agents', {}).get('third_party_packages', third_party_defaults)
-        if isinstance(third_party, list):
-            third_party = set(third_party)
-
-        return first_part in third_party
+        # Language-agnostic approach: if it can't be resolved in repo, it's external
+        # This avoids hardcoding language-specific package lists
+        resolved_path = self._resolve_import_to_path(import_name, Path(self.repo_path))
+        return resolved_path is None
 
     def _resolve_import_to_path(self, import_name: str, repo_path: Path) -> Optional[str]:
-        """Resolve an import name to a file path in the repo."""
-        # Convert import to potential file paths
-        # e.g., "app.models" -> "app/models.py" or "app/models/__init__.py"
+        """Resolve an import name to a file path in the repo (with caching)."""
+        # Check cache first
+        if import_name in self._import_resolution_cache:
+            return self._import_resolution_cache[import_name]
+
+        # Simple file system check - glob for any matching file
         parts = import_name.split('.')
+        base_path = repo_path / '/'.join(parts)
 
-        # Try as a module file
-        module_path = repo_path / '/'.join(parts[:-1]) / f"{parts[-1]}.py" if len(parts) > 1 else repo_path / f"{parts[0]}.py"
-        if module_path.exists():
-            return str(module_path)
+        # Check if directory or any file with this name exists
+        result = None
+        if base_path.is_dir():
+            result = str(base_path)
+        else:
+            # Glob for any file with this name
+            matches = list(base_path.parent.glob(f"{base_path.name}.*")) if base_path.parent.exists() else []
+            if matches:
+                result = str(matches[0])
 
-        # Try as a package __init__.py
-        package_path = repo_path / '/'.join(parts) / '__init__.py'
-        if package_path.exists():
-            return str(package_path)
-
-        # Try direct path conversion
-        direct_path = repo_path / f"{'/'.join(parts)}.py"
-        if direct_path.exists():
-            return str(direct_path)
-
-        # Try common Django patterns (app/module.py)
-        if len(parts) >= 2:
-            django_path = repo_path / parts[0] / f"{parts[-1]}.py"
-            if django_path.exists():
-                return str(django_path)
-
-        return None
+        # Cache the result (even if None, to avoid re-checking)
+        self._import_resolution_cache[import_name] = result
+        return result
 
     def _enhance_with_narrative(
         self,
@@ -476,17 +634,19 @@ class SupervisorAgent(BaseAgent):
         try:
             self.logger.verbose("Enhancing answer with NarrativeGenerator", "📝")
 
-            # Map question category to narrative style
-            style = self._map_category_to_style(classification)
+            # Let LLM determine narrative style based on question
+            style = self._map_category_to_style(classification, question)
 
             # Build NarrativeContext from CodeAgent result
+            # Pass base_answer so NarrativeGenerator refines instead of regenerating
             context = NarrativeContext(
                 question=question,
                 files_analyzed=result.get('files_analyzed', []),
                 file_summaries=result.get('file_summaries', {}),
                 agent_results={'code': result},
                 code_snippets=result.get('code_snippets', {}),
-                execution_time=result.get('execution_time', 0.0)
+                execution_time=result.get('execution_time', 0.0),
+                base_answer=result.get('answer', '')  # Pass CodeAgent's answer for refinement
             )
 
             # Generate enhanced narrative
@@ -502,78 +662,76 @@ class SupervisorAgent(BaseAgent):
                 result['answer'] = narrative_result.narrative
                 result['narrative_style'] = style.value
                 result['narrative_confidence'] = narrative_result.confidence
+
+                # Extract validation from NarrativeResult (single validation pass)
+                if hasattr(narrative_result, 'validation') and narrative_result.validation:
+                    result['validation'] = narrative_result.validation
+                    validation = narrative_result.validation
+                    # Log validation results for visibility
+                    print(f"📊 [supervisor] Validation: grounding={validation.grounding_score:.2f}, "
+                          f"refs={validation.file_line_ref_count}, valid={validation.valid}")
+                    if validation.issues:
+                        for issue in validation.issues[:3]:  # Show first 3 issues
+                            print(f"   ⚠️ [{issue.severity}] {issue.issue_type}: {issue.message[:100]}")
+
                 self.logger.verbose(
-                    f"Narrative generated: style={style.value}, confidence={narrative_result.confidence:.2f}",
+                    f"Narrative refined: style={style.value}, confidence={narrative_result.confidence:.2f}",
                     "✅"
                 )
+            else:
+                print(f"⚠️ [supervisor] NarrativeGenerator returned empty result, using CodeAgent answer")
 
         except Exception as e:
-            self.logger.debug(f"NarrativeGenerator enhancement failed: {e}, using original answer")
+            # Log at visible level so failures are noticed
+            print(f"⚠️ [supervisor] NarrativeGenerator failed: {e}, using original answer")
+            traceback.print_exc()
 
         return result
 
-    def _map_category_to_style(self, classification: Optional[Any]) -> NarrativeStyle:
-        """Map LLMToolSelector's question category to NarrativeStyle."""
-        if not classification:
+    def _map_category_to_style(self, classification: Optional[Any], question: str = "") -> NarrativeStyle:
+        """
+        Determine narrative style based on question and classification.
+
+        Uses LLM to select appropriate style rather than hardcoded mapping.
+        Falls back to EXPLANATION if LLM selection fails.
+        """
+        if not classification and not question:
             return NarrativeStyle.EXPLANATION
 
-        category_map = {
-            QuestionCategory.LOOKUP: NarrativeStyle.EXPLANATION,
-            QuestionCategory.FLOW: NarrativeStyle.LIFE_OF_X,
-            QuestionCategory.ARCHITECTURE: NarrativeStyle.ARCHITECTURE,
-            QuestionCategory.EXPLANATION: NarrativeStyle.EXPLANATION,
-            QuestionCategory.COMPARISON: NarrativeStyle.COMPARISON,
-            QuestionCategory.DEBUGGING: NarrativeStyle.DEBUG_TRACE,
-            QuestionCategory.DOCUMENTATION: NarrativeStyle.API_REFERENCE,
-            QuestionCategory.PERFORMANCE: NarrativeStyle.EXPLANATION,
-            QuestionCategory.SECURITY: NarrativeStyle.EXPLANATION,
-            QuestionCategory.REFACTORING: NarrativeStyle.EXPLANATION,
-        }
-
-        return category_map.get(classification.category, NarrativeStyle.EXPLANATION)
-
-    def _validate_answer(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Validate the final answer using the validation module.
-
-        Performs structural validation (file paths, line numbers),
-        content validation (grounding), and fact verification.
-        """
+        # Let LLM determine the best narrative style based on question context
         try:
-            self.logger.verbose("Validating answer for grounding and accuracy", "🔍")
+            if self._llm_client:
+                style_prompt = f"""Given this question about code: "{question}"
 
-            answer = result.get('answer', '')
-            file_summaries = result.get('file_summaries', {})
+Select the most appropriate narrative style for the response:
+- LIFE_OF_X: For tracing how data/requests flow through the system
+- ARCHITECTURE: For explaining system structure and components
+- EXPLANATION: For explaining how something works
+- COMPARISON: For comparing different approaches or components
+- DEBUG_TRACE: For tracing execution paths for debugging
+- API_REFERENCE: For documenting APIs and interfaces
+- TUTORIAL: For step-by-step guides
 
-            # Run validation
-            validation_result = validate_answer(
-                answer=answer,
-                file_summaries=file_summaries,
-                config=self.config,
-                repo_tools=None,  # Will use validation module's built-in tools
-                llm_client=None   # Optional: can pass self.llm for fact verification
-            )
+Respond with ONLY the style name (e.g., "EXPLANATION")."""
 
-            # Add validation results to output
-            if validation_result:
-                result['validation'] = {
-                    'grounding_score': validation_result.get('grounding_score', 0.0),
-                    'path_accuracy': validation_result.get('path_accuracy', 0.0),
-                    'line_coverage': validation_result.get('line_number_coverage', 0.0),
-                    'issues': validation_result.get('issues', []),
-                    'validated': validation_result.get('validated', False)
-                }
-
-                score = validation_result.get('grounding_score', 0.0)
-                self.logger.verbose(
-                    f"Validation complete: grounding_score={score:.2f}",
-                    "✅" if score > 0.7 else "⚠️"
+                response = self._llm_client.chat(
+                    style_prompt,
+                    "You are a technical writing style selector. Respond with only the style name.",
+                    max_tokens=20
                 )
 
-        except Exception as e:
-            self.logger.debug(f"Validation failed: {e}, proceeding without validation")
+                if response.get('success'):
+                    style_name = response.get('content', '').strip().upper()
+                    # Try to match to enum
+                    for style in NarrativeStyle:
+                        if style.name == style_name or style_name in style.name:
+                            return style
 
-        return result
+        except Exception:
+            pass  # Fall through to default
+
+        # Default fallback
+        return NarrativeStyle.EXPLANATION
 
     def _collect_metrics(self) -> Dict[str, Any]:
         """

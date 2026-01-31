@@ -20,7 +20,6 @@ from cf.knowledge_base.schema import (
 from cf.knowledge_base.kb_orchestrator import (
     Neo4jKnowledgeBase,
     KnowledgeBaseManager,
-    FileClassifier,
     KBOrchestrator,
 )
 from cf.knowledge_base.incremental import (
@@ -43,7 +42,6 @@ __all__ = [
     # KB orchestration
     "Neo4jKnowledgeBase",
     "KnowledgeBaseManager",
-    "FileClassifier",
     "KBOrchestrator",
     # Incremental updates
     "ChangeSet",

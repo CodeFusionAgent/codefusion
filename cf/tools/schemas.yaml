@@ -43,7 +43,7 @@ read_file:
   type: function
   function:
     name: read_file
-    description: Read contents of a specific file
+    description: Read contents of a file. Returns total_lines so you know if content was truncated. If truncated, use offset to continue reading. Always extracts imports from FULL file regardless of truncation.
     parameters:
       type: object
       properties:
@@ -52,7 +52,13 @@ read_file:
           description: Path to file to read
         max_lines:
           type: integer
-          description: Maximum lines to read
+          description: Maximum lines to read (if file has more lines, returns truncation_warning with instructions)
+        offset:
+          type: integer
+          description: Line number to start reading from (0-indexed). Use this to continue reading truncated files.
+        extract_imports:
+          type: boolean
+          description: Extract and resolve import statements to file paths (recommended for discovering dependencies)
       required:
         - file_path
 

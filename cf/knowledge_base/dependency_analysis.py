@@ -459,76 +459,67 @@ class DependencyGraphBuilder:
             Dictionary mapping dependency files to their dependencies
         """
         build_deps = {}
-
         repo_root = Path(repo_path)
 
-        # Python: requirements.txt
-        req_file = repo_root / "requirements.txt"
-        if req_file.exists():
-            with open(req_file) as f:
-                deps = []
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        # Extract package name (before ==, >=, etc.)
-                        pkg = line.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].strip()
-                        deps.append(pkg)
-                build_deps['requirements.txt'] = deps
+        # Discover files in repo root dynamically
+        for item in repo_root.iterdir():
+            if not item.is_file():
+                continue
 
-        # Python: pyproject.toml
-        pyproject = repo_root / "pyproject.toml"
-        if pyproject.exists() and TOML_AVAILABLE:
+            fname = item.name
+            deps = []
+
             try:
-                data = toml.load(pyproject)
-                deps = []
+                # Try to parse as TOML (pyproject.toml, etc.)
+                if fname.endswith('.toml') and TOML_AVAILABLE:
+                    data = toml.load(item)
+                    # Look for dependencies in common TOML structures
+                    if 'tool' in data and 'poetry' in data['tool']:
+                        poetry_deps = data['tool']['poetry'].get('dependencies', {})
+                        deps.extend([pkg for pkg in poetry_deps.keys() if pkg != 'python'])
+                    if 'project' in data:
+                        project_deps = data['project'].get('dependencies', [])
+                        deps.extend([dep.split()[0] for dep in project_deps])
 
-                # Poetry dependencies
-                if 'tool' in data and 'poetry' in data['tool']:
-                    poetry_deps = data['tool']['poetry'].get('dependencies', {})
-                    deps.extend([pkg for pkg in poetry_deps.keys() if pkg != 'python'])
+                # Try to parse as JSON (package.json, etc.)
+                elif fname.endswith('.json'):
+                    with open(item) as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            deps.extend(data.get('dependencies', {}).keys())
+                            deps.extend(data.get('devDependencies', {}).keys())
 
-                # PEP 621 dependencies
-                if 'project' in data:
-                    project_deps = data['project'].get('dependencies', [])
-                    deps.extend([dep.split()[0] for dep in project_deps])
+                # Try to parse as requirements file (text with package specs)
+                elif fname.endswith('.txt'):
+                    with open(item) as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                # Extract package name (before ==, >=, etc.)
+                                pkg = line.split('==')[0].split('>=')[0].split('<=')[0].split('~=')[0].strip()
+                                if pkg and not pkg.startswith('-'):  # Skip flags like -r, -e
+                                    deps.append(pkg)
+
+                # Try to parse Python setup files
+                elif fname.endswith('.py'):
+                    with open(item) as f:
+                        content = f.read()
+                        # Look for install_requires pattern
+                        match = re.search(r'install_requires\s*=\s*\[(.*?)\]', content, re.DOTALL)
+                        if match:
+                            deps_str = match.group(1)
+                            deps = [
+                                dep.strip().strip('"').strip("'").split('==')[0].split('>=')[0]
+                                for dep in deps_str.split(',')
+                                if dep.strip()
+                            ]
 
                 if deps:
-                    build_deps['pyproject.toml'] = deps
-            except Exception as e:
-                print(f"⚠️ Error parsing pyproject.toml: {e}")
+                    build_deps[fname] = deps
 
-        # Python: setup.py (basic parsing - look for install_requires)
-        setup_py = repo_root / "setup.py"
-        if setup_py.exists():
-            try:
-                with open(setup_py) as f:
-                    content = f.read()
-                    # Simple regex to find install_requires
-                    match = re.search(r'install_requires\s*=\s*\[(.*?)\]', content, re.DOTALL)
-                    if match:
-                        deps_str = match.group(1)
-                        deps = [
-                            dep.strip().strip('"').strip("'").split('==')[0].split('>=')[0]
-                            for dep in deps_str.split(',')
-                            if dep.strip()
-                        ]
-                        build_deps['setup.py'] = deps
-            except Exception as e:
-                print(f"⚠️ Error parsing setup.py: {e}")
-
-        # JavaScript: package.json
-        package_json = repo_root / "package.json"
-        if package_json.exists():
-            try:
-                with open(package_json) as f:
-                    data = json.load(f)
-                    deps = []
-                    deps.extend(data.get('dependencies', {}).keys())
-                    deps.extend(data.get('devDependencies', {}).keys())
-                    if deps:
-                        build_deps['package.json'] = deps
-            except Exception as e:
-                print(f"⚠️ Error parsing package.json: {e}")
+            except Exception:
+                # Skip files that can't be parsed
+                pass
 
         return build_deps
 
@@ -575,50 +566,46 @@ class DependencyGraphBuilder:
         config_deps = {}
         repo_root = Path(repo_path)
 
-        # Look for common config files
-        config_files = [
-            'config.yaml', 'config.yml',
-            'config.json',
-            'settings.py', 'settings.yaml',
-            '.env', '.env.example'
-        ]
+        # Discover files dynamically
+        for item in repo_root.iterdir():
+            if not item.is_file():
+                continue
 
-        for config_file in config_files:
-            config_path = repo_root / config_file
-            if config_path.exists():
-                deps = []
+            fname = item.name
+            deps = []
 
-                # For .env files, extract referenced variables
-                if config_file.endswith('.env'):
-                    with open(config_path) as f:
+            try:
+                # .env style files (KEY=VALUE format)
+                if fname.startswith('.env') or fname.endswith('.env'):
+                    with open(item) as f:
                         for line in f:
                             line = line.strip()
                             if '=' in line and not line.startswith('#'):
                                 key = line.split('=')[0].strip()
                                 deps.append(key)
 
-                # For YAML files, extract keys (basic)
-                elif config_file.endswith(('.yaml', '.yml')) and YAML_AVAILABLE:
-                    try:
-                        with open(config_path) as f:
-                            data = yaml.safe_load(f)
-                            if isinstance(data, dict):
-                                deps.extend(data.keys())
-                    except Exception as e:
-                        print(f"⚠️ Error parsing {config_file}: {e}")
+                # YAML files
+                elif fname.endswith(('.yaml', '.yml')) and YAML_AVAILABLE:
+                    with open(item) as f:
+                        data = yaml.safe_load(f)
+                        if isinstance(data, dict):
+                            deps.extend(data.keys())
 
-                # For JSON files
-                elif config_file.endswith('.json'):
-                    try:
-                        with open(config_path) as f:
-                            data = json.load(f)
-                            if isinstance(data, dict):
+                # JSON files (non-package files)
+                elif fname.endswith('.json'):
+                    with open(item) as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            # Skip dependency files (already handled in build deps)
+                            if 'dependencies' not in data and 'devDependencies' not in data:
                                 deps.extend(data.keys())
-                    except Exception as e:
-                        print(f"⚠️ Error parsing {config_file}: {e}")
 
                 if deps:
-                    config_deps[config_file] = deps
+                    config_deps[fname] = deps
+
+            except Exception:
+                # Skip files that can't be parsed
+                pass
 
         return config_deps
 

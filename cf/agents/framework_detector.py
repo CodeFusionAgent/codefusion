@@ -67,32 +67,6 @@ class FrameworkDetector:
     and generate context-specific guidance for code analysis.
     """
 
-    # Files to scan for framework detection (priority order)
-    INDICATOR_FILES = [
-        # Python
-        "requirements.txt", "pyproject.toml", "setup.py", "Pipfile",
-        # JavaScript/Node
-        "package.json", "tsconfig.json",
-        # Go
-        "go.mod", "go.sum",
-        # Rust
-        "Cargo.toml",
-        # Java/JVM
-        "pom.xml", "build.gradle", "build.gradle.kts",
-        # Ruby
-        "Gemfile",
-        # PHP
-        "composer.json",
-        # .NET
-        "*.csproj", "*.sln",
-    ]
-
-    # Sample source files to read for pattern detection
-    SOURCE_PATTERNS = [
-        "**/*.py", "**/*.js", "**/*.ts", "**/*.go", "**/*.java",
-        "**/*.rs", "**/*.rb", "**/*.php", "**/*.cs"
-    ]
-
     def __init__(
         self,
         repo_path: str,
@@ -153,36 +127,27 @@ class FrameworkDetector:
         """Gather file contents for LLM to analyze."""
         context_parts = []
 
-        # Read indicator files
-        for filename in self.INDICATOR_FILES:
-            if '*' in filename:
-                # Handle glob patterns
-                for match in self.repo_path.glob(filename):
-                    if match.is_file():
-                        content = self._safe_read(match, max_lines=50)
-                        if content:
-                            context_parts.append(f"=== {match.name} ===\n{content}")
-                        break  # Only need first match
-            else:
-                filepath = self.repo_path / filename
-                if filepath.exists():
-                    content = self._safe_read(filepath, max_lines=100)
-                    if content:
-                        context_parts.append(f"=== {filename} ===\n{content}")
+        # Dynamically discover and read root-level files (config, build, manifest files)
+        root_files_read = 0
+        for item in sorted(self.repo_path.iterdir()):
+            if item.is_file() and not item.name.startswith('.'):
+                content = self._safe_read(item, max_lines=100)
+                if content:
+                    context_parts.append(f"=== {item.name} ===\n{content}")
+                    root_files_read += 1
+                    if root_files_read >= 10:
+                        break
 
-        # Read a sample of source files (first 3 found)
+        # Read a sample of source files (first 3 text files found)
         source_samples = []
-        for pattern in self.SOURCE_PATTERNS:
-            for match in self.repo_path.glob(pattern):
-                if match.is_file() and not self._is_excluded(match):
-                    content = self._safe_read(match, max_lines=50)
-                    if content:
-                        rel_path = match.relative_to(self.repo_path)
-                        source_samples.append(f"=== {rel_path} (sample) ===\n{content}")
-                        if len(source_samples) >= 3:
-                            break
-            if len(source_samples) >= 3:
-                break
+        for match in self.repo_path.rglob('*'):
+            if match.is_file() and not match.name.startswith('.'):
+                content = self._safe_read(match, max_lines=50)
+                if content:  # Successfully read as text
+                    rel_path = match.relative_to(self.repo_path)
+                    source_samples.append(f"=== {rel_path} (sample) ===\n{content}")
+                    if len(source_samples) >= 3:
+                        break
 
         context_parts.extend(source_samples)
 
@@ -205,23 +170,28 @@ class FrameworkDetector:
 
 Respond ONLY with a JSON object in this exact format:
 {
-    "primary_language": "python",
-    "frameworks": ["django", "celery", "pytest"],
+    "primary_language": "<detected language>",
+    "frameworks": ["<detected frameworks>"],
     "key_file_patterns": [
-        "models.py files contain data models",
-        "tasks.py files contain background jobs",
-        "tests/ directories contain test cases"
+        "<pattern 1 you discovered in this codebase>",
+        "<pattern 2 you discovered in this codebase>",
+        "<pattern 3 you discovered in this codebase>"
     ],
     "important_directories": [
-        "app/ - main application code",
-        "config/ - configuration files"
+        "<directory 1> - <its purpose>",
+        "<directory 2> - <its purpose>"
     ],
     "analysis_hints": [
-        "Look for signals.py for event-driven behavior",
-        "Check admin.py for data administration logic",
-        "STATUS_* constants often define state machines"
+        "<hint 1 based on what you found>",
+        "<hint 2 based on what you found>",
+        "<hint 3 based on what you found>"
     ]
 }
+
+Focus on identifying:
+- Common file patterns that contain important logic in this codebase
+- Directories that hold key code
+- Patterns unique to this codebase that would help understand how it works
 
 Be concise. Limit each list to 5 items maximum. Focus on patterns most useful for code analysis."""
 
@@ -261,18 +231,16 @@ Respond with ONLY the JSON object, no other text."""
             return FrameworkContext()
 
     def _compute_indicator_hash(self) -> str:
-        """Compute hash of indicator files for cache invalidation."""
+        """Compute hash of root-level files for cache invalidation."""
         hasher = hashlib.md5()
 
-        for filename in self.INDICATOR_FILES:
-            if '*' not in filename:
-                filepath = self.repo_path / filename
-                if filepath.exists():
-                    try:
-                        stat = filepath.stat()
-                        hasher.update(f"{filename}:{stat.st_mtime}:{stat.st_size}".encode())
-                    except OSError:
-                        pass
+        for item in sorted(self.repo_path.iterdir()):
+            if item.is_file() and not item.name.startswith('.'):
+                try:
+                    stat = item.stat()
+                    hasher.update(f"{item.name}:{stat.st_mtime}:{stat.st_size}".encode())
+                except OSError:
+                    pass
 
         return hasher.hexdigest()[:16]
 
@@ -313,12 +281,7 @@ Respond with ONLY the JSON object, no other text."""
 
     def _is_excluded(self, path: Path) -> bool:
         """Check if path should be excluded from sampling."""
-        excluded = {
-            'node_modules', 'venv', '.venv', '__pycache__', '.git',
-            'dist', 'build', '.tox', '.pytest_cache', 'vendor',
-            'target', '.idea', '.vscode'
-        }
-        return any(part in excluded for part in path.parts)
+        return False
 
     def _get_directory_structure(self, max_depth: int = 2) -> str:
         """Get top-level directory structure."""
